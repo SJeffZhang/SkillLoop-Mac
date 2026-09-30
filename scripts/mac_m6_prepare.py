@@ -14,6 +14,12 @@ def write_sealed(path,value):
     with path.open('x') as file:json.dump(result,file,indent=2);file.flush();os.fsync(file.fileno())
     path.chmod(0o400);return result
 
+def stage_submitted(source,target,skill_id,parent_bytes):
+    shutil.copytree(source,target)
+    if (target/'skills'/skill_id/'SKILL.md').read_bytes()!=parent_bytes:
+        raise ValueError('immutable_submitted_snapshot_changed')
+
+
 def prepare(root,archive,source,scanner_root,tokenizer,image,port):
     if root.exists():raise ValueError('campaign_already_exists')
     root.mkdir(mode=0o700);index=source_index(source);profile_path=source/'specs/mac/runtime-profile.json'
@@ -24,10 +30,8 @@ def prepare(root,archive,source,scanner_root,tokenizer,image,port):
         'tokenizer_hashes':{p.name:digest_bytes(p.read_bytes()) for p in tokenizer.iterdir() if p.is_file()},'profiles':{},'entries':[],'formal_required_runs':156}
     for profile,(campaign,short,required) in PROFILES.items():
         inherited=verify_inherited_candidate(archive/campaign,profile);compiled=json.loads((archive/campaign/profile/'compiled.json').read_text());campaign_id='mac-m6-formal-v1-'+profile
-        shutil.copytree(source/'specs/v2.2/families/redteam',root/'submitted'/profile)
         parent_text=json.loads((archive/campaign/profile/'file-set.json').read_text())['files']['SKILL.md']
-        skill_id=profile.replace('_','-')
-        (root/'submitted'/profile/'skills'/skill_id/'SKILL.md').write_text(parent_text)
+        stage_submitted(source/'specs/v2.2/families/redteam',root/'submitted'/profile,profile.replace('_','-'),parent_text.encode())
         plan=execution_plan(compiled,campaign=campaign_id,submitted_digest=inherited['submitted_subject_digest'],runtime_config=config,runtime_profile_path=profile_path)
         if len(plan['body']['items'])!=required:raise ValueError('frozen_required_count')
         scan_ref=Path('scans')/profile;shutil.copytree(scanner_root/f'scanner-{short}-candidate-5',root/scan_ref)
