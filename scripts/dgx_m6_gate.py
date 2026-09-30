@@ -28,7 +28,7 @@ from skillloop.repair.applicator import apply_proposal, bundle
 from skillloop.repair.history import FailureHistory
 from skillloop.repair.budget import forecast, freeze
 from skillloop.repair.spending import verify_snapshot, remaining_capacity
-from skillloop.runtime.gateway import ExactDockerTokenizer
+from skillloop.runtime.gateway import ExactDockerTokenizer, ExactLocalTokenizer
 from skillloop.families.task_world import fixture
 
 
@@ -40,14 +40,18 @@ def state(results: list[dict]) -> str:
     return "pass"
 
 
-def gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path = REPO) -> dict:
+def gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path = REPO,
+         expected_config: dict | None = None, runtime_profile_path: Path | None = None,
+         tokenizer_path: Path | None = None, calibration_verifier=None) -> dict:
     def timeout(signum, frame):
         raise TimeoutError("independent_gate_150_second_bound")
     previous = signal.signal(signal.SIGALRM, timeout)
     remaining = signal.alarm(150)
     started = time.monotonic()
     try:
-        return _gate(root, baseline=baseline, scan_index=scan_index, runtime_source=runtime_source)
+        return _gate(root, baseline=baseline, scan_index=scan_index, runtime_source=runtime_source,
+            expected_config=expected_config, runtime_profile_path=runtime_profile_path,
+            tokenizer_path=tokenizer_path, calibration_verifier=calibration_verifier)
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
@@ -55,9 +59,12 @@ def gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path =
             signal.alarm(max(1, remaining - int(time.monotonic() - started)))
 
 
-def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path = REPO) -> dict:
+def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path = REPO,
+          expected_config: dict | None = None, runtime_profile_path: Path | None = None,
+          tokenizer_path: Path | None = None, calibration_verifier=None) -> dict:
+    config = CONFIG if expected_config is None else expected_config
     manifest = load(root / "manifest.json")
-    if manifest["config"] != CONFIG:
+    if manifest["config"] != config:
         raise ValueError("m6_config_binding")
     for relative, digest in manifest["source_index"].items():
         if digest_bytes((runtime_source / relative).read_bytes()) != digest:
@@ -65,7 +72,12 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
     accepted = load(baseline / "m5b-gate.json")
     if manifest["baseline_gate_digest"] != accepted["digest"]:
         raise ValueError("m5_acceptance_binding")
-    tokenizer = ExactDockerTokenizer()
+    if config.get("gateway_backend") == "ollama":
+        if tokenizer_path is None or runtime_profile_path is None:
+            raise ValueError("mac_gate_requires_pinned_tokenizer_and_runtime_profile")
+        tokenizer = ExactLocalTokenizer(str(tokenizer_path))
+    else:
+        tokenizer = ExactDockerTokenizer()
     history = FailureHistory(root.parent / "m6-private-history.sqlite")
     report = {"kind": "M6IndependentGate", "subjects": {}, "baseline_gate_digest": accepted["digest"],
               "campaign_id": manifest["campaign_id"], "campaign_manifest_digest": digest_jcs(manifest),
@@ -117,7 +129,7 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
             if (parent_gate["digest"] != digest_jcs({k: v for k, v in parent_gate.items() if k != "digest"})
                     or parent_gate["digest"] != info["parent_gate_digest"]
                     or parent_gate["campaign_id"] != manifest["campaign_id"]
-                    or parent_gate["config_digest"] != digest_jcs(CONFIG)
+                    or parent_gate["config_digest"] != digest_jcs(config)
                     or parent_gate["subjects"][profile]["subject_digest"] != prior_info["candidate_bundle"]["digest"]
                     or manifest.get("admission_clock") != prior_manifest.get("admission_clock")):
                 raise ValueError("second_round_parent_gate_or_clock_binding")
@@ -184,7 +196,8 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
             validate_plan(plan, compiled["suite"])
             if parent is None:
                 if plan != execution_plan(compiled, campaign=campaign_name(manifest, profile), parent=previous_plan,
-                        submitted_digest=submitted_bundle["digest"]):
+                        submitted_digest=submitted_bundle["digest"], runtime_config=config,
+                        runtime_profile_path=runtime_profile_path):
                     raise ValueError("initial_plan_recompute")
             else:
                 before = parent["body"]["items"]
@@ -197,7 +210,8 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
                 revised_subject = dict(compiled)
                 revised_subject["subject_digest"] = item["subject_digest"]
                 expected = execution_plan(revised_subject, campaign=campaign_name(manifest, profile), parent=parent,
-                    retry=(case_id, item["repetition_index"]))
+                    retry=(case_id, item["repetition_index"]), runtime_config=config,
+                    runtime_profile_path=runtime_profile_path)
                 if expected != plan:
                     raise ValueError("retry_revision_recompute")
             plans[plan["digest"]] = plan
@@ -230,7 +244,8 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
                             raise ValueError("unreserved_attempt")
                         rebuilt = _recompute_run(result_path, profile=profile, case_id=case_id,
                             repetition=rep, attempt=attempt, case=case, compiled=compiled, suite=compiled["suite"], plan=plan,
-                            run_ids=run_ids, task_ids=task_ids, tokenizer=tokenizer, expected_config=CONFIG)
+                            run_ids=run_ids, task_ids=task_ids, tokenizer=tokenizer, expected_config=config,
+                            deployment_epoch=config.get("deployment_epoch", "m5-development-1"))
                         with closing(sqlite3.connect(f"file:{run_root / 'authority.db'}?mode=ro", uri=True)) as db:
                             stored = db.execute("SELECT policy_json,subject_digest FROM tasks WHERE run_id=?",
                                 (rebuilt["body"]["run_id"],)).fetchone()
@@ -313,7 +328,8 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
                     rebuilt = _recompute_run(path, profile=profile, case_id=case_id, repetition=repetition,
                         attempt=attempt, case=case, compiled=submitted_compiled,
                         suite=submitted_compiled["suite"], plan=plan, run_ids=run_ids, task_ids=task_ids,
-                        tokenizer=tokenizer, expected_config=CONFIG)
+                        tokenizer=tokenizer, expected_config=config,
+                            deployment_epoch=config.get("deployment_epoch", "m5-development-1"))
                     with closing(sqlite3.connect(f"file:{folder / 'authority.db'}?mode=ro", uri=True)) as db:
                         stored = db.execute("SELECT policy_json,subject_digest FROM tasks WHERE run_id=?",
                             (rebuilt["body"]["run_id"],)).fetchone()
@@ -365,10 +381,13 @@ def _gate(root: Path, *, baseline: Path, scan_index: Path, runtime_source: Path 
             calibration = load(Path(admitted["calibration_ref"]) / "calibration.json")
             if (calibration["digest"] != digest_jcs({k: v for k, v in calibration.items() if k != "digest"})
                     or calibration["digest"] != admitted["calibration_digest"]
-                    or calibration["config_digest"] != digest_jcs(CONFIG) or not calibration["ready"]):
+                    or calibration["config_digest"] != digest_jcs(config) or not calibration["ready"]):
                 raise ValueError("calibration_binding")
             from scripts.dgx_m6_admit import verify_calibration
-            verify_calibration(Path(admitted["calibration_ref"]), Path(calibration["campaign_ref"]))
+            if config.get("gateway_backend") == "ollama" and calibration_verifier is None:
+                raise ValueError("mac_calibration_verifier_required")
+            verifier = calibration_verifier or verify_calibration
+            verifier(Path(admitted["calibration_ref"]), Path(calibration["campaign_ref"]))
             capacity = load(directory / "capacity-plan-1.json")
             if (capacity["digest"] != digest_jcs({k: v for k, v in capacity.items() if k != "digest"})
                     or capacity["digest"] != admitted["capacity_plan_digest"]):

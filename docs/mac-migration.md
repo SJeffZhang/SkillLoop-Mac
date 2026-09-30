@@ -116,3 +116,12 @@ inherited candidates and suites and have a separate Mac config identity.
 The empty M8 synthetic repository exists at
 `https://github.com/SJeffZhang/skillloop-ci-test`; App and independent fork tests
 remain pending.
+
+
+## 2026-10-01 准入进展
+
+- 新容器、私有运行卷、`--network none` 的订单、退款、Markdown 正常任务均完成；退款与 Markdown 的异 UID、输入读取和外网访问探针均被拒绝。此前 Markdown 参数错误的诊断证据继续保留。
+- 三类继承候选在原 scanner OCI 内完整扫描，分别调用模型 3、3、4 次，报告覆盖完整、退出码均为 0；所有 prompt 用量与预检精确一致。原始输入、报告和失败重试留在忽略的私有目录。
+- 修复扫描器发现的分词差异：按 Ollama 0.33.3 原生 RE2 空白边界规则计算，保持原始 tokenizer 快照不变。已保存换行缩进的最小复现；没有使用固定偏移补偿。最大业务输入和 Unicode 边界仍需进一步准入。
+- 实验专用 Ollama 服务运行于本机 11435，使用独立进程和日志、共享已下载权重。App 服务模型已卸载以避免双份内存占用。M7 保护阶段生命周期尚未建立。
+- 最大业务输入容量校准已启动。正式 M6 运行数仍为 0；预算、完整 runner 和独立 Gate 尚待准入，正式矩阵启动时再创建跟踪任务。

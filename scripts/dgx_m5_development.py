@@ -35,7 +35,8 @@ def run_one(case_id: str, repetition: int, output: Path, attempt_index: int = 0,
             tokenizer_container: str = "skillloop-m4-sglang",
             gateway_backend: str = "sglang",
             approval_factory_digest: str | None = None,
-            runtime_executor=None, runtime_uid: int | None = None) -> dict:
+            runtime_executor=None, runtime_uid: int | None = None,
+            socket_directory: Path | None = None) -> dict:
     profile_id = compiled_suite["profile_id"] if compiled_suite else case_id.split(".")[0]
     compiled = compiled_suite or compile_dev_suite(profile_id, skill_root=skill_root)
     case = compiled["cases"][case_id]
@@ -98,7 +99,8 @@ def run_one(case_id: str, repetition: int, output: Path, attempt_index: int = 0,
                      run_deadline=stamp(config.get("proxy_deadline_seconds", 360)), campaign_id=actual_campaign_id)
     store.start_run(request["digest"], binding["digest"], operation_id="start-m5",
                     request_digest=digest_jcs("start-m5"))
-    server = ProxyServer(store, output / "sockets", controller_uid=os.getuid(),
+    socket_directory = socket_directory or output / "sockets"
+    server = ProxyServer(store, socket_directory, controller_uid=os.getuid(),
                          runtime_uid=os.getuid() if runtime_uid is None else runtime_uid,
                          socket_mode=0o600 if runtime_uid is None else 0o666)
     with server:
@@ -123,7 +125,7 @@ def run_one(case_id: str, repetition: int, output: Path, attempt_index: int = 0,
                         timeout_seconds=config.get("provider_timeout_seconds", 180))
                 else:
                     raise ValueError("unknown_gateway_backend")
-                result = AgentAdapter(proxy=ProxyClient(output / "sockets"), gateway=gateway,
+                result = AgentAdapter(proxy=ProxyClient(socket_directory), gateway=gateway,
                     private_root=output / "evidence").run(
                     profile_id=profile_id, skill_bytes=skill_bytes, run_request=request,
                     task_binding=binding, fence=1, trust_revision=1,

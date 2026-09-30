@@ -54,7 +54,7 @@
   "model_layers_verified": 1209,
   "model_bytes_verified": 31655336241,
   "model_store": "~/.ollama/models",
-  "admission_blocker": null,
+  "admission_blocker": "maximum_business_capacity_calibration_and_formal_runner_pending",
   "token_calibration_ref": "local-data/mac-runtime/token-calibration-3.json",
   "token_calibration_scope": "five initial template shapes only; extended admission pending",
   "profile_tool_admission_verified": true,
@@ -85,6 +85,66 @@
   "mac_m6_draft_ref": "local-data/mac-m6-draft/summary.json",
   "mac_isolation_decision": "fresh container and private writable volume per agent run; AppArmor not required",
   "mac_isolation_spec": "specs/mac/runtime-profile.json",
-  "mac_isolation_implementation_status": "pending",
-  "experiment_repository": "https://github.com/SJeffZhang/SkillLoop-Mac"
+  "mac_isolation_implementation_status": "fresh agent containers and volumes implemented; M6 integration and remaining admission pending",
+  "experiment_repository": "https://github.com/SJeffZhang/SkillLoop-Mac",
+  "mac_network_none_business_admission": {
+    "orders_total": "pass",
+    "refunds_total": "pass",
+    "markdown_index": "pass"
+  },
+  "mac_live_boundary_probe": {
+    "foreign_peer_uid": "denied",
+    "foreign_input": "denied",
+    "external_network": "denied",
+    "profiles_verified": [
+      "refunds_total",
+      "markdown_index"
+    ]
+  },
+  "mac_agent_consistent_sqlite_backup_verified": true,
+  "scanner_candidate_admission": {
+    "orders_total": {
+      "status": "complete",
+      "exit_code": 0,
+      "model_calls": 3,
+      "exact_prompt_usage_aligned": true,
+      "evidence_ref": "local-data/mac-runtime/scanner-orders-candidate-5"
+    },
+    "refunds_total": {
+      "status": "complete",
+      "exit_code": 0,
+      "model_calls": 3,
+      "exact_prompt_usage_aligned": true,
+      "evidence_ref": "local-data/mac-runtime/scanner-refunds-candidate-5"
+    },
+    "markdown_index": {
+      "status": "complete",
+      "exit_code": 0,
+      "model_calls": 4,
+      "exact_prompt_usage_aligned": true,
+      "evidence_ref": "local-data/mac-runtime/scanner-markdown-candidate-5"
+    }
+  },
+  "native_bpe_rule_reproduced": true,
+  "native_bpe_scope": "scanner prompt shapes verified; business capacity and unicode edge cases pending",
+  "latest_mac_regression_tests_passed": 26,
+  "model_service_lifecycle": {
+    "development_admission": {
+      "port": 11435,
+      "version": "0.33.3",
+      "separate_process_and_logs": true,
+      "shared_model_weights": true
+    },
+    "protection": "pending"
+  },
+  "capacity_admission_queue": {
+    "scope": "preliminary_not_formal_M6",
+    "profiles": 3,
+    "required_probes": 6,
+    "completed": 2,
+    "orders_total_clean": "pass",
+    "orders_total_secret_leak": "pass",
+    "orders_raw_evidence_independently_recomputed": true,
+    "queue_ref": "local-data/mac-runtime/capacity-queue-7.jsonl"
+  }
 }

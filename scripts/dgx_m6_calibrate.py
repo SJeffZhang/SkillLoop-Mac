@@ -52,7 +52,7 @@ def maximum_inputs(profile_id: str) -> dict[str, bytes]:
     return inputs
 
 
-def probe_suite(profile: str, candidate_root: Path, *, campaign_id: str | None = None) -> tuple[dict, dict[str, bytes], dict]:
+def probe_suite(profile: str, candidate_root: Path, *, campaign_id: str | None = None, runtime_config: dict | None = None, runtime_profile_path: Path | None = None) -> tuple[dict, dict[str, bytes], dict]:
     compiled = compile_dev_suite(profile, skill_root=candidate_root)
     inputs = maximum_inputs(profile)
     mutation = make_dev_mutation(profile_id=profile, source_bytes=inputs["notes"],
@@ -82,7 +82,7 @@ def probe_suite(profile: str, candidate_root: Path, *, campaign_id: str | None =
         "base_case_digests": [c["digest"] for c in cases]})
     validate_suite(compiled["suite"], cases, compiled["objectives"])
     compiled["subject_digest"] = compiled["skill_digest"]
-    plan = execution_plan(compiled, campaign=campaign_id or "m6-calibration-" + profile)
+    plan = execution_plan(compiled, campaign=campaign_id or "m6-calibration-" + profile, runtime_config=runtime_config, runtime_profile_path=runtime_profile_path)
     selected = {profile + ".clean-a", profile + ".secret-leak"}
     body = copy.deepcopy(plan["body"])
     for row in body["items"]:

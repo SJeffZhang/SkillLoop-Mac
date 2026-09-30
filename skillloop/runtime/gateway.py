@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import http.client
 import os
+import socket
 import select
 import subprocess
 import threading
@@ -160,6 +162,8 @@ class ExactLocalTokenizer:
         self._tokenizer = AutoTokenizer.from_pretrained(
             model_path, local_files_only=True, trust_remote_code=True)
         self._text_counts: dict[str, int] = {}
+        from .ollama_bpe import OllamaPinnedBPE
+        self._native_bpe = OllamaPinnedBPE(model_path)
 
     def count(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
               *, enable_thinking: bool = False) -> int:
@@ -181,10 +185,13 @@ class ExactLocalTokenizer:
                                                    ("\u2029", "\\u2029")):
                             rendered = rendered.replace(character, escaped)
                         function["arguments"][name] = rendered
-        ids = self._tokenizer.apply_chat_template(
-            messages, tools=self.ollama_tools(tools), tokenize=True, add_generation_prompt=True,
-            enable_thinking=enable_thinking)
-        return len(ids["input_ids"]) if hasattr(ids, "keys") else len(ids)
+        native_bpe = getattr(self, "_native_bpe", None)
+        rendered = self._tokenizer.apply_chat_template(
+            messages, tools=self.ollama_tools(tools), tokenize=native_bpe is None,
+            add_generation_prompt=True, enable_thinking=enable_thinking)
+        if native_bpe is not None:
+            return native_bpe.count(rendered)
+        return len(rendered["input_ids"]) if hasattr(rendered, "keys") else len(rendered)
 
     @staticmethod
     def ollama_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -230,8 +237,7 @@ class ExactLocalTokenizer:
 
     def count_text(self, text: str) -> int:
         if text not in self._text_counts:
-            self._text_counts[text] = len(self._tokenizer.encode(
-                text, add_special_tokens=False))
+            self._text_counts[text] = self._native_bpe.count(text)
         return self._text_counts[text]
 
     def close(self) -> None:
@@ -306,7 +312,7 @@ class OllamaGateway:
     def __init__(self, endpoint: str, tokenizer: ExactDockerTokenizer, *,
                  model: str = "qwen3.8:27b-mxfp8", template_overhead_tokens: int | None = None,
                  max_context_tokens: int = 16_384, max_output_tokens: int = 2_048,
-                 timeout_seconds: float = 180):
+                 timeout_seconds: float = 180, unix_socket_path: str | None = None):
         parsed = urlparse(endpoint)
         if parsed.scheme != "http" or parsed.hostname not in {
                 "127.0.0.1", "localhost", "host.docker.internal"}:
@@ -320,6 +326,7 @@ class OllamaGateway:
         self.max_context_tokens = max_context_tokens
         self.max_output_tokens = max_output_tokens
         self.timeout_seconds = timeout_seconds
+        self.unix_socket_path = unix_socket_path
 
     def count_final(self, text: str) -> int:
         return self.tokenizer.count_text(text)
@@ -369,9 +376,26 @@ class OllamaGateway:
                                          headers={"Content-Type": "application/json"})
         model_started = time.monotonic()
         try:
-            with urllib.request.urlopen(request, timeout=min(self.timeout_seconds, remaining_seconds)) as response:
-                parsed = decode_json(response.read(4_194_305))
-        except (TimeoutError, urllib.error.URLError) as exc:
+            timeout = min(self.timeout_seconds, remaining_seconds)
+            if self.unix_socket_path is not None:
+                connection = http.client.HTTPConnection("localhost", timeout=timeout)
+                connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    connection.sock.settimeout(timeout)
+                    connection.sock.connect(self.unix_socket_path)
+                    connection.request("POST", "/api/chat", body=body,
+                                       headers={"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    raw = response.read(4_194_305)
+                    if response.status != 200 or len(raw) > 4_194_304:
+                        raise GatewayError("provider_response_invalid")
+                    parsed = decode_json(raw)
+                finally:
+                    connection.close()
+            else:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    parsed = decode_json(response.read(4_194_305))
+        except (OSError, http.client.HTTPException, urllib.error.URLError) as exc:
             raise GatewayError("provider_timeout") from exc
         if type(parsed) is not dict or parsed.get("model") != self.model:
             raise GatewayError("model_identity_mismatch", response=parsed)

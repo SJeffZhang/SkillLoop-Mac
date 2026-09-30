@@ -166,7 +166,7 @@ def append_history(compiled: dict, entries: list[dict]) -> tuple[dict, list[dict
 
 def execution_plan(compiled: dict, *, campaign: str, parent: dict | None = None,
                    retry: tuple[str, int] | None = None, submitted_digest: str | None = None,
-                   runtime_config: dict | None = None) -> dict:
+                   runtime_config: dict | None = None, runtime_profile_path: Path | None = None) -> dict:
     items = copy.deepcopy(parent["body"]["items"]) if parent else [
         {"item_id": f"{case['body']['case_id']}.{rep}", "subject_digest": compiled["subject_digest"],
          "case_digest": case["digest"], "repetition_index": rep, "phase": "dev",
@@ -206,7 +206,7 @@ def execution_plan(compiled: dict, *, campaign: str, parent: dict | None = None,
         "reserved_execution_ms": rollouts * VICTIM_BOUND * 1000,
         "reserved_auxiliary_ms": 3600000, "terminal_reserve_ms": 600000,
         "max_campaign_rollouts": 128, "max_campaign_execution_ms": 28800000,
-        "runtime_profile_digest": digest_bytes((FAMILY_SPEC.parent / "operations/runtime-profile.json").read_bytes())})
+        "runtime_profile_digest": digest_bytes((runtime_profile_path or FAMILY_SPEC.parent / "operations/runtime-profile.json").read_bytes())})
     validate_plan(plan, compiled["suite"])
     return plan
 

@@ -15,21 +15,26 @@ from scripts.dgx_m6_repair import CONFIG, PROFILES, REPO, load, save, source_ind
 from skillloop.protocol import digest_bytes, digest_jcs
 from skillloop.families.fixtures import load_example_skill
 from skillloop.repair.budget import forecast
-from skillloop.runtime.gateway import ExactDockerTokenizer
+from skillloop.runtime.gateway import ExactDockerTokenizer, ExactLocalTokenizer
 
 
-def verify_calibration(calibration_root: Path, campaign: Path) -> dict:
+def verify_calibration(calibration_root: Path, campaign: Path, *, expected_config: dict | None = None,
+                       tokenizer_path: str | None = None, runtime_profile_path: Path | None = None) -> dict:
+    config = CONFIG if expected_config is None else expected_config
+    native = config.get("gateway_backend") == "ollama"
+    if native and (tokenizer_path is None or runtime_profile_path is None):
+        raise ValueError("mac_calibration_requires_pinned_inputs")
     record = load(calibration_root / "calibration.json")
     campaign_manifest = load(campaign / "manifest.json")
     profiles = tuple(campaign_manifest["subjects"])
     if not profiles or not set(profiles).issubset(PROFILES):
         raise ValueError("calibration_profile_scope")
     if (record["digest"] != digest_jcs({k: v for k, v in record.items() if k != "digest"})
-            or record["config_digest"] != digest_jcs(CONFIG) or not record["ready"]
+            or record["config_digest"] != digest_jcs(config) or not record["ready"]
             or record["campaign_manifest_digest"] != digest_jcs(campaign_manifest)
             or len(record["rows"]) != 2 * len(profiles)):
         raise ValueError("calibration_record_invalid")
-    tokenizer = ExactDockerTokenizer()
+    tokenizer = ExactLocalTokenizer(tokenizer_path) if native else ExactDockerTokenizer()
     runs, tasks = set(), set()
     expected_keys = {(p, p + suffix) for p in profiles for suffix in (".clean-a", ".secret-leak")}
     if {(r["profile"], r["case"]) for r in record["rows"]} != expected_keys:
@@ -37,14 +42,15 @@ def verify_calibration(calibration_root: Path, campaign: Path) -> dict:
     for row in record["rows"]:
         profile, case_id = row["profile"], row["case"]
         compiled, inputs, plan = probe_suite(profile, campaign / "candidate",
-            campaign_id="m6-calibration-" + calibration_root.name + "-" + profile)
+            campaign_id="m6-calibration-" + calibration_root.name + "-" + profile, runtime_config=config, runtime_profile_path=runtime_profile_path)
         directory = calibration_root / profile / case_id
         if row != load(directory / "measurement.json"):
             raise ValueError("calibration_measurement_changed")
         result = _recompute_run(directory / "result.json", profile=profile, case_id=case_id,
             repetition=0, attempt=0, case=compiled["cases"][case_id], compiled=compiled,
             suite=compiled["suite"], plan=plan, run_ids=runs, task_ids=tasks,
-            tokenizer=tokenizer, expected_config=CONFIG, inputs_override=inputs)
+            tokenizer=tokenizer, expected_config=config, inputs_override=inputs,
+            deployment_epoch=config.get("deployment_epoch", "m5-development-1"))
         if load(directory / "result.json").get("runner_source_digest") != digest_jcs(load(campaign / "manifest.json")["source_index"]):
             raise ValueError("calibration_execution_source_binding")
         actual_skill = load_example_skill(profile, root=campaign / "candidate").decode()

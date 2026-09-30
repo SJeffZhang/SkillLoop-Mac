@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import http.client
 import json
+import hashlib
 import selectors
 import socket
 import socketserver
@@ -53,7 +54,8 @@ class _ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class HostModelBridge:
     def __init__(self, socket_path: Path, *, model_host: str = "127.0.0.1",
                  model_port: int = 30000, max_chat_requests: int | None = None,
-                 model_id: str = "Qwen/Qwen3.8-27B-FP8", backend: str = "sglang"):
+                 model_id: str = "Qwen/Qwen3.8-27B-FP8", backend: str = "sglang",
+                 native_chat: bool = False, tokenizer=None):
         if model_host not in {"127.0.0.1", "localhost", "host.docker.internal"}:
             raise ValueError("model_endpoint_must_be_loopback")
         if backend not in {"sglang", "ollama"}:
@@ -63,6 +65,10 @@ class HostModelBridge:
         self.model_port = model_port
         self.model_id = model_id
         self.backend = backend
+        if native_chat and backend != "ollama":
+            raise ValueError("native_chat_requires_ollama")
+        self.native_chat = native_chat
+        self.tokenizer = tokenizer
         self.chat_requests = 0
         self.max_chat_requests = max_chat_requests
         self.usage_records = []
@@ -79,7 +85,7 @@ class HostModelBridge:
             def log_message(self, *_args):
                 pass
 
-            def _forward(self, method: str, body: bytes | None = None):
+            def _forward(self, method: str, body: bytes | None = None, expected_prompt_tokens=None):
                 upstream = http.client.HTTPConnection(bridge.model_host, bridge.model_port,
                                                       timeout=600)
                 try:
@@ -96,10 +102,17 @@ class HostModelBridge:
                             if bridge.backend == "ollama" and parsed.get("model") != bridge.model_id:
                                 self.send_error(502, "model_identity_mismatch")
                                 return
-                            usage = parsed.get("usage", {})
+                            usage = ({"prompt_tokens": parsed.get("prompt_eval_count"),
+                                      "completion_tokens": parsed.get("eval_count")} if bridge.native_chat
+                                     else parsed.get("usage", {}))
+                            token_mismatch = expected_prompt_tokens is not None and usage.get("prompt_tokens") != expected_prompt_tokens
                             with bridge._lock:
-                                bridge.usage_records.append({"usage": usage, "thinking": False,
-                                    "http_status": response.status})
+                                bridge.usage_records.append({"usage": usage, "preflight_prompt_tokens": expected_prompt_tokens,
+                                    "request_digest": "sha256:" + hashlib.sha256(body or b"").hexdigest(), "thinking": False,
+                                    "http_status": response.status, "token_mismatch": token_mismatch})
+                            if token_mismatch:
+                                self.send_error(502, "model_tokenizer_mismatch")
+                                return
                         except (ValueError, AttributeError):
                             pass
                     self.send_response(response.status)
@@ -119,7 +132,8 @@ class HostModelBridge:
                 self._forward("GET")
 
             def do_POST(self):
-                if self.path != "/v1/chat/completions":
+                native = self.path == "/api/chat" and bridge.native_chat
+                if (bridge.native_chat and not native) or (self.path != "/v1/chat/completions" and not native):
                     self.send_error(404)
                     return
                 try:
@@ -130,13 +144,31 @@ class HostModelBridge:
                     value = json.loads(data)
                     if type(value) is not dict or value.get("model") != bridge.model_id:
                         raise ValueError("model_identity")
-                    if bridge.backend == "sglang":
+                    if native:
+                        # This route cannot pull, delete or reconfigure models.
+                        # Fix all resource/sampling options at the trust boundary.
+                        value = {"model": bridge.model_id, "messages": value["messages"],
+                                 "tools": value.get("tools", []), "stream": False, "think": False,
+                                 "options": {"temperature": 1.0, "top_p": 0.95,
+                                             "num_ctx": 16384, "num_predict": 2048}}
+                    elif bridge.backend == "sglang":
                         value["chat_template_kwargs"] = {"enable_thinking": False}
                     else:
                         value.pop("chat_template_kwargs", None)
                         value["reasoning_effort"] = "none"
+                        value["stream"] = False
+                        value["temperature"] = 0.0
+                        value["top_p"] = 0.95
+                        value["max_tokens"] = min(int(value.get("max_tokens") or 2048), 2048)
+                        if value["max_tokens"] <= 0:
+                            raise ValueError("output_token_limit")
+                    expected = None
+                    if bridge.tokenizer is not None:
+                        expected = bridge.tokenizer.count(value["messages"], value.get("tools", []), enable_thinking=False)
+                        if expected + 2048 > 16384:
+                            raise ValueError("model_context_limit")
                     payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
-                except (TypeError, ValueError, UnicodeError):
+                except (KeyError, TypeError, ValueError, UnicodeError):
                     self.send_error(400, "invalid_local_model_request")
                     return
                 with bridge._lock:
@@ -144,7 +176,7 @@ class HostModelBridge:
                         self.send_error(429, "scanner_model_budget_exhausted")
                         return
                     bridge.chat_requests += 1
-                self._forward("POST", payload)
+                self._forward("POST", payload, expected_prompt_tokens=expected)
 
         self._server = _ThreadedUnixServer(str(self.socket_path), Handler)
         os.chmod(self.socket_path, 0o600)
