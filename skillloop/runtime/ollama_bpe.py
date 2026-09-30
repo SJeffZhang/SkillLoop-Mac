@@ -14,6 +14,7 @@ from tokenizers import Tokenizer
 
 def split_native_chunks(text, pattern):
     rewritten=pattern.replace(r'\s+(?!\S)|\s+',r'\s+')
+    rewritten=rewritten.replace("(?i:'s|'t|'re|'ve|'m|'ll|'d)","(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])")
     # Go RE2's \s is ASCII; Unicode categories still follow the snapshot.
     converted=[];in_class=False;i=0
     while i<len(rewritten):

@@ -21,3 +21,6 @@ class NativeBPETests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory,'tokenizer.json').write_text(json.dumps(value))
             self.assertEqual(OllamaPinnedBPE(directory).count('e\u0301'),3)
+
+    def test_go_contractions_do_not_use_unicode_case_folding(self):
+        self.assertEqual(split_native_chunks("'ſomething",PATTERN),["'ſomething"])
