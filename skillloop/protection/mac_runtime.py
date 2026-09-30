@@ -37,8 +37,10 @@ def container_execute(output,profile,skill,request,binding,config,mutation,attem
     engine.start(helper);initialized=engine.wait(helper,30)
     if initialized['StatusCode']!=0:raise RuntimeError('runtime_volume_init_failed')
     engine.remove(helper)
-    worker=engine.create(volume,worker_configuration(image=config['mac_runtime_image'],run_volume=volume,
-        socket_volume=resources['socket_volume'],model_volume=resources['model_volume'],runtime_uid=21002))
+    worker_config=worker_configuration(image=config['mac_runtime_image'],run_volume=volume,
+        socket_volume=resources['socket_volume'],model_volume=resources['model_volume'],runtime_uid=21002)
+    worker_config['Labels']={'skillloop.controller':os.environ.get('SKILLLOOP_CONTROLLER_ID','admission'),'skillloop.run_request':request['digest']}
+    worker=engine.create(volume,worker_config)
     # Probe the live sockets before permitting the actual model worker.
     probe_code = """import json,socket
 checks={}

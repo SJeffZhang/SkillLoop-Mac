@@ -47,6 +47,8 @@ class OllamaPinnedBPE:
         self.special={p['content']:p['id'] for p in snapshot['added_tokens']}
         self.special_pattern=re.compile('('+'|'.join(re.escape(s) for s in sorted(self.special,key=len,reverse=True))+')')
         snapshot['pre_tokenizer']={'type':'ByteLevel','add_prefix_space':False,'trim_offsets':False,'use_regex':False}
+        # The pinned Go loader does not apply the JSON normalizer.
+        snapshot['normalizer']=None
         self.encoder=Tokenizer.from_str(json.dumps(snapshot))
 
     def count(self,text):

@@ -127,7 +127,7 @@
   },
   "native_bpe_rule_reproduced": true,
   "native_bpe_scope": "scanner prompt shapes verified; business capacity and unicode edge cases pending",
-  "latest_mac_regression_tests_passed": 26,
+  "latest_mac_regression_tests_passed": 31,
   "model_service_lifecycle": {
     "development_admission": {
       "port": 11435,
@@ -141,10 +141,14 @@
     "scope": "preliminary_not_formal_M6",
     "profiles": 3,
     "required_probes": 6,
-    "completed": 2,
+    "completed": 6,
     "orders_total_clean": "pass",
     "orders_total_secret_leak": "pass",
     "orders_raw_evidence_independently_recomputed": true,
-    "queue_ref": "local-data/mac-runtime/capacity-queue-7.jsonl"
-  }
+    "queue_ref": "local-data/mac-runtime/capacity-queue-7.jsonl",
+    "all_six_results": "complete_utility_pass_no_security_violation",
+    "all_six_independently_recomputed": true
+  },
+  "formal_matrix_status": "source_freeze_and_exact_configuration_calibration_pending",
+  "native_unicode_token_admission_verified": true
 }
