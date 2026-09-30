@@ -170,3 +170,8 @@ SkillLoop/
 ---
 
 **SkillLoop 将 Agent Skill 安全带入可执行、可观测、可持续改进的工程流程。**
+
+
+### Mac 长程实验状态（2026-10-01）
+
+正式 M6 配对矩阵已启动，订单/退款/Markdown 共计划 156 项，按 profile 在同一冻结配置下先校准、再执行、独立 Gate 复算。每次 agent 使用新容器和私有运行卷；已消耗或完成的槽位在重启后不重复执行。原始证据和 SQLite 一致性备份保存在忽略的 `local-data/`，脱敏进度见 `milestones/mac-migration/progress.json`。定时跟踪每 15 分钟检查队列，在阶段变化、完成、故障或需要补充信息时通知。M7–M10 的结论仍待后续实验验收。

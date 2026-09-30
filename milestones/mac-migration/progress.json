@@ -31,7 +31,7 @@
   "expected_ollama_model_layer_bytes": 31655335990,
   "docker_host_network_verified": true,
   "token_calibration_verified": true,
-  "m6_formal_runs_on_mac": 0,
+  "m6_formal_runs_on_mac": 16,
   "m7_formal_runs_on_mac": 0,
   "m8_github_app_verified": false,
   "m9_campaigns_complete": 0,
@@ -54,7 +54,7 @@
   "model_layers_verified": 1209,
   "model_bytes_verified": 31655336241,
   "model_store": "~/.ollama/models",
-  "admission_blocker": "maximum_business_capacity_calibration_and_formal_runner_pending",
+  "admission_blocker": null,
   "token_calibration_ref": "local-data/mac-runtime/token-calibration-3.json",
   "token_calibration_scope": "five initial template shapes only; extended admission pending",
   "profile_tool_admission_verified": true,
@@ -73,7 +73,7 @@
   "historical_run_recomputation_errors": 0,
   "historical_recomputation_model_calls": 0,
   "historical_run_recomputation_ref": "local-data/mac-runtime/historical-run-recomputation.json",
-  "linux_contract_tests_run": 174,
+  "linux_contract_tests_run": 194,
   "linux_contract_tests_skipped": 4,
   "linux_contract_test_failures": 0,
   "linux_uid_boundary_verified": true,
@@ -149,6 +149,22 @@
     "all_six_results": "complete_utility_pass_no_security_violation",
     "all_six_independently_recomputed": true
   },
-  "formal_matrix_status": "source_freeze_and_exact_configuration_calibration_pending",
-  "native_unicode_token_admission_verified": true
+  "formal_matrix_status": "formal_M6",
+  "native_unicode_token_admission_verified": true,
+  "m6_formal_actual_attempts_on_mac": 17,
+  "m6_formal_required_runs_on_mac": 156,
+  "formal_matrix_ref": "local-data/mac-m6-formal-v1",
+  "formal_matrix_manifest_digest": "sha256:3097efc12526081c81a6860d2f87ae8d42784aa172aabe786cbee439784da24c",
+  "formal_source_snapshot": "local-data/mac-runtime/formal-m6-source-v2",
+  "formal_runtime_image": "sha256:972f678ef83bd87639726913ca116ae3056f46e47c66bd652a8773b63dd0b27d",
+  "long_experiment_monitor": {
+    "id": "skillloop-m6-m10",
+    "status": "ACTIVE",
+    "interval_minutes": 15
+  },
+  "formal_profile_admission": {
+    "orders_total": "calibration_ready",
+    "refunds_total": "not_started",
+    "markdown_index": "not_started"
+  }
 }
