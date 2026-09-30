@@ -52,12 +52,17 @@ class _ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 class HostModelBridge:
     def __init__(self, socket_path: Path, *, model_host: str = "127.0.0.1",
-                 model_port: int = 30000, max_chat_requests: int | None = None):
-        if model_host not in {"127.0.0.1", "localhost"}:
+                 model_port: int = 30000, max_chat_requests: int | None = None,
+                 model_id: str = "Qwen/Qwen3.8-27B-FP8", backend: str = "sglang"):
+        if model_host not in {"127.0.0.1", "localhost", "host.docker.internal"}:
             raise ValueError("model_endpoint_must_be_loopback")
+        if backend not in {"sglang", "ollama"}:
+            raise ValueError("unknown_model_backend")
         self.socket_path = Path(socket_path)
         self.model_host = model_host
         self.model_port = model_port
+        self.model_id = model_id
+        self.backend = backend
         self.chat_requests = 0
         self.max_chat_requests = max_chat_requests
         self.usage_records = []
@@ -87,7 +92,11 @@ class HostModelBridge:
                         return
                     if method == "POST":
                         try:
-                            usage = json.loads(payload).get("usage", {})
+                            parsed = json.loads(payload)
+                            if bridge.backend == "ollama" and parsed.get("model") != bridge.model_id:
+                                self.send_error(502, "model_identity_mismatch")
+                                return
+                            usage = parsed.get("usage", {})
                             with bridge._lock:
                                 bridge.usage_records.append({"usage": usage, "thinking": False,
                                     "http_status": response.status})
@@ -119,12 +128,13 @@ class HostModelBridge:
                         raise ValueError("request_size")
                     data = self.rfile.read(size)
                     value = json.loads(data)
-                    if type(value) is not dict or value.get("model") != "Qwen/Qwen3.8-27B-FP8":
+                    if type(value) is not dict or value.get("model") != bridge.model_id:
                         raise ValueError("model_identity")
-                    # SGLang's Qwen non-thinking switch was verified on this
-                    # deployment. It avoids a 2K-token reasoning truncation
-                    # and makes the scanner's structured result evaluable.
-                    value["chat_template_kwargs"] = {"enable_thinking": False}
+                    if bridge.backend == "sglang":
+                        value["chat_template_kwargs"] = {"enable_thinking": False}
+                    else:
+                        value.pop("chat_template_kwargs", None)
+                        value["reasoning_effort"] = "none"
                     payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
                 except (TypeError, ValueError, UnicodeError):
                     self.send_error(400, "invalid_local_model_request")

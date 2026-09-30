@@ -1,0 +1,66 @@
+# SkillLoop Mac 实验 PRD
+
+版本：Mac V1 · 2026-10-01 · 基础协议：API 4 / V2.2。
+
+## 1. 目标与适用范围
+
+本仓库 `SJeffZhang/SkillLoop-Mac` 是 `JiahaoTanXX/SkillLoop` 的 fork，用于记录 MacBook Pro（M5 Pro、48 GB）上的独立实验。DGX 的比赛成果与公网展示继续保留；DGX 历史模型结果不计入 Mac 模型配置的验收次数。
+
+本文件是 [V2.2 PRD](SkillLoop-PRD-v2.2.zh-CN.md) 的 Mac 部署补充：业务契约、API 4 对象、四态判定、原始证据要求与独立 Gate 语义继续适用。涉及部署模型、工作负载隔离及资源预算时，以本文件和 [Mac 运行配置](specs/mac/runtime-profile.json) 为准。V2.2 的 DGX 部署规格及其摘要保持原样。
+
+## 2. 已确定的部署方案
+
+- 模型：macOS 原生 Ollama，使用 Metal 与 `qwen3.8:27b-mxfp8`，关闭 thinking，16K 上下文。每场实验固定版本、模型 manifest、tokenizer、template、采样参数与配置摘要。
+- 容器：Docker Desktop ARM64 Linux VM。每个 agent 运行实例新建容器、独立工作卷与运行身份，不复用可写工作区。容器停止后，先一致性导出和核验，再清理临时状态。
+- 权威状态：Proxy 与 SQLite 在 VM 内部私有卷；agent 不挂载数据库、完整历史库、题库、Docker socket 或宿主个人目录。
+- 输入：保护阶段只提供当前实例的 Skill、输入和受限任务接口；业务发布由 Proxy 校验身份、任务绑定与授权。
+- 网络：agent 与 scanner 使用独立网络命名空间，默认 `--network none`，仅经 VM 内受限 Unix socket 访问所需服务。只有受信模型 bridge 可连接 Mac Ollama；不向 agent 开放 Ollama 模型管理接口。
+- 权限：非 root、独立 UID、只读 rootfs、零 capabilities、禁止提权、seccomp、独立 PID 命名空间；对 CPU、内存、进程数、临时空间、队列和磁盘设置显式预算。
+- 模型状态：模型权重可以只读共享。开发与保护阶段使用独立服务生命周期、缓存和私有日志目录；切换阶段时停止服务并确认卸载，避免把新 agent 容器误当作模型缓存隔离。
+
+Mac 配置不要求 AppArmor，也不增加 Ubuntu VM。容器提供经测试的进程、文件与接口隔离；多个容器仍共享 VM 内核，不能声称“完美隔离”或满足原 DGX 的 AppArmor 验收项。内核漏洞、恶意宿主管理员及硬件侧信道不在本轮实验的保护结论范围内。
+
+## 3. 隔离准入与运行证据
+
+正式保护测试前必须证明：
+
+1. 不同运行的容器不能读取彼此工作卷、私有日志、题库与权威 SQLite。
+2. 跨运行的 socket、run ID、任务 ID、grant 与旧凭据不能被复用；Proxy 通过内核 peer UID 与任务绑定拒绝越权。
+3. agent 无直接外网或模型管理路由；受限 relay 只开放所需接口，实施请求大小、次数和超时限制。
+4. agent 容器中仅有当前实例输入；factory 与 Gate 的私有卷不挂入 runtime 或 scanner。
+5. 开发与保护模型生命周期切换、取消、重启和归档可从原始证据复核。
+6. 三 profile 的实际工具序列、拒绝后恢复、最大输入、usage、峰值内存、时延及预算均有实测。
+
+新建容器本身不是准入证据。未实施或未验证的项保持 pending；不足的单次结果为 inconclusive，确认失败始终保留。
+
+## 4. 结果继承与实验顺序
+
+M0–M5 继承 DGX 历史身份，不重新请求模型。M6 保存的候选、载荷、正常对照与确认失败作为新实验输入；同一配置已完成运行不覆盖、不重复计数。新 Mac 配置有自己的 campaign、deployment epoch 与运行账本。
+
+| 阶段 | 工作与出门条件 |
+| --- | --- |
+| M6 | 复用候选与历史，按订单 42、退款 66、Markdown 48 次配对计划执行；先完成 scanner、预算与配置准入，再由独立 Mac Gate 复算。总计 156 次是待准入的新配置计划。 |
+| M7 | 为合格 profile 建新私有 epoch；submitted 与 finalist 共用同一套件，每例三次，完成隔离证据、四态 Gate、attestation 与脱敏报告。 |
+| M8 | 在 `SJeffZhang/skillloop-ci-test` 仅用合成 Skill，验证 GitHub App 与独立 fork 身份、精确 SHA、force-push、重复事件、配置变化、旧 worker 与续评。缺 App 或 fork 条件保持 pending。 |
+| M9 | 三 profile 各完成完整 campaign 与需求验收索引，分别给出工程与业务结论。 |
+| M10 | 对证实攻击做修补前后配对；演练取消、备份恢复、归档、磁盘与队列容量。恢复产生新 deployment epoch 并撤销旧资格。 |
+
+每阶段冻结源码和配置后才执行正式模型调用。报告列出完整、不完整、确认失败和实际尝试数；业务改善只有在攻击效果减少且正常业务不退化时才能声明。
+
+## 5. 仓库与证据保存
+
+Git 保存源码、PRD、配置、脱敏报告和进度摘要。`local-data/`、模型、原始攻击 trace、题库、SQLite/WAL、密钥与个人环境配置不进入 Git。私有证据保留摘要清单、一致性备份和只读历史快照；报告更新不会修改 DGX 旧结论。
+
+## 6. 当前状态
+
+以下为截至 2026-10-01 的验证记录，不代表 M6–M10 已验收：
+
+- DGX 全量导入：36,307 文件、17 个链接、593 个 SQLite 一致性备份已核验。
+- 选定历史 M6 批次的 136 次实际尝试已逐运行独立复算，零复算错误、零模型调用；其中 132 次完整、8 次确认失败（两个维度可重叠）。这不是完整历史 M6 Gate 重验。
+- Ollama 0.33.3 和 1,209 个模型 manifest/blob 条目已核验；模型 manifest 为 `464021588235c36e23bd48a480c6c306ed1fc1e0619e97998267494a1be68de4`。
+- 三 profile 工具/拒绝恢复及约 14.3K 输入检查通过。完整 VM 正常业务诊断：订单、退款通过；Markdown 有模型参数错误的未完成尝试。
+- Linux 回归执行 174 项，170 项通过、4 项跳过；独立 UID 读取权威数据库被拒绝。
+- 现有诊断容器使用 host networking，并未完成本文件所要求的 agent 网络隔离；独立容器/卷自动编排、跨运行接口拒绝、角色模型生命周期及正式 Mac Gate 尚待实施和验收。
+- Mac M6 正式运行数为 0；156 次计划是草案。M7、M8、M9、M10 正式验收均为 pending。
+
+详见 [迁移记录](docs/mac-migration.md) 与 [脱敏进度](milestones/mac-migration/progress.json)。

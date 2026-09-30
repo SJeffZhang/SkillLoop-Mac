@@ -13,7 +13,7 @@ from skillloop.discovery.mutation import RenderedMutation
 
 from .client import ProxyClient, ProxyRPCError
 from .evidence import PrivateTrace, TraceLimit
-from .gateway import GatewayError, SGLangGateway
+from .gateway import GatewayError, OllamaGateway, SGLangGateway
 
 
 def _tool(name: str, description: str, properties: dict[str, Any]) -> dict[str, Any]:
@@ -47,7 +47,7 @@ def tool_specs(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 class AgentAdapter:
-    def __init__(self, *, proxy: ProxyClient, gateway: SGLangGateway,
+    def __init__(self, *, proxy: ProxyClient, gateway: SGLangGateway | OllamaGateway,
                  private_root: Path, registry: FamilyRegistry | None = None):
         self.proxy = proxy
         self.gateway = gateway

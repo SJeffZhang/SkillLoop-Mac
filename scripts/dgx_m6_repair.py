@@ -165,7 +165,8 @@ def append_history(compiled: dict, entries: list[dict]) -> tuple[dict, list[dict
 
 
 def execution_plan(compiled: dict, *, campaign: str, parent: dict | None = None,
-                   retry: tuple[str, int] | None = None, submitted_digest: str | None = None) -> dict:
+                   retry: tuple[str, int] | None = None, submitted_digest: str | None = None,
+                   runtime_config: dict | None = None) -> dict:
     items = copy.deepcopy(parent["body"]["items"]) if parent else [
         {"item_id": f"{case['body']['case_id']}.{rep}", "subject_digest": compiled["subject_digest"],
          "case_digest": case["digest"], "repetition_index": rep, "phase": "dev",
@@ -200,7 +201,7 @@ def execution_plan(compiled: dict, *, campaign: str, parent: dict | None = None,
     plan = make_envelope("ExecutionPlan", {"campaign_id": campaign,
         "revision": parent["body"]["revision"] + 1 if parent else 1,
         "parent_plan_digest": parent["digest"] if parent else None,
-        "suite_digest": compiled["suite"]["digest"], "config_digest": digest_jcs(CONFIG),
+        "suite_digest": compiled["suite"]["digest"], "config_digest": digest_jcs(CONFIG if runtime_config is None else runtime_config),
         "phase": "dev", "items": items, "reserved_rollouts": rollouts,
         "reserved_execution_ms": rollouts * VICTIM_BOUND * 1000,
         "reserved_auxiliary_ms": 3600000, "terminal_reserve_ms": 600000,

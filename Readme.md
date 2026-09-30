@@ -1,12 +1,30 @@
-# SkillLoop
+# SkillLoop Mac 实验
+
+本仓库是 [JiahaoTanXX/SkillLoop](https://github.com/JiahaoTanXX/SkillLoop) 的 fork，由 [SJeffZhang](https://github.com/SJeffZhang) 维护 Mac 实验。DGX 比赛成果继续作为独立历史记录。
 
 ### 让 Agent Skill 从“会说”走向“可验证、可回归、可治理”
 
 SkillLoop 是一个面向 AI Agent Skill 的安全评测与 CI 平台原型。它把自然语言 Skill 放进可控的业务任务中，通过**语义扫描、对抗测试、受控工具执行、证据判定和自动修补回归**，回答一个关键问题：Agent 不只说自己做对了，它真的完成任务了吗？
 
-项目面向 NVIDIA DGX Spark 构建，结合本地隔离扫描、DGX 上的 Qwen 推理和可审计的工具代理，为 Agent Skill 提供从发现风险到验证改进的完整工程闭环。
+项目最初面向 NVIDIA DGX Spark 构建。本 fork 使用 Mac 原生 Ollama/Metal 与 `qwen3.8:27b-mxfp8`，在 Docker Desktop ARM64 Linux VM 中推进 M6–M10。Mac 与 DGX 的结果使用不同部署身份。
 
 > **SkillLoop：让 Agent 的能力可测量，让安全结论有证据。**
+
+## Mac 实验方案与状态
+
+当前需求入口：[Mac PRD](SkillLoop-PRD-Mac.zh-CN.md)；配置：[Mac 容器隔离规格](specs/mac/README.md)；执行记录：[迁移记录](docs/mac-migration.md)。
+
+- 每次 agent 测试新建容器、独立工作卷与运行身份；仅挂当前实例输入，经受限 Unix socket 调用模型与业务工具。
+- agent 不挂载权威 SQLite、完整私有题库、其他运行卷或 Docker socket；采用非 root、只读文件系统、零 capabilities、禁止提权和 seccomp。
+- Mac 配置不要求 AppArmor。容器共享 VM 内核，隔离边界需要实测，不宣称完美隔离。
+- Ollama 权重可只读共享；开发与保护阶段分别管理模型服务生命周期、缓存和私有日志。
+- 历史结果继承，不重跑 DGX 已完成配置；新 Ollama 配置需完成自己的配对实验和独立 Gate。
+
+截至 2026-10-01：历史 136 次尝试已独立逐运行复算（零错误、零模型调用），其中 132 次完整、8 次确认失败；三个 profile 的工具/拒绝恢复与 16K 大输入检查通过。完整 VM 正常业务诊断中订单、退款通过，Markdown 存在未完成尝试。Linux 回归 170 项通过、4 项跳过。
+
+**M6–M10 正式验收尚未完成。** M6 新配置的 156 次配对计划仍为待准入草案；诊断 host networking 尚需替换为受限接口，Mac Gate、scanner 与角色隔离仍需实施。详细进度见 [progress.json](milestones/mac-migration/progress.json)。
+
+Git 只保存源码和脱敏记录；`local-data/`、模型、原始 trace、题库、SQLite/WAL 与凭据保存在私有目录。
 
 ## 为什么需要 SkillLoop
 
@@ -39,7 +57,7 @@ flowchart LR
 
 ### Qwen 驱动的语义风险发现
 
-SkillLoop 将离线 SkillSpector 扫描与 Qwen 语义推理结合起来：扫描结果映射到已登记的风险目标，再围绕具体发现构造攻击文本。扫描器运行在隔离环境中，通过受限桥接与 DGX 上的模型服务交互，兼顾语义分析能力与运行边界。
+SkillLoop 将离线 SkillSpector 扫描与 Qwen 语义推理结合起来：扫描结果映射到已登记的风险目标，再围绕具体发现构造攻击文本。扫描器运行在隔离环境中，通过受限桥接与部署所固定的模型服务交互，兼顾语义分析能力与运行边界。
 
 ### 从“提示注入”到“业务影响”的可验证评测
 

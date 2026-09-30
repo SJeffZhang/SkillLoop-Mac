@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
@@ -149,6 +150,94 @@ class ExactDockerTokenizer:
         return count
 
 
+class ExactLocalTokenizer:
+    """Offline tokenizer for a pinned local model snapshot inside the Linux VM."""
+
+    def __init__(self, model_path: str):
+        if not os.path.isdir(model_path):
+            raise GatewayError("tokenizer_snapshot_missing")
+        from transformers import AutoTokenizer
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            model_path, local_files_only=True, trust_remote_code=True)
+        self._text_counts: dict[str, int] = {}
+
+    def count(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+              *, enable_thinking: bool = False) -> int:
+        # Ollama's tool calls are represented by the same Qwen template data,
+        # with OpenAI-style string arguments normalized before tokenization.
+        messages = json.loads(json.dumps(messages, ensure_ascii=False))
+        for message in messages:
+            for call in message.get("tool_calls") or []:
+                function = call.get("function", call)
+                if isinstance(function.get("arguments"), str):
+                    function["arguments"] = json.loads(function["arguments"])
+                # The native Qwen renderer uses compact Go JSON here.
+                for name, value in function.get("arguments", {}).items():
+                    if isinstance(value, (dict, list)):
+                        rendered = json.dumps(value, ensure_ascii=False,
+                            sort_keys=True, separators=(",", ":"), allow_nan=False)
+                        for character, escaped in (("&", "\\u0026"), ("<", "\\u003c"),
+                                                   (">", "\\u003e"), ("\u2028", "\\u2028"),
+                                                   ("\u2029", "\\u2029")):
+                            rendered = rendered.replace(character, escaped)
+                        function["arguments"][name] = rendered
+        ids = self._tokenizer.apply_chat_template(
+            messages, tools=self.ollama_tools(tools), tokenize=True, add_generation_prompt=True,
+            enable_thinking=enable_thinking)
+        return len(ids["input_ids"]) if hasattr(ids, "keys") else len(ids)
+
+    @staticmethod
+    def ollama_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Mirror pinned Ollama 0.33.3 api/types.go JSON field order.
+
+        Unsupported schema keywords are dropped by the provider. The Proxy
+        still enforces the original schema; this mirrors only model rendering.
+        """
+        def property_schema(value):
+            result = {}
+            for key in ("anyOf", "type", "items", "description", "enum", "properties", "required"):
+                item = value.get(key)
+                if not item:
+                    continue
+                if key == "anyOf":
+                    item = [property_schema(row) for row in item]
+                elif key == "properties":
+                    item = {name: property_schema(row) for name, row in item.items()}
+                elif key == "type" and isinstance(item, list) and len(item) == 1:
+                    item = item[0]
+                result[key] = item
+            return result
+
+        normalized = []
+        for tool in tools:
+            function = tool["function"]
+            source = function.get("parameters", {})
+            parameters = {"type": source.get("type", "")}
+            for key in ("$defs", "items", "required"):
+                if source.get(key):
+                    parameters[key] = source[key]
+            properties = source.get("properties")
+            parameters["properties"] = ({name: property_schema(row) for name, row in properties.items()}
+                                         if properties is not None else None)
+            body = {"name": function["name"]}
+            if function.get("description"):
+                body["description"] = function["description"]
+            body["parameters"] = parameters
+            normalized.append({"type": tool.get("type", ""),
+                               **({"items": tool["items"]} if tool.get("items") else {}),
+                               "function": body})
+        return normalized
+
+    def count_text(self, text: str) -> int:
+        if text not in self._text_counts:
+            self._text_counts[text] = len(self._tokenizer.encode(
+                text, add_special_tokens=False))
+        return self._text_counts[text]
+
+    def close(self) -> None:
+        self._text_counts.clear()
+
+
 class SGLangGateway:
     def __init__(self, endpoint: str, tokenizer: ExactDockerTokenizer,
                  *, max_context_tokens: int = 16_384, max_output_tokens: int = 2_048,
@@ -204,3 +293,115 @@ class SGLangGateway:
         if any(choice.get("finish_reason") == "length" for choice in parsed.get("choices", [])):
             raise GatewayError("output_token_limit", response=parsed)
         return parsed, prompt_tokens, time.monotonic() - started
+
+
+class OllamaGateway:
+    """Native Ollama chat adapter with a deployment-specific token calibration.
+
+    The tokenizer counts the pinned model's chat template. A calibration offset
+    must be measured against Ollama's prompt_eval_count before formal runs.
+    Every response checks that calibration again and fails closed on drift.
+    """
+
+    def __init__(self, endpoint: str, tokenizer: ExactDockerTokenizer, *,
+                 model: str = "qwen3.8:27b-mxfp8", template_overhead_tokens: int | None = None,
+                 max_context_tokens: int = 16_384, max_output_tokens: int = 2_048,
+                 timeout_seconds: float = 180):
+        parsed = urlparse(endpoint)
+        if parsed.scheme != "http" or parsed.hostname not in {
+                "127.0.0.1", "localhost", "host.docker.internal"}:
+            raise GatewayError("local_endpoint_required")
+        if not model or not model.startswith("qwen3.8:"):
+            raise GatewayError("model_identity_invalid")
+        self.endpoint = endpoint.rstrip("/")
+        self.tokenizer = tokenizer
+        self.model = model
+        self.template_overhead_tokens = template_overhead_tokens
+        self.max_context_tokens = max_context_tokens
+        self.max_output_tokens = max_output_tokens
+        self.timeout_seconds = timeout_seconds
+
+    def count_final(self, text: str) -> int:
+        return self.tokenizer.count_text(text)
+
+    @staticmethod
+    def _ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted = []
+        tool_names = {}
+        for message in messages:
+            item = dict(message)
+            if item["role"] == "assistant" and item.get("tool_calls"):
+                calls = []
+                for call in item["tool_calls"]:
+                    function = dict(call["function"])
+                    if isinstance(function.get("arguments"), str):
+                        function["arguments"] = json.loads(function["arguments"])
+                    tool_names[call["id"]] = function["name"]
+                    calls.append({"function": function})
+                item["tool_calls"] = calls
+            elif item["role"] == "tool":
+                call_id = item.pop("tool_call_id", None)
+                if call_id not in tool_names:
+                    raise GatewayError("tool_call_identity_missing")
+                item["tool_name"] = tool_names[call_id]
+            converted.append(item)
+        return converted
+
+    def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+                 *, remaining_seconds: float) -> tuple[dict[str, Any], int, float]:
+        if self.template_overhead_tokens is None:
+            raise GatewayError("ollama_token_calibration_required")
+        started = time.monotonic()
+        prompt_tokens = self.tokenizer.count(messages, tools,
+            enable_thinking=False) + self.template_overhead_tokens
+        if prompt_tokens < 0 or prompt_tokens + self.max_output_tokens > self.max_context_tokens:
+            raise GatewayError("context_exceeded")
+        remaining_seconds -= time.monotonic() - started
+        if remaining_seconds <= 0:
+            raise GatewayError("run_deadline")
+        payload = {"model": self.model, "messages": self._ollama_messages(messages),
+                   "tools": tools, "stream": False, "think": False,
+                   "options": {"temperature": 1.0, "top_p": 0.95,
+                               "num_ctx": self.max_context_tokens,
+                               "num_predict": self.max_output_tokens}}
+        body = json.dumps(payload, ensure_ascii=False).encode()
+        request = urllib.request.Request(self.endpoint + "/api/chat", data=body,
+                                         headers={"Content-Type": "application/json"})
+        model_started = time.monotonic()
+        try:
+            with urllib.request.urlopen(request, timeout=min(self.timeout_seconds, remaining_seconds)) as response:
+                parsed = decode_json(response.read(4_194_305))
+        except (TimeoutError, urllib.error.URLError) as exc:
+            raise GatewayError("provider_timeout") from exc
+        if type(parsed) is not dict or parsed.get("model") != self.model:
+            raise GatewayError("model_identity_mismatch", response=parsed)
+        if parsed.get("done_reason") != "stop":
+            raise GatewayError("model_incomplete", response=parsed)
+        if parsed.get("prompt_eval_count") != prompt_tokens:
+            raise GatewayError("tokenizer_mismatch", response=parsed)
+        output_tokens = parsed.get("eval_count")
+        if type(output_tokens) is not int or output_tokens < 0 or output_tokens >= self.max_output_tokens:
+            raise GatewayError("output_token_limit", response=parsed)
+        native = parsed.get("message")
+        if type(native) is not dict or native.get("role") != "assistant":
+            raise GatewayError("invalid_model_response", response=parsed)
+        if native.get("thinking"):
+            raise GatewayError("thinking_mode_mismatch", response=parsed)
+        tool_calls = []
+        for call in native.get("tool_calls") or []:
+            function = call.get("function") if isinstance(call, dict) else None
+            if not isinstance(function, dict) or not isinstance(function.get("name"), str):
+                raise GatewayError("invalid_model_tool_call", response=parsed)
+            tool_calls.append({"id": "call_" + uuid.uuid4().hex, "type": "function",
+                "function": {"name": function["name"],
+                             "arguments": json.dumps(function.get("arguments", {}), ensure_ascii=False)}})
+        result = {"id": "chatcmpl_" + uuid.uuid4().hex, "model": self.model,
+                  "choices": [{"index": 0, "message": {"role": "assistant",
+                      "content": native.get("content") or "", "tool_calls": tool_calls},
+                      "finish_reason": "tool_calls" if tool_calls else "stop"}],
+                  "usage": {"prompt_tokens": prompt_tokens,
+                            "completion_tokens": output_tokens,
+                            "total_tokens": prompt_tokens + output_tokens,
+                            "reasoning_tokens": 0},
+                  "backend_response": parsed}
+        return result, prompt_tokens, time.monotonic() - model_started

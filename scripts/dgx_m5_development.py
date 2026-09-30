@@ -21,7 +21,7 @@ from skillloop.proxy.server import ProxyServer
 from skillloop.proxy.store import ProxyStore
 from skillloop.runtime.adapter import AgentAdapter
 from skillloop.runtime.client import ProxyClient
-from skillloop.runtime.gateway import ExactDockerTokenizer, SGLangGateway
+from skillloop.runtime.gateway import ExactDockerTokenizer, ExactLocalTokenizer, OllamaGateway, SGLangGateway
 from skillloop.families.task_world import fixture, stamp
 
 
@@ -33,6 +33,7 @@ def run_one(case_id: str, repetition: int, output: Path, attempt_index: int = 0,
             deployment_epoch: str = "m5-development-1",
             gateway_url: str = "http://127.0.0.1:30000",
             tokenizer_container: str = "skillloop-m4-sglang",
+            gateway_backend: str = "sglang",
             approval_factory_digest: str | None = None,
             runtime_executor=None, runtime_uid: int | None = None) -> dict:
     profile_id = compiled_suite["profile_id"] if compiled_suite else case_id.split(".")[0]
@@ -55,7 +56,8 @@ def run_one(case_id: str, repetition: int, output: Path, attempt_index: int = 0,
     skill_bytes = load_example_skill(profile_id, root=skill_root)
     if digest_bytes(skill_bytes) != compiled["skill_digest"]:
         raise ValueError("compiled_subject_mismatch")
-    tokenizer = ExactDockerTokenizer(tokenizer_container)
+    tokenizer = (ExactLocalTokenizer(config["tokenizer_path"]) if gateway_backend == "ollama"
+                 else ExactDockerTokenizer(tokenizer_container))
     mutation_spec = compiled["mutations"].get(case_id)
     mutation = (compile_mutation(mutation_spec, source_bytes=inputs["notes"],
                                  profile_id=profile_id, count_tokens=tokenizer.count_text)
@@ -106,12 +108,22 @@ def run_one(case_id: str, repetition: int, output: Path, attempt_index: int = 0,
             if runtime_executor is not None:
                 result = runtime_executor(output, profile_id, skill_bytes, request, binding, config, mutation, attempt_index, deployment_epoch)
             else:
-                result = AgentAdapter(proxy=ProxyClient(output / "sockets"),
-                    gateway=SGLangGateway(gateway_url, tokenizer,
+                if gateway_backend == "ollama":
+                    gateway = OllamaGateway(gateway_url, tokenizer,
+                        model=config["model_id"],
+                        template_overhead_tokens=config.get("ollama_template_overhead_tokens"),
+                        max_context_tokens=config.get("max_context_tokens", 16384),
+                        max_output_tokens=config.get("max_output_tokens", 2048),
+                        timeout_seconds=config.get("provider_timeout_seconds", 180))
+                elif gateway_backend == "sglang":
+                    gateway = SGLangGateway(gateway_url, tokenizer,
                         enable_thinking=config.get("thinking", True),
                         max_context_tokens=config.get("max_context_tokens", 16384),
                         max_output_tokens=config.get("max_output_tokens", 2048),
-                        timeout_seconds=config.get("provider_timeout_seconds", 180)),
+                        timeout_seconds=config.get("provider_timeout_seconds", 180))
+                else:
+                    raise ValueError("unknown_gateway_backend")
+                result = AgentAdapter(proxy=ProxyClient(output / "sockets"), gateway=gateway,
                     private_root=output / "evidence").run(
                     profile_id=profile_id, skill_bytes=skill_bytes, run_request=request,
                     task_binding=binding, fence=1, trust_revision=1,

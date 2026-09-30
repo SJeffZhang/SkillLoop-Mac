@@ -2,6 +2,8 @@
 
 版本：V2.2 · 2026-09-24 · 协议主版本：4。
 
+> 本 Mac fork 的部署变更见 [Mac PRD](SkillLoop-PRD-Mac.zh-CN.md)：采用原生 Ollama 与每次运行独立容器，Mac 不要求 AppArmor。下文 DGX 模型与部署要求保留为历史基线；业务和证据语义继续适用。
+
 依据：[V2.1 工程就绪审查 R01–R42](reviews/v2.1-2026-09-23/REVIEW.zh-CN.md)，审查基线 `c8b61e4bba418c4fb03780df1911ba236878384a`，review 文件 SHA-256 `b2517d55c8a95ce6fe19fb8dc3dfaa1a17d9c8a6ff69b9434a278f863736ea77`。用户已确认：首版跨两个任务家族；保护题库自动生成、检查、轮换；严格环境下证明任务恢复并检测模拟秘密泄漏；模型固定 `Qwen/Qwen3.8-27B-FP8`，后端可推荐。
 
 本次交付是 PRD、完整规范附件和可执行的参考检查。生产 Agent、DGX 部署、真实攻防与 GitHub 服务的验收状态单独记录；规范检查通过不会把这些状态改为通过。[附件入口](specs/v2.2/README.md)与本文件一起构成版本规范。
