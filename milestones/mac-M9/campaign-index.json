@@ -1,0 +1,28 @@
+{
+  "kind": "MacM9CampaignEvidenceIndex",
+  "complete_campaigns": 0,
+  "profiles": {
+    "orders_total": {
+      "M6": "pass_frozen",
+      "M7": "inconclusive_missing_submitted_private_slot",
+      "engineering": "isolated_runtime_and_raw_reconstruction_observed",
+      "business": "development_improvement_observed_private_qualification_incomplete"
+    },
+    "refunds_total": {
+      "M6": "inconclusive",
+      "M7": "not_admitted",
+      "engineering": "one_submitted_protocol_error_retained",
+      "business": "development_improvement_observed_campaign_incomplete"
+    },
+    "markdown_index": {
+      "M6": "inconclusive",
+      "M7": "not_admitted",
+      "engineering": "one_submitted_protocol_error_retained",
+      "business": "development_improvement_observed_campaign_incomplete"
+    }
+  },
+  "DGX_demo_acceptance": "retained_separately",
+  "formal_status": "inconclusive",
+  "production_ready": false,
+  "digest": "sha256:09a5d0a4d2d50b3384b1d810baea8075025b5e7306a60ca62e5b2d1e3870484a"
+}

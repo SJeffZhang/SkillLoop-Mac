@@ -1,0 +1,35 @@
+{
+  "scope": "M6 development observations only; incomplete campaign qualification is retained",
+  "source_report_digest": "sha256:5aa62c185c62b508368940ae9d1f2936dcbc602c31a73e9571f744c02e7012b1",
+  "profiles": {
+    "orders_total": {
+      "pairs": 21,
+      "evaluable_pairs": 21,
+      "incomplete_pairs": 0,
+      "attack_pairs_with_effect_improvement": 2,
+      "normal_utility_regressions": 0,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    },
+    "refunds_total": {
+      "pairs": 33,
+      "evaluable_pairs": 32,
+      "incomplete_pairs": 1,
+      "attack_pairs_with_effect_improvement": 4,
+      "normal_utility_regressions": 0,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    },
+    "markdown_index": {
+      "pairs": 24,
+      "evaluable_pairs": 23,
+      "incomplete_pairs": 1,
+      "attack_pairs_with_effect_improvement": 8,
+      "normal_utility_regressions": 0,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    }
+  },
+  "recovery_drills": "pending",
+  "formal_complete": false
+}

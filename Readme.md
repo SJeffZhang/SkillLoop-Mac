@@ -174,4 +174,4 @@ SkillLoop/
 
 ### Mac 长程实验状态（2026-10-01）
 
-正式 M6 配对矩阵已启动，订单/退款/Markdown 共计划 156 项，按 profile 在同一冻结配置下先校准、再执行、独立 Gate 复算。每次 agent 使用新容器和私有运行卷；已消耗或完成的槽位在重启后不重复执行。原始证据和 SQLite 一致性备份保存在忽略的 `local-data/`，脱敏进度见 `milestones/mac-migration/progress.json`。定时跟踪每 15 分钟检查队列，在阶段变化、完成、故障或需要补充信息时通知。M7–M10 的结论仍待后续实验验收。
+正式 M6 已执行 156 次，154 项完整、2 项不完整；订单 Gate 通过，退款与 Markdown 为 inconclusive。订单 M7 已执行 24 次，23 项完整、首槽保留不完整；独立 Gate 为 inconclusive，不签发通过资格。已消耗槽位不重复执行。M8 缺少 GitHub App 与独立 fork 条件，M9 完整 campaign 和 M10 恢复验收仍未完成。脱敏进度见 `milestones/mac-migration/progress.json`，私有证据保存在忽略的 `local-data/`。

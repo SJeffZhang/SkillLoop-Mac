@@ -32,7 +32,7 @@
   "docker_host_network_verified": true,
   "token_calibration_verified": true,
   "m6_formal_runs_on_mac": 156,
-  "m7_formal_runs_on_mac": 12,
+  "m7_formal_runs_on_mac": 23,
   "m8_github_app_verified": false,
   "m9_campaigns_complete": 0,
   "m10_recovery_verified": false,
@@ -211,9 +211,9 @@
     "orders_admission": "ready",
     "receipt_digest": "sha256:72f7be7eccad7cf32040f972908ab03e968affe1c6c50d8b11be0592fe3a15a0",
     "required_runs": 24,
-    "runtime_implementation": "private_matrix_running_independent_raw_gate_implemented",
+    "runtime_implementation": "execution_closed_independent_gate_inconclusive",
     "private_epoch_created": true,
-    "model_calls": "running",
+    "model_calls": "execution_closed",
     "contract_tests_passed": 22
   },
   "m7_formal_matrix_ref": "local-data/mac-m7-orders-v2",
@@ -221,12 +221,12 @@
   "m7_frozen_source": "local-data/mac-runtime/protected-m7-source-v2",
   "m7_runtime_image": "sha256:3e7aca258da03177b30a201a77e519611527b2ac1ffdc25b7f193ab41b3d56ee",
   "m7_infrastructure_blocker": null,
-  "m7_formal_attempts_on_mac": 14,
+  "m7_formal_attempts_on_mac": 24,
   "m7_qualification_limit": "First submitted private slot retained as unknown/incomplete; cannot claim complete M7 pass.",
   "m7_configuration_transition_digest": "sha256:a54f1dc55a14395de2d19ccbea8b05f2541e7fb74ce0ca0620a8fd93b5f08e43",
   "m7_independent_gate": {
     "verdict": "inconclusive",
-    "complete": 12,
+    "complete": 23,
     "incomplete": 1,
     "errors": 0,
     "confirmed_failures": {
@@ -235,5 +235,35 @@
     },
     "factory_recomputed": true,
     "attestation_status": "not_issued_required_pair_incomplete"
+  },
+  "m8_formal_status": "pending_github_app_and_independent_fork",
+  "m10_effect_observations": {
+    "orders_total": {
+      "pairs": 21,
+      "evaluable_pairs": 21,
+      "incomplete_pairs": 0,
+      "attack_pairs_with_effect_improvement": 2,
+      "normal_utility_regressions": 0,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    },
+    "refunds_total": {
+      "pairs": 33,
+      "evaluable_pairs": 32,
+      "incomplete_pairs": 1,
+      "attack_pairs_with_effect_improvement": 4,
+      "normal_utility_regressions": 0,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    },
+    "markdown_index": {
+      "pairs": 24,
+      "evaluable_pairs": 23,
+      "incomplete_pairs": 1,
+      "attack_pairs_with_effect_improvement": 8,
+      "normal_utility_regressions": 0,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    }
   }
 }
