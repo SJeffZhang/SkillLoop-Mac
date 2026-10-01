@@ -1,0 +1,16 @@
+{
+  "stage": "M7",
+  "profile": "markdown_index",
+  "verdict": "pending",
+  "phase": "running",
+  "required_runs": 24,
+  "complete": 11,
+  "incomplete": 0,
+  "confirmed_failures": 0,
+  "actual_completed_attempts": 11,
+  "manifest_digest": "sha256:535e239efb4f1b4cf47d03ed2af390105a5470861bd4a55415534dccdc4316b3",
+  "deployment_epoch": "mac-m7-markdown-protection-1",
+  "legacy_config_id_label": "mac-m7-ollama-qwen38-mxfp8-orders-v1",
+  "inherited_original_clock": true,
+  "production_ready": false
+}
