@@ -1,5 +1,5 @@
 {
-  "status": "calibration_running",
+  "status": "refunds_pass_markdown_calibrating",
   "config_id": "mac-m6-ollama-qwen38-mxfp8-supplemental-v1",
   "manifest_digest": "sha256:34eaa48bcaef6f9d5487a73c31bb26ab119658d14c80e74325ffa838b6030d81",
   "image": "sha256:2d8d0c30fbf9b38fb5cb5e242822522985242d170b0d671eabf0a17e228cf1cc",
@@ -15,5 +15,29 @@
   "tests": {
     "host": 15,
     "frozen_container": 15
+  },
+  "observed_stats": {
+    "refunds_total": {
+      "complete": 66,
+      "incomplete": 0,
+      "submitted_failures": 5,
+      "candidate_failures": 0,
+      "formal_attempts": 66,
+      "total_attempts": 68
+    },
+    "markdown_index": {
+      "formal_attempts": 0,
+      "total_attempts": 2
+    }
+  },
+  "independent_gates": {
+    "refunds_total": {
+      "verdict": "pass",
+      "freeze": "frozen",
+      "errors": 0
+    },
+    "markdown_index": {
+      "verdict": "not_yet_evaluated"
+    }
   }
 }
