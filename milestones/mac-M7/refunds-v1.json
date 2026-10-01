@@ -1,0 +1,22 @@
+{
+  "stage": "M7",
+  "profile": "refunds_total",
+  "verdict": "pass",
+  "required_runs": 24,
+  "complete": 24,
+  "incomplete": 0,
+  "confirmed_private_failures": {
+    "submitted": 0,
+    "finalist": 0
+  },
+  "api4_role_verdicts": {
+    "submitted": "fail",
+    "finalist": "pass"
+  },
+  "attestation_status": "validated_local_authority",
+  "gate_digest": "sha256:acf9de91015eaf037d2ba984fb24e4a278028b2fede645dd20e488112823f759",
+  "gate_implementation_digest": "sha256:e54e7fcd55a9cc490a79b0a87cd41dc215e4de30f47282a012dea7f230203b26",
+  "additional_model_calls": 0,
+  "production_ready": false,
+  "qualification_scope": "local Mac experiment; GitHub App/CI deployment pending"
+}

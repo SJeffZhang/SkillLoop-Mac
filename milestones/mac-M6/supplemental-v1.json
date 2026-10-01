@@ -1,5 +1,5 @@
 {
-  "status": "refunds_pass_markdown_calibrating",
+  "status": "closed",
   "config_id": "mac-m6-ollama-qwen38-mxfp8-supplemental-v1",
   "manifest_digest": "sha256:34eaa48bcaef6f9d5487a73c31bb26ab119658d14c80e74325ffa838b6030d81",
   "image": "sha256:2d8d0c30fbf9b38fb5cb5e242822522985242d170b0d671eabf0a17e228cf1cc",
@@ -26,8 +26,11 @@
       "total_attempts": 68
     },
     "markdown_index": {
-      "formal_attempts": 0,
-      "total_attempts": 2
+      "complete": 46,
+      "incomplete": 2,
+      "formal_attempts": 48,
+      "total_attempts": 50,
+      "candidate_failures": 0
     }
   },
   "independent_gates": {
@@ -37,7 +40,21 @@
       "errors": 0
     },
     "markdown_index": {
-      "verdict": "not_yet_evaluated"
+      "verdict": "inconclusive",
+      "freeze": "not_frozen",
+      "errors": 0
     }
+  },
+  "next_activity": {
+    "profile": "refunds_total",
+    "stage": "M7",
+    "required_runs": 24,
+    "status": "M7_gate_pass_api4_validated",
+    "port": 11438,
+    "private_evidence_in_git": false,
+    "complete": 24,
+    "incomplete": 0,
+    "confirmed_failures": 0,
+    "independent_verdict": "pass"
   }
 }

@@ -14,3 +14,17 @@ class PrivateGateTests(unittest.TestCase):
     def test_confirmed_finalist_failure_is_sticky(self):
         self.assertEqual(paired_verdict(True,[],['missing']), 'fail')
     def test_complete_verified_pair_passes(self):self.assertEqual(paired_verdict(False,[],[]),'pass')
+
+class AttestationTests(unittest.TestCase):
+    def test_chain_refuses_empty_execution_index(self):
+        from scripts.mac_m7_gate import api4_chain
+        with self.assertRaisesRegex(ValueError,'attestation_requires_execution_records'):
+            api4_chain({}, {}, [], {}, {}, {})
+
+class PairedApi4Tests(unittest.TestCase):
+    def test_failed_baseline_does_not_disqualify_passing_finalist(self):
+        from scripts.mac_m7_gate import api4_pair_verdict
+        self.assertEqual(api4_pair_verdict({'submitted':'fail','finalist':'pass'}),'pass')
+    def test_incomplete_baseline_blocks_qualification(self):
+        from scripts.mac_m7_gate import api4_pair_verdict
+        self.assertEqual(api4_pair_verdict({'submitted':'inconclusive','finalist':'pass'}),'inconclusive')

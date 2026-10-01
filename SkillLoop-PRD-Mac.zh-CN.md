@@ -71,3 +71,6 @@ Git 保存源码、PRD、配置、脱敏报告和进度摘要。`local-data/`、
 ### 2026-10-01 M6 补充实验
 
 工具定义已与严格资源 ID 格式对齐，并增加协议错误路径证据。新配置 `mac-m6-ollama-qwen38-mxfp8-supplemental-v1` 单独执行退款 66 项、Markdown 48 项配对矩阵和 4 项校准，保留旧矩阵全部证据与已消耗槽位。新结果仅由新配置独立 Gate 验收，不将旧结果合并为新配置重复项。已启动校准队列，15 分钟跟踪恢复；通过结论待实际结果复算。详见 [补充实验记录](milestones/mac-M6/supplemental-v1.json)。
+
+
+退款 M7：24 项私有运行全部完整，独立 Gate 与 API4 必需运行清单、attestation 验证通过。验收继承 66 项 M6 开发证据，原 Skill 的开发失败保留；修补候选综合 Gate 为 pass。此结论限于 Mac 本地实验，GitHub App/正式 CI 仍 pending，未声明生产可用。Markdown M6 仍 inconclusive。

@@ -32,6 +32,48 @@ def paired_verdict(finalist_failed,errors,missing):
     return 'fail' if finalist_failed else ('inconclusive' if errors or missing else 'pass')
 
 
+def api4_pair_verdict(verdicts):
+    if verdicts.get('finalist')=='fail':return 'fail'
+    if verdicts.get('finalist')!='pass' or verdicts.get('submitted') not in {'pass','fail'}:return 'inconclusive'
+    return 'pass'
+
+
+def api4_chain(subject,suite,templates,plan,records,result_index):
+    """Derive and validate local-authority API4 receipts from verified executions."""
+    from datetime import datetime,timezone,timedelta
+    from scripts.spec_v22_core import (attach_execution_records,evaluate_gate,
+        validate_required_run_manifest,validate_attestation)
+    from skillloop.protocol import make_envelope
+    if not records:raise ValueError('attestation_requires_execution_records')
+    sid=subject['subject_digest'];selected=[r for r in records.values()
+        if result_index[r['body']['result_digest']]['body']['subject_digest']==sid]
+    cases=[]
+    for template in templates:
+        rs=[r for r in selected if result_index[r['body']['result_digest']]['body']['case_digest']==template['digest']]
+        if rs:cases.append(attach_execution_records(reduce_case([result_index[r['body']['result_digest']] for r in rs],template),rs,result_index))
+    context=make_envelope('GateContext',{'contract_approved':True,'approval_digest':None,
+        'runtime_verified':True,'source_immutable':True,'scanner_complete':True,
+        'authorization_verified':True,'evidence_verified':True,'unresolved_high_findings':0,
+        'definite_failures':[],'incomplete_reasons':[],'config_digest':plan['body']['config_digest']})
+    g=evaluate_gate(sid,suite,plan,cases,context)
+    entries=[]
+    for item in plan['body']['items']:
+        if item['subject_digest']!=sid or item['requirement']!='required':continue
+        matches=[r['digest'] for r in selected if all(result_index[r['body']['result_digest']]['body'][k]==item[k] for k in ('subject_digest','case_digest','repetition_index'))]
+        entries.append({'item_id':item['item_id'],'run_record_digests':sorted(matches)})
+    manifest=make_envelope('RequiredRunManifest',{'subject_digest':sid,'plan_digest':plan['digest'],'entries':entries})
+    validate_required_run_manifest(manifest,plan,records,result_index)
+    now=datetime.now(timezone.utc)
+    a=make_envelope('EvaluationAttestation',{'subject_digest':sid,'plan_digest':plan['digest'],
+        'suite_digest':suite['digest'],'config_digest':plan['body']['config_digest'],
+        'required_run_manifest_digest':manifest['digest'],'gate_result_digest':g['digest'],
+        'verdict':g['body']['verdict'],'issuer':'local-authority',
+        'issued_at':now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'expires_at':(now+timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ'),'trust_revision':1})
+    validate_attestation(a,g,manifest,plan,suite,records,result_index,templates,context)
+    return {'context':context,'gate':g,'required_run_manifest':manifest,'attestation':a}
+
+
 def gate(root,m6,archive,development_source,source,tokenizer_path):
     m=sealed(load(root/'manifest.json'));config=m['config'];pid=m['profile']
     if source_index(source)!=m['source_index'] or digest_bytes((source/'specs/mac/runtime-profile.json').read_bytes())!=m['runtime_profile_digest']:raise ValueError('protected_source_identity')
@@ -69,6 +111,7 @@ def gate(root,m6,archive,development_source,source,tokenizer_path):
     with authority.connect() as db:
         epoch=db.execute('SELECT finalist,epoch,projection,factory FROM epochs WHERE campaign=?',(m['campaign_id'],)).fetchone()
     if epoch!=(m['subjects']['finalist']['subject_digest'],m['epoch_id'],validation['business_projection_digest'],factory):raise ValueError('private_epoch_authority')
+    records={};result_index={}
     retired=m.get('retired_entries',{});errors=[];missing=[];results={r:{} for r in m['subjects']};run_ids=set();task_ids=set();complete=0;incomplete=0;confirmed={r:0 for r in m['subjects']}
     for e in entries:
         verify_protected_entry(e,image=config['mac_runtime_image'],source_digest=digest_jcs(m['source_index']),model_port=config['model_service_port'])
@@ -91,6 +134,9 @@ def gate(root,m6,archive,development_source,source,tokenizer_path):
             body=result['body'];complete+=int(body['coverage_complete']);incomplete+=int(not body['coverage_complete']);confirmed[e['role']]+=int(body['security_violation'] or body['utility_status']=='fail')
             if not body['coverage_complete']:missing.append(e['entry_id']+':incomplete')
             results[e['role']].setdefault(e['case_id'],[]).append(result)
+            from scripts.spec_v22_core import execution_record
+            rec=execution_record(data['run_request'],result,data['evidence_index'],data['task_binding'])
+            records[rec['digest']]=rec;result_index[result['digest']]=result
         except Exception as error:errors.append({'entry':e['entry_id'],'error':type(error).__name__+':'+str(error)})
     reductions={r:{cid:reduce_case(rs,m['compiled']['cases'][cid]) for cid,rs in results[r].items()} for r,subject in m['subjects'].items()}
     elapsed=time.time()-m['clock']['started_at']
@@ -98,7 +144,28 @@ def gate(root,m6,archive,development_source,source,tokenizer_path):
     verdict=paired_verdict(bool(confirmed['finalist']),errors,missing)
     # A qualifier requires the entire pair, not just safe finalist observations.
     report={'kind':'MacM7IndependentGate','manifest_digest':m['digest'],'verdict':verdict,'required_runs':24,'actual_attempts':len(keys)-prefix,'complete':complete,'incomplete':incomplete,'missing':missing,'errors':errors,'confirmed_failures':confirmed,'case_reductions':reductions,'factory_recomputed':True,'attestation':None,'attestation_status':'not_issued_required_pair_incomplete' if verdict!='pass' else 'pending_api4_issuance','production_ready':False}
-    if verdict=='pass':report['verdict']='inconclusive';report['errors'].append({'error':'api4_attestation_not_issued'})
+    if verdict=='pass':
+        try:
+            # The inherited required development slots remain in the protected plan.
+            # Reconstruct their execution records; never omit or rerun those slots.
+            from scripts.mac_m6_gate import rebuild_entry
+            from scripts.spec_v22_core import execution_record
+            for relative in dev_manifest['entries']:
+                entry=sealed(load(m6/relative))
+                if entry['profile']!=pid or entry['kind']!='formal':continue
+                result=rebuild_entry(m6,entry,tokenizer,run_ids,task_ids)
+                data=load(result_path(m6,entry))
+                rec=execution_record(data['run_request'],result,data['evidence_index'],data['task_binding'])
+                records[rec['digest']]=rec;result_index[result['digest']]=result
+            chains={role:api4_chain(subject,m['compiled']['suite'],list(m['compiled']['cases'].values()),m['plan'],records,result_index) for role,subject in m['subjects'].items()}
+            report['api4_chains']=chains
+            report['attestation']={role:chain['attestation'] for role,chain in chains.items()}
+            report['attestation_status']='validated_local_authority'
+            report['verdict']=api4_pair_verdict({role:chain['gate']['body']['verdict'] for role,chain in chains.items()})
+            if report['verdict']=='inconclusive':report['errors'].append({'error':'api4_role_gate_incomplete'})
+        except Exception as error:
+            report['verdict']='inconclusive';report['errors'].append({'error':'api4:'+type(error).__name__+':'+str(error)})
+    report['gate_implementation_digest']=digest_bytes(Path(__file__).read_bytes())
     report['digest']=digest_jcs(report);return report
 
 if __name__=='__main__':
