@@ -205,9 +205,9 @@
     "orders_admission": "ready",
     "receipt_digest": "sha256:72f7be7eccad7cf32040f972908ab03e968affe1c6c50d8b11be0592fe3a15a0",
     "required_runs": 24,
-    "runtime_implementation": "private_entry_and_mac_plan_adaptation_implemented",
+    "runtime_implementation": "private_entry_plan_and_24_item_preparer_implemented",
     "private_epoch_created": false,
     "model_calls": 0,
-    "contract_tests_passed": 12
+    "contract_tests_passed": 13
   }
 }

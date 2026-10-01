@@ -15,7 +15,7 @@ Approved design: fresh agent containers, private VM volumes, network none, restr
 5. Reserve delivery and spending before dispatch. Unknown/delivered sessions permit evidence recovery only. Retain all incomplete results. Continue the original clock and budget; reject protection if the full remaining reserve does not fit.
 6. Independently reduce raw results, compare submitted/finalist on the same private suite, verify session audit, source/model lifecycle and permission probes, produce four-state Gate and attestation, then publish only a reviewed deidentified report.
 
-Status: admission ready; private entry and explicit Mac protected-plan profile implemented; 12 focused contract tests pass. Controller forwards only private input bytes and factory approval to the trusted run. Frozen source/image, private epoch, queue and independent Gate remain required; no protected model calls. Do not announce M7 started merely because admission is ready.
+Status: admission ready; private entry and explicit Mac protected-plan profile implemented; 13 focused contract tests pass. The private preparer now reconstructs M6 before admission, checks private factory freshness, carries the spending prefix and creates 24 sealed paired entries. It has not been invoked against a protected model lifecycle yet. Controller forwards only private input bytes and factory approval to the trusted run. Frozen source/image, private epoch, queue and independent Gate remain required; no protected model calls. Do not announce M7 started merely because admission is ready.
 
 ## Following stages
 
