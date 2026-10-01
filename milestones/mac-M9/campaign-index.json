@@ -1,6 +1,6 @@
 {
   "kind": "MacM9CampaignEvidenceIndex",
-  "complete_campaigns": 0,
+  "complete_campaigns": 1,
   "profiles": {
     "orders_total": {
       "M6": "pass_frozen",
@@ -9,20 +9,21 @@
       "business": "development_improvement_observed_private_qualification_incomplete"
     },
     "refunds_total": {
-      "M6": "inconclusive",
-      "M7": "not_admitted",
-      "engineering": "one_submitted_protocol_error_retained",
-      "business": "development_improvement_observed_campaign_incomplete"
+      "M6": "pass_frozen_supplemental_v1",
+      "M7": "pass_local_api4_validated",
+      "engineering": "complete_local_chain_independently_recomputed",
+      "business": "development_attack_effect_improvement_observed_private_attack_effect_not_observed"
     },
     "markdown_index": {
       "M6": "inconclusive",
       "M7": "not_admitted",
-      "engineering": "one_submitted_protocol_error_retained",
-      "business": "development_improvement_observed_campaign_incomplete"
+      "engineering": "two_supplemental_submitted_protocol_errors_retained",
+      "business": "attack_improvements_observed_normal_pair_incomplete_benefit_unconfirmed"
     }
   },
   "DGX_demo_acceptance": "retained_separately",
-  "formal_status": "inconclusive",
+  "formal_status": "inconclusive_two_profiles_incomplete",
   "production_ready": false,
-  "digest": "sha256:09a5d0a4d2d50b3384b1d810baea8075025b5e7306a60ca62e5b2d1e3870484a"
+  "count_scope": "local scan/development/repair/private protection evidence chains; formal GitHub CI pending",
+  "digest": "sha256:92beae1870715e8dd5dd01a8fd4f1b674781ab9a66fc6df0b6049e37f5a0f4a3"
 }

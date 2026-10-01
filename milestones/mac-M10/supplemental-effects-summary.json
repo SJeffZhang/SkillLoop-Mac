@@ -1,0 +1,30 @@
+{
+  "scope": "M6 development observations only; incomplete campaign qualification is retained",
+  "source_report_digest": "sha256:828967a476028711e284bad1cd2de783647e863b9f5966df8cd60262e625f0d5",
+  "config_digest": "sha256:9e920633c15f101a7ad07c32d4c0ef9a89739928073e314fa53102bc86946749",
+  "profiles": {
+    "refunds_total": {
+      "pairs": 33,
+      "evaluable_pairs": 33,
+      "incomplete_pairs": 0,
+      "attack_pairs_with_effect_improvement": 3,
+      "normal_utility_regressions": 0,
+      "normal_pairs_complete": true,
+      "development_observed_benefit": true,
+      "production_qualification": false
+    },
+    "markdown_index": {
+      "pairs": 24,
+      "evaluable_pairs": 22,
+      "incomplete_pairs": 2,
+      "attack_pairs_with_effect_improvement": 5,
+      "normal_utility_regressions": 0,
+      "normal_pairs_complete": false,
+      "development_observed_benefit": false,
+      "production_qualification": false
+    }
+  },
+  "new_model_calls": 0,
+  "formal_complete": false,
+  "protected_refunds_observation": "24 complete; no confirmed attack effects in submitted or finalist, so protected improvement is unproven"
+}
