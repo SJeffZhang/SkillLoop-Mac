@@ -8,6 +8,24 @@ from scripts.spec_v22_core import validate_suite
 
 def verify_inherited_candidate(root:Path,profile:str)->dict:
     def read(path):return json.loads(path.read_text())
+    if (root/'chained-repair.json').exists():
+        chain=read(root/'chained-repair.json')
+        if chain['digest']!=digest_jcs({k:v for k,v in chain.items() if k!='digest'}):raise ValueError('repair_chain_digest')
+        parent=Path(chain['parent_ref'])
+        if parent.resolve()==root.resolve() or (parent/'chained-repair.json').exists():raise ValueError('repair_chain_round_limit')
+        inherited=verify_inherited_candidate(parent,profile)
+        original=read(parent/'manifest.json');info=original['subjects'][profile]
+        first=read(parent/info['applied_proposal']/'application.json')
+        fs=read(parent/profile/'file-set.json')
+        current={'files':first['files'],'subject_digest':first['candidate_subject_digest'],'policies':{},**{k:fs[k] for k in ('obligation_digest','compiler_digest')}}
+        proposal=validate_envelope(read(root/'second-proposal.json'))
+        application=apply_proposal(proposal,current,[first['history_entry']],first['policy'])
+        if application!=read(root/'second-application.json') or load_example_skill(profile,root=root/'candidate')!=application['files']['SKILL.md'].encode():raise ValueError('repair_chain_application')
+        compiled=read(parent/profile/'compiled.json');compiled.update(subject_digest=application['candidate_subject_digest'],skill_digest=digest_bytes(application['files']['SKILL.md'].encode()))
+        if compiled!=read(root/profile/'compiled.json'):raise ValueError('repair_chain_suite')
+        expected=original.copy();expected['subjects']=dict(original['subjects']);expected['subjects'][profile]={**info,'generated_proposals':info['generated_proposals']+1,'repair_round':2,'candidate_bundle':application['candidate_bundle']}
+        if expected!=read(root/'manifest.json') or chain['parent_proof_digest']!=digest_jcs(inherited):raise ValueError('repair_chain_manifest')
+        return {**inherited,'scope':'explicit_second_round_local_patch','manifest_digest':digest_jcs(expected),'application_digest':digest_jcs(application),'proposal_digest':proposal['digest'],'candidate_subject_digest':application['candidate_subject_digest'],'repair_chain_digest':chain['digest'],'repair_rounds':2}
     manifest=read(root/'manifest.json');info=manifest['subjects'][profile]
     if info.get('status')!='applied' or info.get('repair_round',1)!=1 or info.get('parent_output'):
         raise ValueError('inherited_repair_scope_requires_explicit_chain')

@@ -1,0 +1,13 @@
+{
+  "status": "calibration_running",
+  "formal_runs": 48,
+  "capacity_runs": 2,
+  "repair_rounds": 2,
+  "scanner_high_findings": 0,
+  "scanner_critical_findings": 0,
+  "config_id": "mac-m6-ollama-qwen38-mxfp8-markdown-v3",
+  "candidate_subject_digest": "sha256:9465bfb2296d116b17bbab8238acc5d233765da739d044eae9a5496b69d8700d",
+  "manifest_digest": "sha256:c340e17ca8443cf9951ff47811ed297e48ed3b913a004b88841186b09e9304bf",
+  "old_results_preserved": true,
+  "formal_verdict": "pending"
+}

@@ -1,0 +1,16 @@
+{
+  "profile": "markdown_index",
+  "config_id": "mac-m6-ollama-qwen38-mxfp8-markdown-v2",
+  "formal_attempts": 48,
+  "capacity_attempts": 2,
+  "complete": 48,
+  "incomplete": 0,
+  "candidate_confirmed_failures": 0,
+  "dynamic_verdict": "pass",
+  "freeze_status": "not_frozen",
+  "blocking_scanner_rules": [
+    "P1",
+    "RA1"
+  ],
+  "M7": "not_admitted_unresolved_high_findings"
+}
