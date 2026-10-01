@@ -1,0 +1,18 @@
+{
+  "kind": "MacM8IndependentIntegrationReview",
+  "verified_profiles": [
+    "orders_total",
+    "refunds_total",
+    "markdown_index"
+  ],
+  "durable_receipt_digest": "sha256:4e8a7b2516534a0acdcb75021b00545bad90f0711063336c4768293a3c0d8647",
+  "cancellation_receipt_digest": "sha256:c41f51692f460f1636f7c68f4a0aaacd806fbcf228bffdb7012cf83f6becd20c",
+  "transport_verdict": "pass",
+  "formal_skill_ci_verdict": "pending",
+  "missing": [
+    "real_event_ingress_evidence",
+    "full_skill_evaluation_and_qualification_chain"
+  ],
+  "qualification_asserted": false,
+  "digest": "sha256:ba5682b10fb60610604594d7f92f8c444eb5be18fe34320bbac18d8ea6c81b83"
+}

@@ -1,0 +1,13 @@
+{
+  "scope": "real_app_synthetic_check_cancellation",
+  "checks": [
+    {
+      "check_id": 110435484344,
+      "head_sha": "d696e4a99e98e1eca22c096ea8d43ca85479a2b3",
+      "conclusion": "cancelled",
+      "external_id": "sha256:12158564d01da29b9813eee75a46dfa04f88ef699f95c7928bd27e3cc6bc6d34"
+    }
+  ],
+  "qualification_asserted": false,
+  "digest": "sha256:c41f51692f460f1636f7c68f4a0aaacd806fbcf228bffdb7012cf83f6becd20c"
+}
