@@ -1,0 +1,19 @@
+{
+  "exact_head_sha_verified": true,
+  "duplicate_event_same_check_verified": true,
+  "first": {
+    "head_sha": "d696e4a99e98e1eca22c096ea8d43ca85479a2b3",
+    "identity": "sha256:12158564d01da29b9813eee75a46dfa04f88ef699f95c7928bd27e3cc6bc6d34",
+    "check_id": 110435484344,
+    "created": true
+  },
+  "duplicate": {
+    "head_sha": "d696e4a99e98e1eca22c096ea8d43ca85479a2b3",
+    "identity": "sha256:12158564d01da29b9813eee75a46dfa04f88ef699f95c7928bd27e3cc6bc6d34",
+    "check_id": 110435484344,
+    "created": false
+  },
+  "plan_digest": "sha256:89b7c5335be46b75394dcddb3a5b4d568cf8aa81b7c1040d5b62d390507bc854",
+  "formal_m8_verdict": "pending_remaining_scenarios",
+  "scope": "same-account App Checks integration; not Skill qualification"
+}
