@@ -1,0 +1,116 @@
+{
+  "scope": "actual_api_timeline_force_push_ingress",
+  "profiles": [
+    {
+      "first": {
+        "source": "github_api_poll",
+        "event_id": 32264408474,
+        "event_digest": "sha256:8eabe807ded38c20e1643e9881f0a57f3b89664413b3231ba8160aba7b791cee",
+        "repository": "SJeffZhang/skillloop-ci-test",
+        "pr": 1,
+        "profile": "orders_total",
+        "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+        "config_digest": "sha256:2f887ede984e9ac38e8759a29b4df9ec937051129b825febe01826e9fa20a711",
+        "trigger": {
+          "generation": 1,
+          "campaign": "local-5ce53c9972afba05e9baae91",
+          "deduplicated": false
+        },
+        "qualification_asserted": false,
+        "digest": "sha256:523f234877d5d9db38d21d8e4993e36fd8d38b986e8aa88f2ebc1f63e8e12d5b"
+      },
+      "restarted_duplicate": {
+        "source": "github_api_poll",
+        "event_id": 32264408474,
+        "event_digest": "sha256:8eabe807ded38c20e1643e9881f0a57f3b89664413b3231ba8160aba7b791cee",
+        "repository": "SJeffZhang/skillloop-ci-test",
+        "pr": 1,
+        "profile": "orders_total",
+        "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+        "config_digest": "sha256:2f887ede984e9ac38e8759a29b4df9ec937051129b825febe01826e9fa20a711",
+        "trigger": {
+          "generation": 1,
+          "campaign": "local-5ce53c9972afba05e9baae91",
+          "deduplicated": true
+        },
+        "qualification_asserted": false,
+        "digest": "sha256:ccb4d22842088325ca2f16fd791659ecbad10a99b7e6eda763c84d2e41bc4e32"
+      }
+    },
+    {
+      "first": {
+        "source": "github_api_poll",
+        "event_id": 32264408474,
+        "event_digest": "sha256:8eabe807ded38c20e1643e9881f0a57f3b89664413b3231ba8160aba7b791cee",
+        "repository": "SJeffZhang/skillloop-ci-test",
+        "pr": 1,
+        "profile": "refunds_total",
+        "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+        "config_digest": "sha256:bb8aae67d7a11be62ec95edf68e78c5cfe984299a9866f0fedcf63d862ea8a2f",
+        "trigger": {
+          "generation": 1,
+          "campaign": "local-104625f8160608760bed409a",
+          "deduplicated": false
+        },
+        "qualification_asserted": false,
+        "digest": "sha256:73dbf9d3ab5c619eb4c031bedd6936a6d0352dd036a43838bd9e09706810cc7f"
+      },
+      "restarted_duplicate": {
+        "source": "github_api_poll",
+        "event_id": 32264408474,
+        "event_digest": "sha256:8eabe807ded38c20e1643e9881f0a57f3b89664413b3231ba8160aba7b791cee",
+        "repository": "SJeffZhang/skillloop-ci-test",
+        "pr": 1,
+        "profile": "refunds_total",
+        "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+        "config_digest": "sha256:bb8aae67d7a11be62ec95edf68e78c5cfe984299a9866f0fedcf63d862ea8a2f",
+        "trigger": {
+          "generation": 1,
+          "campaign": "local-104625f8160608760bed409a",
+          "deduplicated": true
+        },
+        "qualification_asserted": false,
+        "digest": "sha256:905e7b9f70f95194cef3ffb3d4df921bef7b6eb10d7f1d6560e0603e8d46f995"
+      }
+    },
+    {
+      "first": {
+        "source": "github_api_poll",
+        "event_id": 32264408474,
+        "event_digest": "sha256:8eabe807ded38c20e1643e9881f0a57f3b89664413b3231ba8160aba7b791cee",
+        "repository": "SJeffZhang/skillloop-ci-test",
+        "pr": 1,
+        "profile": "markdown_index",
+        "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+        "config_digest": "sha256:88c07c3ae07967d937015298c0e18ca9ca3aad93cf5bca1c79dca720bbb0aef2",
+        "trigger": {
+          "generation": 1,
+          "campaign": "local-09ad2459718261266a60b431",
+          "deduplicated": false
+        },
+        "qualification_asserted": false,
+        "digest": "sha256:ea06a690f31294dd2c0da9556df1fe02bd01b4ff393a620e1db1aaac36568db1"
+      },
+      "restarted_duplicate": {
+        "source": "github_api_poll",
+        "event_id": 32264408474,
+        "event_digest": "sha256:8eabe807ded38c20e1643e9881f0a57f3b89664413b3231ba8160aba7b791cee",
+        "repository": "SJeffZhang/skillloop-ci-test",
+        "pr": 1,
+        "profile": "markdown_index",
+        "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+        "config_digest": "sha256:88c07c3ae07967d937015298c0e18ca9ca3aad93cf5bca1c79dca720bbb0aef2",
+        "trigger": {
+          "generation": 1,
+          "campaign": "local-09ad2459718261266a60b431",
+          "deduplicated": true
+        },
+        "qualification_asserted": false,
+        "digest": "sha256:086a4dadfc993a16b04f43a97eed0505cf2b595657aae7b2f4b71d97577ac989"
+      }
+    }
+  ],
+  "webhook_delivery_verified": false,
+  "formal_skill_ci": "pending",
+  "digest": "sha256:8fcd4d7fade16bdffab9d605adecd9062c43e195e0577ac3b9bbe432f2bc9021"
+}
