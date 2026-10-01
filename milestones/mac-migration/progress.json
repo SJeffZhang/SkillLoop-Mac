@@ -35,7 +35,7 @@
   "m7_formal_runs_on_mac": 23,
   "m8_github_app_verified": false,
   "m9_campaigns_complete": 0,
-  "m10_recovery_verified": false,
+  "m10_recovery_verified": true,
   "dgx_files_verified": 36307,
   "dgx_bytes_verified": 32424623231,
   "dgx_symlinks_verified": 17,
@@ -265,5 +265,19 @@
       "development_observed_benefit": true,
       "production_qualification": false
     }
+  },
+  "m10_recovery_scope": "isolated VM restored instance only; historical/live deployment identities retained",
+  "m10_recovery_drill": {
+    "receipt_digest": "sha256:5ccc157894e4b43ffb267ace3c89b02929c171b70b934258ee42c82d08c45f12",
+    "new_epoch": "mac-m10-recovery-drill-1",
+    "source_unchanged": true,
+    "cancel_idempotent": true,
+    "stale_fence_rejected": true,
+    "old_epoch_rejected": true,
+    "archive_content_verified": true,
+    "old_instance_qualification_valid": false,
+    "linux_restore_tests_passed": 2,
+    "capacity_boundary_validation": "pending",
+    "formal_complete": false
   }
 }
