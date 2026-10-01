@@ -135,7 +135,13 @@
       "separate_process_and_logs": true,
       "shared_model_weights": true
     },
-    "protection": "pending"
+    "protection": {
+      "port": 11436,
+      "version": "0.33.3",
+      "separate_process_and_logs": true,
+      "deployment_epoch": "mac-m7-orders-protection-1",
+      "development_service_stopped": true
+    }
   },
   "capacity_admission_queue": {
     "scope": "preliminary_not_formal_M6",
@@ -205,9 +211,15 @@
     "orders_admission": "ready",
     "receipt_digest": "sha256:72f7be7eccad7cf32040f972908ab03e968affe1c6c50d8b11be0592fe3a15a0",
     "required_runs": 24,
-    "runtime_implementation": "private_entry_plan_and_24_item_preparer_implemented",
-    "private_epoch_created": false,
+    "runtime_implementation": "queue_held_first_slot_image_permissions",
+    "private_epoch_created": true,
     "model_calls": 0,
-    "contract_tests_passed": 13
-  }
+    "contract_tests_passed": 17
+  },
+  "m7_formal_matrix_ref": "local-data/mac-m7-orders-v1",
+  "m7_formal_manifest_digest": "sha256:81b5f0166cade88afe300c9c0f86170b102e74825f5aab7bc47d79bde91e9e7f",
+  "m7_frozen_source": "local-data/mac-runtime/protected-m7-source-v1",
+  "m7_runtime_image": "sha256:38132d705e4dc025ea75852319c2fad912829da54d47ab2700b7da6be8518c39",
+  "m7_infrastructure_blocker": "Protected image copied public specs with mode 0700; agent UID 21002 cannot read registry.json. First delivery/spending retained; no reexecution. Requires a new explicitly bound image/config and conservative failed-attempt accounting.",
+  "m7_formal_attempts_on_mac": 1
 }

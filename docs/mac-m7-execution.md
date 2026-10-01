@@ -22,3 +22,7 @@ Status: admission ready; private entry and explicit Mac protected-plan profile i
 M8 remains pending until GitHub App credentials/install and independent fork identity are available. Continue CI preparation without claiming formal validation. M9 preserves three separate campaign conclusions, including incomplete chains. M10 compares observed attacks and normal controls and performs cancellation/backup/restore/capacity drills; restoration must create a new deployment epoch and invalidate previous qualification.
 
 Ruling: incomplete submitted coverage blocks profile qualification even if all candidate runs pass. No consumed M6 slot is retried to manufacture complete coverage. Orders can proceed independently under its valid frozen Gate and remaining original-clock reserve.
+
+## Protected launch stop
+
+Protected source v1 digest: `sha256:148200d5c592271bb59f1bbf5d1ac928931484b1417e4a8a3063523b779d79ae`. Image: `sha256:38132d705e4dc025ea75852319c2fad912829da54d47ab2700b7da6be8518c39`. Private 24-item activity created and first slot spent; queue stopped before model calls. Agent UID 21002 cannot read `/code/specs/v2.2/families/registry.json`: build context retained directory mode 0700. Root Linux unit tests passed but did not exercise image asset readability as agent UID. Preserve failed epoch/container/volume/ledger, correct image permission contract and prove as UID 21002; changing the image requires an explicit new configuration and delivery/accounting treatment before further calls. Original M6 clock continues.

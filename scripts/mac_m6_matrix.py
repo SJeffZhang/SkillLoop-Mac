@@ -29,7 +29,7 @@ def execute(root,archive,entry,ledger):
     spent=any(e['item_key']==entry['entry_id'] and e['attempt']==0 for e in ledger.read()['executions'])
     if not spent:
         model_identity(entry['config']);ledger.consume(entry['entry_id'],0)
-        subject=(archive/manifest_campaign(root,entry)/'candidate') if entry['role']=='candidate' else root/'submitted'/entry['profile']
+        subject=Path(entry['subject_root']) if entry.get('kind')=='protected' else ((archive/manifest_campaign(root,entry)/'candidate') if entry['role']=='candidate' else root/'submitted'/entry['profile'])
         command=['docker','run','--name',name,'--network','host','-v','/var/run/docker.sock:/var/run/docker.sock',
             '-v',prefix+'-authority:/work','-v',prefix+'-model:/bridge','-v',prefix+'-proxy:/interfaces',
             '-v',str((root/'entries'/entry['profile']/(entry['entry_id']+'.json')).resolve())+':/entry.json:ro',
