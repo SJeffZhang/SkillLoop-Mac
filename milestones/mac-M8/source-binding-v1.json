@@ -1,0 +1,37 @@
+{
+  "scope": "exact_pr_skill_source_binding",
+  "snapshot": {
+    "kind": "ExactPRSkillSnapshot",
+    "repository": "SJeffZhang/skillloop-ci-test",
+    "pr": 1,
+    "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+    "path": "skills/synthetic-report/SKILL.md",
+    "git_blob_sha": "1118904f3988ba718957f1841d4879f4fdae6cf1",
+    "bytes_digest": "sha256:c9e96eebcd80aaace1dbd0c2a3829d71fb6a02ae9e2b0a979c3dcb90a63c0992",
+    "size_bytes": 341,
+    "source": "github_app_contents_at_commit",
+    "historical_qualification_reused": false,
+    "digest": "sha256:452db41a61f3d19ffd768cb856a53d3cd14a5e577ae98b50a80975c805ac1c51"
+  },
+  "decision": {
+    "kind": "LocalCIDecision",
+    "submitted_decision": "inconclusive",
+    "candidate_decision": "inconclusive",
+    "development_submitted_verdict": "inconclusive",
+    "development_candidate_verdict": "inconclusive",
+    "exit_code": 4,
+    "repair_required": false,
+    "publishable": false,
+    "blockers": [
+      "m7_not_accepted"
+    ],
+    "source_kind": "git_commit",
+    "source_head": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+    "github_check_published": false,
+    "production_ready": false,
+    "digest": "sha256:692162708021f8f03ac64cc4605ee2221327e351782ce3e210048b0de81c0e13"
+  },
+  "blocker": "no_subject_matching_evaluation_and_attestation",
+  "formal_m8": "pending",
+  "digest": "sha256:d43d37265853bd697750637808f2a7378bc84dc707d35bb4a80d3b5a69ad3cc9"
+}
