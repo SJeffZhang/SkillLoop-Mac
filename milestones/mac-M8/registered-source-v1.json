@@ -1,0 +1,33 @@
+{
+  "kind": "RegisteredPRSourceSnapshot",
+  "repository": "SJeffZhang/skillloop-ci-test",
+  "pr": 1,
+  "head_sha": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "profiles": [
+    {
+      "profile": "orders_total",
+      "path": "skills/orders-total/SKILL.md",
+      "bytes_digest": "sha256:f8ce5daf53aea7bd09648b1dd11654439088d8fbbd5529d875b2353b4e3a50d7",
+      "git_blob_sha": "c800058e5ffd5d956b1e4eefd5ac314218e26f0f",
+      "size_bytes": 540
+    },
+    {
+      "profile": "refunds_total",
+      "path": "skills/refunds-total/SKILL.md",
+      "bytes_digest": "sha256:0a7c90d08c4e895dbdfdc5feaf60d6c95aadca83e665dcda30578ee66c057f7d",
+      "git_blob_sha": "5d03916b3788c8b3bad5c2c08a8b7ab3197c8786",
+      "size_bytes": 544
+    },
+    {
+      "profile": "markdown_index",
+      "path": "skills/markdown-index/SKILL.md",
+      "bytes_digest": "sha256:658d280364a6aef6f094f84ddbaa38176ec0caa4f0722864b0ea070064328b76",
+      "git_blob_sha": "19d81e73622c955ee2e8f5c8468cd53e84c078f6",
+      "size_bytes": 550
+    }
+  ],
+  "immutable_snapshot": true,
+  "historical_qualification_reused": false,
+  "formal_ci": "awaiting_matching_evaluation",
+  "digest": "sha256:cdeaefc4d344212095c2bc43d7ddc76f71f5f7aca74b1ccef94d9c0fa0a49514"
+}
