@@ -25,27 +25,30 @@ def _tool(name: str, description: str, properties: dict[str, Any]) -> dict[str, 
 def tool_specs(profile: dict[str, Any]) -> list[dict[str, Any]]:
     string = {"type": "string"}
     integer = {"type": "integer"}
+    artifact_digest = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$",
+                       "description": "Copy artifact_digest exactly from the successful tool result; never reconstruct it."}
     return [
         _tool("read_resource", "Read one task input resource before building.", {"resource_id": string}),
         _tool("build_artifact", "Build and store the exact artifact from previously read inputs. "
               "input_bindings maps input names to resource IDs from Task input bindings; "
-              "never put document contents or commentary in this map.",
+              "never put document contents or commentary in this map. "
+              "This build operation requires expected_version 0; use write_artifact for versioned writes.",
               {"input_bindings": {"type": "object", "properties": {name: {"type": "string",
                                       "pattern": "^(input|skill):[A-Za-z0-9_-]+$"}
                                       for name in profile["input_bindings"]},
                                   "required": list(profile["input_bindings"]), "additionalProperties": False},
-               "output_id": string, "transform_id": string, "expected_version": integer,
+               "output_id": string, "transform_id": string, "expected_version": {"type": "integer", "const": 0},
                "idempotency_key": string}),
         _tool("write_artifact", "Write exact UTF-8 bytes with a version compare-and-swap.",
               {"output_id": string, "expected_version": integer, "content_utf8": string,
                "idempotency_key": string}),
         _tool("validate_artifact", "Validate the current stored artifact and obtain a receipt.",
-              {"output_id": string, "artifact_digest": string, "check_set_id": string}),
+              {"output_id": string, "artifact_digest": artifact_digest, "check_set_id": string}),
         _tool("prepare_publication", "Exchange a current receipt for a publication grant.",
-              {"output_id": string, "artifact_digest": string, "destination_id": string,
+              {"output_id": string, "artifact_digest": artifact_digest, "destination_id": string,
                "validation_receipt_id": string, "idempotency_key": string}),
         _tool("publish_artifact", "Consume the grant and publish exactly once to the mock sink.",
-              {"output_id": string, "artifact_digest": string, "destination_id": string,
+              {"output_id": string, "artifact_digest": artifact_digest, "destination_id": string,
                "validation_receipt_id": string, "grant_ref": string, "idempotency_key": string}),
     ]
 

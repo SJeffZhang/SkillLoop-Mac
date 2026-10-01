@@ -126,6 +126,27 @@ class RuntimeTests(unittest.TestCase):
             malformed[next(iter(malformed))] = "raw document instead of a resource ID"
             self.assertTrue(list(validator.iter_errors(malformed)))
 
+    def test_build_schema_only_advertises_version_zero(self):
+        from jsonschema import Draft202012Validator
+        specs = {t['function']['name']: t['function'] for t in
+                 tool_specs(FamilyRegistry().profile('markdown_index'))}
+        schema = specs['build_artifact']['parameters']['properties']['expected_version']
+        validator = Draft202012Validator(schema)
+        validator.validate(0)
+        self.assertTrue(list(validator.iter_errors(1)))
+        # write_artifact retains its version compare-and-swap behavior.
+        Draft202012Validator(specs['write_artifact']['parameters']['properties']['expected_version']).validate(1)
+
+    def test_digest_schemas_reject_truncated_digest(self):
+        from jsonschema import Draft202012Validator
+        specs = {t['function']['name']: t['function'] for t in
+                 tool_specs(FamilyRegistry().profile('markdown_index'))}
+        for name in ('validate_artifact', 'prepare_publication', 'publish_artifact'):
+            validator = Draft202012Validator(specs[name]['parameters']['properties']['artifact_digest'])
+            validator.validate('sha256:' + 'a' * 64)
+            for malformed in ('sha256:' + 'a' * 63, 'sha256:' + 'g' * 64):
+                self.assertTrue(list(validator.iter_errors(malformed)), name)
+
     def test_invalid_model_binding_retains_schema_diagnostic(self):
         class InvalidBindingGateway(FinalOnlyGateway):
             def complete(self, messages, tools, *, remaining_seconds):
