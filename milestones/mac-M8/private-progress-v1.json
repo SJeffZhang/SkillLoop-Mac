@@ -1,0 +1,23 @@
+{
+  "scope": "local_authority_exact_pr_experiment",
+  "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "manifest_digest": "sha256:69b23ee6ca150c41f85732b67a42fbac32aa013d0f56900a9b5e0c11b97ec481",
+  "digest": "sha256:3c4a3e763c6b64b896d55dd2dcb729cefc2e1822e28efa097a5dab4881ffd81f",
+  "production_ready": false,
+  "reviewed_at_unix_ms": 1790885296259,
+  "profiles": {
+    "refunds_total": {
+      "verdict": "pass",
+      "actual_protected_attempts": 12,
+      "verified_total_executions": 27,
+      "confirmed_failures": 0
+    },
+    "markdown_index": {
+      "verdict": "inconclusive",
+      "actual_protected_attempts": 3,
+      "verified_total_executions": 17,
+      "confirmed_failures": 0
+    }
+  },
+  "scope_note": "Partial independent local-authority review; Markdown still running; no production qualification or GitHub Check conclusion asserted."
+}
