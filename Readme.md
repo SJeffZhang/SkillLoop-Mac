@@ -174,4 +174,4 @@ SkillLoop/
 
 ### Mac 长程实验状态（2026-10-01）
 
-正式 M6 已执行 156 次，154 项完整、2 项不完整；订单 Gate 通过，退款与 Markdown 为 inconclusive。订单 M7 已执行 24 次，23 项完整、首槽保留不完整；独立 Gate 为 inconclusive，不签发通过资格。已消耗槽位不重复执行。M8 缺少 GitHub App 与独立 fork 条件，M9 完整 campaign 和 M10 恢复验收仍未完成。脱敏进度见 `milestones/mac-migration/progress.json`，私有证据保存在忽略的 `local-data/`。
+正式 M6 已执行 156 次，154 项完整、2 项不完整；订单 Gate 通过，退款与 Markdown 为 inconclusive。订单 M7 已执行 24 次，23 项完整、首槽保留不完整；独立 Gate 为 inconclusive，不签发通过资格。已消耗槽位不重复执行。M8 缺少 GitHub App 与独立 fork 条件，M9 完整 campaign 未达成；M10 开发效果分析、隔离恢复/取消/归档和容量准入已验证，完整保护资格仍不足。脱敏进度见 `milestones/mac-migration/progress.json`，私有证据保存在忽略的 `local-data/`。

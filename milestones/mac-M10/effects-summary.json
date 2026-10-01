@@ -30,6 +30,8 @@
       "production_qualification": false
     }
   },
-  "recovery_drills": "pending",
-  "formal_complete": false
+  "recovery_drills": "verified_isolated_VM_restore_cancel_archive",
+  "formal_complete": false,
+  "capacity_validation": "current_host_VM_headroom_and_isolated_queue_enforcement_verified",
+  "full_qualification": "incomplete_M7_and_two_incomplete_M6_profiles"
 }

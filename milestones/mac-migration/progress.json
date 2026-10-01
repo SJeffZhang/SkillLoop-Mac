@@ -277,7 +277,36 @@
     "archive_content_verified": true,
     "old_instance_qualification_valid": false,
     "linux_restore_tests_passed": 2,
-    "capacity_boundary_validation": "pending",
+    "capacity_boundary_validation": "verified_isolated_diagnostic_ledgers",
     "formal_complete": false
-  }
+  },
+  "m10_capacity": {
+    "kind": "MacM10CapacityAdmission",
+    "disk": {
+      "admission": "ready",
+      "host_free_bytes": 174899200000,
+      "vm_free_bytes": 1022482739200,
+      "host_required_bytes": 55834574848,
+      "vm_required_bytes": 6442450944,
+      "reasons": [],
+      "scope": "current headroom admission; not a physical disk exhaustion or sustained load test"
+    },
+    "queue": {
+      "scope": "isolated diagnostic ledgers; no victim execution or model calls",
+      "attempt_limit_consumed": 128,
+      "attempt_overflow_rejected": true,
+      "wall_budget_consumed": 108,
+      "wall_overflow_rejected": true,
+      "expired_clock_rejected": true,
+      "duplicate_after_restart_rejected": true,
+      "clock_reset_rejected": true,
+      "new_model_calls": 0,
+      "digest": "sha256:535c5f4c4a67569679a10a411936efbbad163fe91dc9a23bc805aebdbcfafcf7"
+    },
+    "linux_contract_tests_passed": 4,
+    "physical_exhaustion_or_sustained_load_test": false,
+    "new_model_calls": 0,
+    "digest": "sha256:f7cf4fe861720102ac5a9fe6a1d18c3296c5eb1555887ae0450bda1c115400ad"
+  },
+  "m10_status": "development_effects_and_isolated_operational_drills_verified_full_qualification_incomplete"
 }
