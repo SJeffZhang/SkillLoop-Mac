@@ -30,3 +30,7 @@ Protected source v1 digest: `sha256:148200d5c592271bb59f1bbf5d1ac928931484b1417e
 ## Permission correction and residual execution
 
 Public image assets were normalized to dirs 555/files 444. The actual agent UID, read-only root, caps dropped and network-none probe reads FamilyRegistry and ExactLocalTokenizer successfully; 18 focused Linux tests pass. Source v2 and image v2 are separately frozen. Activity v2 seals the exact config transition, retains the original epoch/session authority, original spending prefix and clock, and retires only the spent unknown first slot. Only the remaining 23 slots execute. The first required submitted result remains missing, so the final protected verdict cannot be a complete pass. No spent slot is reexecuted and no qualification is transferred across image identities.
+
+## Independent protected reconstruction
+
+The separate Mac M7 Gate rebuilds private fixtures and mutation payloads, validates factory freshness against development/prior authority, recompiles the private suite and plan, verifies exact 24-entry identity, image/config transition, retired origin, original clock/spending prefix and durable session bindings. It replays each exported raw trace/SQLite copy with both evaluator semantics and container UID/network probes. First replay has no errors. The first required private submitted result remains incomplete, so no passing qualification/attestation is issued. 22 targeted tests pass; execution source/image remain frozen and Gate code runs separately.

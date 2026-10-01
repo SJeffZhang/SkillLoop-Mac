@@ -32,7 +32,7 @@
   "docker_host_network_verified": true,
   "token_calibration_verified": true,
   "m6_formal_runs_on_mac": 156,
-  "m7_formal_runs_on_mac": 0,
+  "m7_formal_runs_on_mac": 12,
   "m8_github_app_verified": false,
   "m9_campaigns_complete": 0,
   "m10_recovery_verified": false,
@@ -211,17 +211,29 @@
     "orders_admission": "ready",
     "receipt_digest": "sha256:72f7be7eccad7cf32040f972908ab03e968affe1c6c50d8b11be0592fe3a15a0",
     "required_runs": 24,
-    "runtime_implementation": "remaining_23_private_slots_running_under_explicit_v2_config",
+    "runtime_implementation": "private_matrix_running_independent_raw_gate_implemented",
     "private_epoch_created": true,
     "model_calls": "running",
-    "contract_tests_passed": 18
+    "contract_tests_passed": 22
   },
   "m7_formal_matrix_ref": "local-data/mac-m7-orders-v2",
   "m7_formal_manifest_digest": "sha256:0dec2235b14fa118a5f470861a09302dffe3e942e0dae36965ea8108ef2c8252",
   "m7_frozen_source": "local-data/mac-runtime/protected-m7-source-v2",
   "m7_runtime_image": "sha256:3e7aca258da03177b30a201a77e519611527b2ac1ffdc25b7f193ab41b3d56ee",
   "m7_infrastructure_blocker": null,
-  "m7_formal_attempts_on_mac": 1,
+  "m7_formal_attempts_on_mac": 14,
   "m7_qualification_limit": "First submitted private slot retained as unknown/incomplete; cannot claim complete M7 pass.",
-  "m7_configuration_transition_digest": "sha256:a54f1dc55a14395de2d19ccbea8b05f2541e7fb74ce0ca0620a8fd93b5f08e43"
+  "m7_configuration_transition_digest": "sha256:a54f1dc55a14395de2d19ccbea8b05f2541e7fb74ce0ca0620a8fd93b5f08e43",
+  "m7_independent_gate": {
+    "verdict": "inconclusive",
+    "complete": 12,
+    "incomplete": 1,
+    "errors": 0,
+    "confirmed_failures": {
+      "submitted": 0,
+      "finalist": 0
+    },
+    "factory_recomputed": true,
+    "attestation_status": "not_issued_required_pair_incomplete"
+  }
 }
