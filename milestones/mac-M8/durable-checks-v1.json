@@ -1,0 +1,38 @@
+{
+  "scope": "live_same_account_durable_transport",
+  "profiles": [
+    {
+      "profile": "orders_total",
+      "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+      "check_id": 110474042901,
+      "generation": 1,
+      "receipt_digest": "sha256:07fb39558bcbc59ff2087ac762495666dd36142bbad01e6265bdab93e1f99349",
+      "restart_deduplicated": true,
+      "conclusion": "neutral",
+      "qualification_asserted": false
+    },
+    {
+      "profile": "refunds_total",
+      "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+      "check_id": 110474082036,
+      "generation": 1,
+      "receipt_digest": "sha256:7682707126a56e2b34dd11845abb1ceaa9e798c45d7993f2567e57b32c09b1f7",
+      "restart_deduplicated": true,
+      "conclusion": "neutral",
+      "qualification_asserted": false
+    },
+    {
+      "profile": "markdown_index",
+      "head_sha": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+      "check_id": 110474136325,
+      "generation": 1,
+      "receipt_digest": "sha256:50e672abd817ff2069b2c95a22ee2077652c5c46c3407a75a649ce16e74e53eb",
+      "restart_deduplicated": true,
+      "conclusion": "neutral",
+      "qualification_asserted": false
+    }
+  ],
+  "formal_skill_ci": "pending",
+  "webhook_delivery": "not_verified",
+  "digest": "sha256:4e8a7b2516534a0acdcb75021b00545bad90f0711063336c4768293a3c0d8647"
+}
