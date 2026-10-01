@@ -41,7 +41,7 @@ M0–M5 继承 DGX 历史身份，不重新请求模型。M6 保存的候选、�
 | --- | --- |
 | M6 | 复用候选与历史，按订单 42、退款 66、Markdown 48 次配对计划执行；先完成 scanner、预算与配置准入，再由独立 Mac Gate 复算。总计 156 次是待准入的新配置计划。 |
 | M7 | 为合格 profile 建新私有 epoch；submitted 与 finalist 共用同一套件，每例三次，完成隔离证据、四态 Gate、attestation 与脱敏报告。 |
-| M8 | 在 `SJeffZhang/skillloop-ci-test` 仅用合成 Skill，验证 GitHub App 与独立 fork 身份、精确 SHA、force-push、重复事件、配置变化、旧 worker 与续评。缺 App 或 fork 条件保持 pending。 |
+| M8 | 在 `SJeffZhang/skillloop-ci-test` 仅用合成 Skill，允许同一账户 `SJeffZhang` 创建测试仓库、分支或可用 fork 并提交 PR；通过 GitHub App 验证精确 SHA Checks、force-push、重复事件、配置变化、旧 worker 与续评。另一账户不是本地 Mac M8 的准入条件。真实 GitHub 运行证据不足时保持 pending；跨账户 fork 权限隔离单列为未验证，不阻断同账户范围验收。 |
 | M9 | 三 profile 各完成完整 campaign 与需求验收索引，分别给出工程与业务结论。 |
 | M10 | 对证实攻击做修补前后配对；演练取消、备份恢复、归档、磁盘与队列容量。恢复产生新 deployment epoch 并撤销旧资格。 |
 
@@ -62,7 +62,7 @@ Git 保存源码、PRD、配置、脱敏报告和进度摘要。`local-data/`、
 - 正式 M6 镜像 Linux 合约测试执行 194 项，4 项跳过、零失败；所有 agent 正式运行使用 network none、新容器和私有卷。
 - Mac M6 已执行 156 次：154 项完整、2 项协议错误不完整。订单 Gate 通过并冻结；退款和 Markdown 因配对证据不完整为 inconclusive。原始 Skill 共 16 次确认失败，候选无确认失败。
 - 订单 M7 已执行 24 次：23 项完整、1 项镜像权限错误的首槽保留为 unknown。新镜像修复权限后仅继续剩余槽位；独立复算零错误，Gate 为 inconclusive，不签发通过资格。保护模型为独立进程与日志，端口 11436，开发 11435 已停止。
-- M8 正式 GitHub App 与独立 fork 条件缺失，保持 pending；M9 三条完整 campaign 均未达成。
+- M8 GitHub App 身份、安装范围和权限已核验；采用同账户测试，真实 CI 场景尚待执行，保持 pending；M9 三条完整 campaign 均未达成。
 - M10 开发阶段观察到订单 2 对、退款 4 对、Markdown 8 对攻击效果改善，正常任务无观测业务退化；排除两组不完整配对。已在独立 Linux 卷完成真实备份恢复、取消幂等/旧 fence 拒绝、旧 epoch 拒绝及归档校验；恢复实例使用新 epoch，旧资格失效。当前磁盘余量准入与队列次数、时钟、预算和重启防重复边界已验证；未做物理磁盘耗尽或持续负载测试。完整保护资格不足，不能宣称端到端 M10 验收通过。
 
 详见 [迁移记录](docs/mac-migration.md) 与 [脱敏进度](milestones/mac-migration/progress.json)。

@@ -81,7 +81,7 @@ ARM64 Linux container fetched a loopback-only Mac HTTP endpoint over
    suite, three times per case, with separate development/protection Ollama
    lifecycles and private logs. Missing evidence is inconclusive.
 3. M8: use only synthetic Skills in `SJeffZhang/skillloop-ci-test`; restore
-   `SJeffZhang` GitHub auth, configure the App and independent fork identity,
+   `SJeffZhang` GitHub auth, configure the App and use the approved same-account test repository/PR mode,
    then verify exact SHA, force-push, duplicate events, config changes, old
    workers, and resumed evaluation.
 4. M9: complete independent order, refund, and Markdown campaigns and publish
@@ -114,8 +114,7 @@ sanitized progress. Raw evidence, model stores, databases and credentials remain
 private. Formal M6 runs are still zero. The 42/66/48 draft paired plans reuse
 inherited candidates and suites and have a separate Mac config identity.
 The empty M8 synthetic repository exists at
-`https://github.com/SJeffZhang/skillloop-ci-test`; App and independent fork tests
-remain pending.
+`https://github.com/SJeffZhang/skillloop-ci-test`; App identity and installation permissions are verified. Real same-account CI tests remain pending; cross-account fork coverage is separately unverified.
 
 
 ## 2026-10-01 准入进展

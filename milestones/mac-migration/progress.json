@@ -236,7 +236,7 @@
     "factory_recomputed": true,
     "attestation_status": "not_issued_required_pair_incomplete"
   },
-  "m8_formal_status": "pending_github_app_and_independent_fork",
+  "m8_formal_status": "pending_real_same_account_ci_evidence",
   "m10_effect_observations": {
     "orders_total": {
       "pairs": 21,
@@ -308,5 +308,7 @@
     "new_model_calls": 0,
     "digest": "sha256:f7cf4fe861720102ac5a9fe6a1d18c3296c5eb1555887ae0450bda1c115400ad"
   },
-  "m10_status": "development_effects_and_isolated_operational_drills_verified_full_qualification_incomplete"
+  "m10_status": "development_effects_and_isolated_operational_drills_verified_full_qualification_incomplete",
+  "m8_test_account_mode": "same_account_SJeffZhang",
+  "m8_cross_account_fork_coverage": "unverified_outside_current_acceptance_scope"
 }

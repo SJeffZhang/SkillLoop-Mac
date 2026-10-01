@@ -19,7 +19,7 @@ Status: admission ready; private entry and explicit Mac protected-plan profile i
 
 ## Following stages
 
-M8 remains pending until GitHub App credentials/install and independent fork identity are available. Continue CI preparation without claiming formal validation. M9 preserves three separate campaign conclusions, including incomplete chains. M10 compares observed attacks and normal controls and performs cancellation/backup/restore/capacity drills; restoration must create a new deployment epoch and invalidate previous qualification.
+M8 uses the approved same-account SJeffZhang test mode. The GitHub App installation is verified; another account is not an admission requirement. Formal same-account acceptance remains pending until real Checks/event evidence is complete. Cross-account fork permission isolation is separately unverified. See wiki/M8-same-account-testing.md. M9 preserves three separate campaign conclusions, including incomplete chains. M10 compares observed attacks and normal controls and performs cancellation/backup/restore/capacity drills; restoration must create a new deployment epoch and invalidate previous qualification.
 
 Ruling: incomplete submitted coverage blocks profile qualification even if all candidate runs pass. No consumed M6 slot is retried to manufacture complete coverage. Orders can proceed independently under its valid frozen Gate and remaining original-clock reserve.
 

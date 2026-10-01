@@ -174,7 +174,7 @@ SkillLoop/
 
 ### Mac 长程实验状态（2026-10-01）
 
-正式 M6 已执行 156 次，154 项完整、2 项不完整；订单 Gate 通过，退款与 Markdown 为 inconclusive。订单 M7 已执行 24 次，23 项完整、首槽保留不完整；独立 Gate 为 inconclusive，不签发通过资格。已消耗槽位不重复执行。M8 缺少 GitHub App 与独立 fork 条件，M9 完整 campaign 未达成；M10 开发效果分析、隔离恢复/取消/归档和容量准入已验证，完整保护资格仍不足。脱敏进度见 `milestones/mac-migration/progress.json`，私有证据保存在忽略的 `local-data/`。
+正式 M6 已执行 156 次，154 项完整、2 项不完整；订单 Gate 通过，退款与 Markdown 为 inconclusive。订单 M7 已执行 24 次，23 项完整、首槽保留不完整；独立 Gate 为 inconclusive，不签发通过资格。已消耗槽位不重复执行。M8 App 已核验，采用同账户模式，真实 CI 测试尚待完成，M9 完整 campaign 未达成；M10 开发效果分析、隔离恢复/取消/归档和容量准入已验证，完整保护资格仍不足。脱敏进度见 `milestones/mac-migration/progress.json`，私有证据保存在忽略的 `local-data/`。
 
 
 ### 2026-10-01 M6 补充实验
@@ -183,3 +183,6 @@ SkillLoop/
 
 
 退款 M7：24 项私有运行全部完整，独立 Gate 与 API4 必需运行清单、attestation 验证通过。验收继承 66 项 M6 开发证据，原 Skill 的开发失败保留；修补候选综合 Gate 为 pass。此结论限于 Mac 本地实验，GitHub App/正式 CI 仍 pending，未声明生产可用。Markdown M6 仍 inconclusive。
+
+
+M8 允许使用同一账户 `SJeffZhang` 执行测试，另一账号不作为准入门槛。范围与出门条件见 [Wiki：同账户测试](docs/wiki/M8-same-account-testing.md)。跨账户权限隔离单列为未验证。
