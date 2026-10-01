@@ -1,0 +1,19 @@
+{
+  "status": "calibration_running",
+  "config_id": "mac-m6-ollama-qwen38-mxfp8-supplemental-v1",
+  "manifest_digest": "sha256:34eaa48bcaef6f9d5487a73c31bb26ab119658d14c80e74325ffa838b6030d81",
+  "image": "sha256:2d8d0c30fbf9b38fb5cb5e242822522985242d170b0d671eabf0a17e228cf1cc",
+  "profiles": {
+    "refunds_total": 66,
+    "markdown_index": 48
+  },
+  "formal_required_runs": 114,
+  "capacity_runs": 4,
+  "prior_matrix_immutable": true,
+  "old_results_counted_in_new_gate": false,
+  "automation": "ACTIVE, every 15 minutes",
+  "tests": {
+    "host": 15,
+    "frozen_container": 15
+  }
+}

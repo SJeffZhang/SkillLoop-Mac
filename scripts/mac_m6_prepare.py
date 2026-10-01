@@ -20,16 +20,23 @@ def stage_submitted(source,target,skill_id,parent_bytes):
         raise ValueError('immutable_submitted_snapshot_changed')
 
 
-def prepare(root,archive,source,scanner_root,tokenizer,image,port):
+def prepare(root,archive,source,scanner_root,tokenizer,image,port,*,
+            profiles=None,campaign_prefix='mac-m6-formal-v1',
+            config_id='mac-m6-ollama-qwen38-mxfp8-formal-v1',
+            deployment_epoch='mac-m6-development-1'):
+    selected=tuple(PROFILES) if profiles is None else tuple(profiles)
+    if not selected or len(set(selected))!=len(selected) or any(p not in PROFILES for p in selected):
+        raise ValueError('supplemental_profile_selection')
     if root.exists():raise ValueError('campaign_already_exists')
     root.mkdir(mode=0o700);index=source_index(source);profile_path=source/'specs/mac/runtime-profile.json'
-    config={**CONFIG,'config_id':'mac-m6-ollama-qwen38-mxfp8-formal-v1','gateway_backend':'ollama','model_id':'qwen3.8:27b-mxfp8',
-        'deployment_epoch':'mac-m6-development-1','backend_template_overhead_tokens':0,'ollama_template_overhead_tokens':0,'tokenizer_path':'/model',
+    config={**CONFIG,'config_id':config_id,'gateway_backend':'ollama','model_id':'qwen3.8:27b-mxfp8',
+        'deployment_epoch':deployment_epoch,'backend_template_overhead_tokens':0,'ollama_template_overhead_tokens':0,'tokenizer_path':'/model',
         'mac_runtime_image':image,'model_service_port':port,'ollama_version':'0.33.3','model_manifest_digest':'sha256:464021588235c36e23bd48a480c6c306ed1fc1e0619e97998267494a1be68de4'}
     manifest={'kind':'MacM6FrozenCampaign','config':config,'source_index':index,'runtime_profile_digest':digest_bytes(profile_path.read_bytes()),
-        'tokenizer_hashes':{p.name:digest_bytes(p.read_bytes()) for p in tokenizer.iterdir() if p.is_file()},'profiles':{},'entries':[],'formal_required_runs':156}
-    for profile,(campaign,short,required) in PROFILES.items():
-        inherited=verify_inherited_candidate(archive/campaign,profile);compiled=json.loads((archive/campaign/profile/'compiled.json').read_text());campaign_id='mac-m6-formal-v1-'+profile
+        'tokenizer_hashes':{p.name:digest_bytes(p.read_bytes()) for p in tokenizer.iterdir() if p.is_file()},'profiles':{},'entries':[],'formal_required_runs':sum(PROFILES[p][2] for p in selected)}
+    for profile in selected:
+        campaign,short,required=PROFILES[profile]
+        inherited=verify_inherited_candidate(archive/campaign,profile);compiled=json.loads((archive/campaign/profile/'compiled.json').read_text());campaign_id=campaign_prefix+'-'+profile
         parent_text=json.loads((archive/campaign/profile/'file-set.json').read_text())['files']['SKILL.md']
         stage_submitted(source/'specs/v2.2/families/redteam',root/'submitted'/profile,profile.replace('_','-'),parent_text.encode())
         plan=execution_plan(compiled,campaign=campaign_id,submitted_digest=inherited['submitted_subject_digest'],runtime_config=config,runtime_profile_path=profile_path)

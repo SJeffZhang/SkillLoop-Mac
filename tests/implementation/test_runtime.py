@@ -10,7 +10,7 @@ from pathlib import Path
 from skillloop.discovery.mutation import compile_mutation, make_dev_mutation
 from skillloop.families import FamilyRegistry, load_clean_fixture
 from skillloop.protocol import digest_bytes, make_envelope
-from skillloop.runtime.adapter import AgentAdapter
+from skillloop.runtime.adapter import AgentAdapter, tool_specs
 from skillloop.runtime.evidence import MAX_TRACE_BYTES, PrivateTrace, TraceLimit
 from skillloop.runtime.gateway import GatewayError
 from tests.implementation.test_proxy_store import fixture
@@ -112,6 +112,39 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["infra_status"], "ok")
         self.assertTrue(result["evidence_index"]["body"]["complete"])
         self.assertEqual(result["final_text"], "Finished without an artifact.")
+
+    def test_build_spec_requires_resource_ids_not_document_contents(self):
+        from jsonschema import Draft202012Validator
+        for profile_id in ("orders_total", "refunds_total", "markdown_index"):
+            profile = FamilyRegistry().profile(profile_id)
+            spec = next(tool for tool in tool_specs(profile)
+                        if tool["function"]["name"] == "build_artifact")
+            schema = spec["function"]["parameters"]["properties"]["input_bindings"]
+            validator = Draft202012Validator(schema)
+            validator.validate(profile["input_bindings"])
+            malformed = dict(profile["input_bindings"])
+            malformed[next(iter(malformed))] = "raw document instead of a resource ID"
+            self.assertTrue(list(validator.iter_errors(malformed)))
+
+    def test_invalid_model_binding_retains_schema_diagnostic(self):
+        class InvalidBindingGateway(FinalOnlyGateway):
+            def complete(self, messages, tools, *, remaining_seconds):
+                return ({"id": "invalid-binding", "choices": [{"message": {
+                    "role": "assistant", "content": None, "tool_calls": [{
+                        "id": "native-invalid", "type": "function", "function": {
+                            "name": "build_artifact", "arguments": json.dumps({
+                                "input_bindings": {"records": "private raw document"},
+                                "output_id": "artifact:report", "transform_id": "group_sum_join",
+                                "expected_version": 0, "idempotency_key": "invalid-test"})}}]}}]}, 100, .01)
+        result = self.run_adapter(InvalidBindingGateway())
+        self.assertEqual(result["terminal_reason"], "runtime_error")
+        self.assertFalse(result["evidence_index"]["body"]["complete"])
+        events = [json.loads(line) for line in Path(result["trace_path"]).read_text().splitlines()]
+        errors = [event for event in events if event["type"] == "protocol_error"]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["error_type"], "ProtocolError")
+        self.assertTrue(errors[0]["error_code"].startswith("schema:"))
+        self.assertNotIn("private raw document", errors[0]["error_code"])
 
     def test_provider_timeout_marks_evidence_incomplete(self):
         result = self.run_adapter(TimeoutGateway())

@@ -175,3 +175,8 @@ SkillLoop/
 ### Mac 长程实验状态（2026-10-01）
 
 正式 M6 已执行 156 次，154 项完整、2 项不完整；订单 Gate 通过，退款与 Markdown 为 inconclusive。订单 M7 已执行 24 次，23 项完整、首槽保留不完整；独立 Gate 为 inconclusive，不签发通过资格。已消耗槽位不重复执行。M8 缺少 GitHub App 与独立 fork 条件，M9 完整 campaign 未达成；M10 开发效果分析、隔离恢复/取消/归档和容量准入已验证，完整保护资格仍不足。脱敏进度见 `milestones/mac-migration/progress.json`，私有证据保存在忽略的 `local-data/`。
+
+
+### 2026-10-01 M6 补充实验
+
+工具定义已与严格资源 ID 格式对齐，并增加协议错误路径证据。新配置 `mac-m6-ollama-qwen38-mxfp8-supplemental-v1` 单独执行退款 66 项、Markdown 48 项配对矩阵和 4 项校准，保留旧矩阵全部证据与已消耗槽位。新结果仅由新配置独立 Gate 验收，不将旧结果合并为新配置重复项。已启动校准队列，15 分钟跟踪恢复；通过结论待实际结果复算。详见 [补充实验记录](milestones/mac-M6/supplemental-v1.json)。

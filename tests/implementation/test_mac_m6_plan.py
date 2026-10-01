@@ -49,3 +49,16 @@ class MacPlanTests(unittest.TestCase):
         from scripts.dgx_m6_admit import verify_calibration
         with self.assertRaisesRegex(ValueError,'mac_calibration_requires_pinned_inputs'):
             verify_calibration(Path('/missing'),Path('/missing'),expected_config={'gateway_backend':'ollama'})
+
+class SupplementalPrepareTests(unittest.TestCase):
+    def test_invalid_profile_selection_does_not_create_campaign(self):
+        from pathlib import Path
+        import tempfile
+        from scripts.mac_m6_prepare import prepare
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"new"
+            with self.assertRaisesRegex(ValueError, "supplemental_profile_selection"):
+                prepare(root, root, root, root, root, "image", 11437,
+                        profiles=("unknown",), campaign_prefix="supplemental",
+                        config_id="new-config", deployment_epoch="new-epoch")
+            self.assertFalse(root.exists())

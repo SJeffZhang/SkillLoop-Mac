@@ -27,8 +27,12 @@ def tool_specs(profile: dict[str, Any]) -> list[dict[str, Any]]:
     integer = {"type": "integer"}
     return [
         _tool("read_resource", "Read one task input resource before building.", {"resource_id": string}),
-        _tool("build_artifact", "Build and store the exact artifact from previously read inputs.",
-              {"input_bindings": {"type": "object", "properties": {name: string for name in profile["input_bindings"]},
+        _tool("build_artifact", "Build and store the exact artifact from previously read inputs. "
+              "input_bindings maps input names to resource IDs from Task input bindings; "
+              "never put document contents or commentary in this map.",
+              {"input_bindings": {"type": "object", "properties": {name: {"type": "string",
+                                      "pattern": "^(input|skill):[A-Za-z0-9_-]+$"}
+                                      for name in profile["input_bindings"]},
                                   "required": list(profile["input_bindings"]), "additionalProperties": False},
                "output_id": string, "transform_id": string, "expected_version": integer,
                "idempotency_key": string}),
@@ -206,6 +210,14 @@ class AgentAdapter:
             infra_status = "ok" if reason == "budget_exhausted" else "runtime_error"
         except (ProtocolError, KeyError, IndexError, TypeError, ValueError) as exc:
             incomplete.append("model_or_runtime_protocol_error:" + type(exc).__name__)
+            # ProtocolError codes contain validator paths, never raw arguments.
+            # Keep the existing terminal/Gate semantics while retaining the cause.
+            try:
+                trace.append({"type": "protocol_error", "error_type": type(exc).__name__,
+                              "error_code": str(exc) if isinstance(exc, ProtocolError)
+                              else "runtime_structure_error"})
+            except TraceLimit:
+                incomplete.append("trace_limit")
             terminal_reason = "runtime_error"
             infra_status = "runtime_error"
         except TraceLimit:
