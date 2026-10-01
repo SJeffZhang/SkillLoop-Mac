@@ -1,0 +1,27 @@
+{
+  "scope": "exact_pr_development_only",
+  "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "review_digest": "sha256:098c2fd650a23c6be8d708a72a879f9f75b2f21496adfebc54053f7c78507270",
+  "profiles": {
+    "orders_total": {
+      "development_verdict": "inconclusive",
+      "formal_actual_attempts": 15,
+      "complete": 14,
+      "confirmed_failures": 0
+    },
+    "refunds_total": {
+      "development_verdict": "pass",
+      "formal_actual_attempts": 15,
+      "complete": 15,
+      "confirmed_failures": 0
+    },
+    "markdown_index": {
+      "development_verdict": "inconclusive",
+      "formal_actual_attempts": 12,
+      "complete": 11,
+      "confirmed_failures": 0
+    }
+  },
+  "qualification_asserted": false,
+  "production_ready": false
+}
