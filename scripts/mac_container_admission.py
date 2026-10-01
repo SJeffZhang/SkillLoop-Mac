@@ -9,7 +9,7 @@ from scripts.dgx_m6_calibrate import probe_suite
 from skillloop.runtime.gateway import ExactLocalTokenizer
 from skillloop.protocol import digest_jcs
 from scripts.dgx_m6_repair import source_index
-from skillloop.runtime.mac_entry import verify_formal_entry
+from skillloop.runtime.mac_entry import verify_formal_entry,verify_protected_entry,protected_options
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--image',required=True);parser.add_argument('--socket-volume',required=True);parser.add_argument('--model-volume',required=True);parser.add_argument('--profile',default='orders_total');parser.add_argument('--candidate-root',type=Path);parser.add_argument('--capacity-case',choices=['clean-a','secret-leak']);parser.add_argument('--config-file',type=Path);parser.add_argument('--model-port',type=int,default=11434);parser.add_argument('--run-entry',type=Path);args=parser.parse_args()
@@ -30,12 +30,16 @@ def main():
     repetition=0;scope='diagnostic_not_formal_M6'
     if args.run_entry:
         entry=json.loads(args.run_entry.read_text())
-        verify_formal_entry(entry,image=args.image,source_digest=digest_jcs(source_index(Path('/code'))),model_port=args.model_port)
+        verifier=verify_protected_entry if entry.get('kind')=='protected' else verify_formal_entry
+        verifier(entry,image=args.image,source_digest=digest_jcs(source_index(Path('/code'))),model_port=args.model_port)
         config=entry['config'];case=entry['case_id'];repetition=entry['repetition'];args.profile=entry['profile']
         if config['mac_runtime_image']!=args.image or entry['source_index_digest']!=digest_jcs(source_index(Path('/code'))):raise ValueError('formal_source_identity')
         if config['model_service_port']!=args.model_port:raise ValueError('formal_model_service_binding')
         options={'compiled_suite':entry['compiled'],'skill_root':Path('/subject'),'execution_plan':entry['plan'],'campaign_id':entry['campaign_id']}
         scope='formal_M6_individual_run'
+        if entry.get('kind')=='protected':
+            options.update(protected_options(entry))
+            scope='formal_M7_protected_individual_run'
         if entry.get('kind')=='capacity':
             options['inputs_override']={slot:base64.b64decode(value,validate=True) for slot,value in entry['capacity_inputs'].items()}
             scope='M6_capacity_calibration'

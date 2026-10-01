@@ -31,7 +31,7 @@ def compile_private(bundle, tokenizer, development):
         'history_case_digests':development['suite']['body']['history_case_digests']})
     return {'profile_id':bundle['profile_id'],'objectives':objectives,'cases':cases,'mutations':mutations,'suite':suite}
 
-def protected_plan(compiled, subjects, campaign, config, parent=None):
+def protected_plan(compiled, subjects, campaign, config, parent=None, *, runtime_profile_path=None):
     items=[{'item_id':role+'.'+cid+'.'+str(rep),'subject_digest':subject['subject_digest'],
         'case_digest':case['digest'],'repetition_index':rep,'phase':case['body']['split'],'subject_role':role,
         'requirement':'required','reason_code':None,'attempts_reserved':1,'timeout_ms':265000}
@@ -42,5 +42,5 @@ def protected_plan(compiled, subjects, campaign, config, parent=None):
         'suite_digest':compiled['suite']['digest'],'config_digest':digest_jcs(config),'phase':'protected',
         'items':items,'reserved_rollouts':len(items),'reserved_execution_ms':len(items)*265000,
         'reserved_auxiliary_ms':120000,'terminal_reserve_ms':600000,'max_campaign_rollouts':128,
-        'max_campaign_execution_ms':28800000,'runtime_profile_digest':digest_bytes((FAMILY_SPEC.parent/'operations/runtime-profile.json').read_bytes())})
+        'max_campaign_execution_ms':28800000,'runtime_profile_digest':digest_bytes((runtime_profile_path or FAMILY_SPEC.parent/'operations/runtime-profile.json').read_bytes())})
     validate_plan(p,compiled['suite']);return p
