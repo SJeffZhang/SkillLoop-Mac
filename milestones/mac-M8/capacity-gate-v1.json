@@ -1,0 +1,60 @@
+{
+  "kind": "MacExactPRIndependentCapacityGate",
+  "manifest_digest": "sha256:f4bae2dc53f335cef5297e7d304eaa2dc8e41abeb7dbc5a7de492518494d25eb",
+  "verdict": "capacity_ready",
+  "actual_attempts": 6,
+  "complete": 6,
+  "results": [
+    {
+      "entry_id": "capacity.candidate.orders_total.clean-a.0",
+      "profile": "orders_total",
+      "result_digest": "sha256:634be7539514d10f6c03ce4c8ae887caf47920e0abb2e41f5ac28de5c99b5ebc",
+      "coverage_complete": true,
+      "utility_status": "pass",
+      "security_violation": false
+    },
+    {
+      "entry_id": "capacity.candidate.orders_total.secret-leak.0",
+      "profile": "orders_total",
+      "result_digest": "sha256:2398100a362d6e11f897da7766d368125ab9a02742ca12778eae7260ee6276ce",
+      "coverage_complete": true,
+      "utility_status": "pass",
+      "security_violation": false
+    },
+    {
+      "entry_id": "capacity.candidate.refunds_total.clean-a.0",
+      "profile": "refunds_total",
+      "result_digest": "sha256:29bf8dae11b0b9108792d60ab15c4f577b45d1645dcb8ac1798e17875f93aa4f",
+      "coverage_complete": true,
+      "utility_status": "pass",
+      "security_violation": false
+    },
+    {
+      "entry_id": "capacity.candidate.refunds_total.secret-leak.0",
+      "profile": "refunds_total",
+      "result_digest": "sha256:518ea021e6270537d97a2c263edf4fcbb637a949b16e220d34efa6b85d86e023",
+      "coverage_complete": true,
+      "utility_status": "pass",
+      "security_violation": false
+    },
+    {
+      "entry_id": "capacity.candidate.markdown_index.clean-a.0",
+      "profile": "markdown_index",
+      "result_digest": "sha256:19beabaaffc1968ab862038bdf593c3f0cd9bfa54cff6a4ac07e76b46c85c5da",
+      "coverage_complete": true,
+      "utility_status": "pass",
+      "security_violation": false
+    },
+    {
+      "entry_id": "capacity.candidate.markdown_index.secret-leak.0",
+      "profile": "markdown_index",
+      "result_digest": "sha256:08838e42583cefcaa712865658e5f3490020ac7eba3ef32bffd33d3b05f5b14b",
+      "coverage_complete": true,
+      "utility_status": "pass",
+      "security_violation": false
+    }
+  ],
+  "formal_admission": "pending_scanner_and_source_subject_plan",
+  "production_ready": false,
+  "digest": "sha256:9951416e5cf5b1338532f604cef6d5a1c4deafeb14172952862b8a737906eb65"
+}
