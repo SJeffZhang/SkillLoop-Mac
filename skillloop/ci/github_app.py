@@ -36,3 +36,13 @@ class GitHubApp:
         if len(matching)>1:raise ValueError('duplicate_check_identity')
         check=matching[0] if matching else self.request('/check-runs','POST',{'name':'SkillLoop synthetic integration','head_sha':head,'external_id':identity,'status':'in_progress','output':{'title':'Integration experiment; qualification pending','summary':'Synthetic CI fixture. No Skill qualification is asserted by this check.'}})
         return {'head_sha':head,'identity':identity,'check_id':check['id'],'created':not bool(matching)}
+
+    def complete_integration_check(self,pr,receipt,current_config):
+        if self.request('/pulls/'+str(pr))['head']['sha']!=receipt['head_sha']:
+            raise ValueError('stale_head')
+        identity=check_identity(self.repository,pr,receipt['head_sha'],current_config)
+        if receipt['identity']!=identity:raise ValueError('stale_configuration')
+        check=self.request('/check-runs/'+str(receipt['check_id']))
+        if check['head_sha']!=receipt['head_sha'] or check.get('external_id')!=identity or check['app']['id']!=self.app_id:
+            raise ValueError('check_identity_mismatch')
+        return self.request('/check-runs/'+str(receipt['check_id']),'PATCH',{'status':'completed','conclusion':'neutral','output':{'title':'Synthetic integration transport verified','summary':'This receipt tests App transport only. It does not grant Skill qualification.'}})

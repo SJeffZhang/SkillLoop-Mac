@@ -1,0 +1,12 @@
+{
+  "force_push_exact_sha_isolation": true,
+  "old_worker_rejected": true,
+  "configuration_identity_isolation": true,
+  "resumed_check_reused": true,
+  "completed_check_id": 110441913259,
+  "conclusion": "neutral",
+  "qualification_asserted": false,
+  "old_head": "d696e4a99e98e1eca22c096ea8d43ca85479a2b3",
+  "current_head": "77155b444c276d0dfcdbaf5ce72c270352c64d17",
+  "scope": "live API driven synthetic integration scenarios; webhook delivery and full Skill CI pending"
+}
