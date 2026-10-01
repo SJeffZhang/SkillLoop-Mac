@@ -10,3 +10,10 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'recover_only'):delivery_action(('delivered',None),False)
     def test_unbound_spending_rejected(self):
         with self.assertRaisesRegex(ValueError,'unbound'):delivery_action(None,True)
+
+class RetiredSlotTests(unittest.TestCase):
+    def test_only_spent_unknown_can_be_retired(self):
+        from scripts.mac_m7_matrix import validate_retired_slot
+        validate_retired_slot(('unknown',None),True)
+        for state,spent in [(None,False),(('unknown',None),False),(('complete','result'),True)]:
+            with self.assertRaises(ValueError):validate_retired_slot(state,spent)

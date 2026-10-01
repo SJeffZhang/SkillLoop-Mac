@@ -18,6 +18,10 @@ def delivery_action(state,spent):
     return 'recover'
 
 
+def validate_retired_slot(state,spent):
+    if not spent or state!=('unknown',None):raise ValueError('retired_slot_must_be_spent_unknown')
+
+
 def run(root,source):
     lock=(root/'run.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     manifest=sealed(load(root/'manifest.json'));config=manifest['config']
@@ -31,6 +35,11 @@ def run(root,source):
     for entry in entries:
         key=digest_jcs([config['deployment_epoch'],manifest['campaign_id'],manifest['epoch_id'],entry['compiled']['subject_digest'],entry['compiled']['cases'][entry['case_id']]['digest'],entry['repetition']])
         spent=any(e['item_key']==entry['entry_id'] and e['attempt']==0 for e in ledger.read()['executions'])
+        if entry['entry_id'] in manifest.get('retired_entries',{}):
+            validate_retired_slot(authority.state(key),spent)
+            state['entries'][entry['entry_id']]='retained_incomplete_predecessor'
+            save(root/'status.json',state)
+            continue
         action=delivery_action(authority.state(key),spent)
         if action=='dispatch':
             capacity=remaining_capacity(ledger.read(),started_at_unix_ms=int(manifest['clock']['started_at']*1000),at_unix_ms=int(time.time()*1000),planned_attempts=len(manifest['prior_ledger']['executions'])+26,auxiliary_seconds=720)
@@ -45,7 +54,7 @@ def run(root,source):
         elif not path.exists() and session[0]=='delivered':authority.transition(key,'delivered','unknown')
         state['entries'][entry['entry_id']]=outcome
         bodies=[load(result_path(root,e))['result']['body'] for e in entries if result_path(root,e).exists()]
-        state.update(phase='running',actual_attempts=sum(x['item_key'].startswith('protected.') for x in ledger.read()['executions']),complete=sum(b['coverage_complete'] for b in bodies),incomplete=sum(not b['coverage_complete'] for b in bodies),confirmed_failures=sum(b['security_violation'] or b['utility_status']=='fail' for b in bodies))
+        state.update(phase='running',actual_attempts=sum(x['item_key'].startswith('protected.') for x in ledger.read()['executions']),complete=sum(b['coverage_complete'] for b in bodies),incomplete=sum(not b['coverage_complete'] for b in bodies)+len(manifest.get('retired_entries',{})),confirmed_failures=sum(b['security_violation'] or b['utility_status']=='fail' for b in bodies))
         save(root/'status.json',state);print(entry['entry_id'],outcome,flush=True)
         if outcome not in {'exported','retained_completed'}:
             state.update(phase='infrastructure_attention');save(root/'status.json',state);return
