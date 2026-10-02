@@ -30,9 +30,12 @@ def validated_entry_path(root, entry, entry_path=None):
         raise ValueError('entry_bind_identity_mismatch')
     return path.resolve()
 
-def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None):
+def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None,evidence_storage=None):
+    if entry['config'].get('evidence_quota_config') and evidence_storage is None:
+        raise ValueError('evidence_quota_adapter_required')
     target=result_path(root,entry).parent
     if (target/'result.json').exists():
+        if evidence_storage is not None:evidence_storage.verify_and_close(entry,target)
         if resource_admission is not None:resource_admission.release(entry)
         return 'retained_completed'
     name='skillloop-m6-'+entry['digest'][7:27];prefix=name
@@ -41,11 +44,19 @@ def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None):
         bound_entry = validated_entry_path(root, entry, entry_path)
         model_identity(entry['config'])
         if resource_admission is not None:resource_admission.reserve(entry)
+        try:
+            if evidence_storage is not None:evidence_storage.prepare(entry)
+        except BaseException:
+            if resource_admission is not None:resource_admission.release(entry)
+            raise
         try:ledger.consume(entry['entry_id'],0)
         except BaseException:
             # The worker has not been launched. Spending is never rolled back,
             # even if the durable ledger write completed before raising.
-            if resource_admission is not None:resource_admission.release(entry)
+            try:
+                if evidence_storage is not None:evidence_storage.abort_unstarted(entry)
+            finally:
+                if resource_admission is not None:resource_admission.release(entry)
             raise
         subject=Path(entry['subject_root']) if entry.get('kind')=='protected' else ((archive/manifest_campaign(root,entry)/'candidate') if entry['role']=='candidate' else root/'submitted'/entry['profile'])
         command=['docker','run','--name',name,'--network','host','-v','/var/run/docker.sock:/var/run/docker.sock',
@@ -64,6 +75,7 @@ def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None):
             return 'controller_deadline_exceeded'
         if proc.returncode:return 'controller_failed'
     else:
+        if evidence_storage is not None:evidence_storage.verify_prepared(entry)
         inspected=subprocess.run(['docker','inspect',name],capture_output=True,text=True)
         if inspected.returncode:return 'consumed_without_container'
         state=json.loads(inspected.stdout)[0]['State']
@@ -75,6 +87,7 @@ def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None):
     target.parent.mkdir(parents=True,exist_ok=True)
     copied=subprocess.run(['docker','cp',name+':'+source,str(target)],capture_output=True,text=True)
     exported=copied.returncode==0 and (target/'result.json').exists()
+    if exported and evidence_storage is not None:evidence_storage.verify_and_close(entry,target)
     if exported and resource_admission is not None:resource_admission.release(entry)
     return 'exported' if exported else 'export_failed'
 
@@ -91,11 +104,26 @@ def resource_admission_from_args(args,manifest):
     from skillloop.runtime.controller_reservation import ControllerResourceAdmission
     return ControllerResourceAdmission(plan,args.resource_admission_state,args.resource_admission_socket)
 
+def evidence_storage_from_args(args,manifest):
+    values=(args.evidence_quota_plan,args.evidence_quota_state)
+    enabled=manifest['config'].get('evidence_quota_config')
+    if not any(values) and not enabled:return None
+    if not all(values):raise ValueError('evidence_quota_arguments')
+    plan=sealed(load(args.evidence_quota_plan))
+    if (plan['manifest_digest']!=manifest['digest'] or
+        plan['policy']['config_id']!=enabled or
+        digest_jcs(plan['policy'])!=manifest['config'].get('evidence_quota_policy_digest')):
+        raise ValueError('evidence_quota_manifest')
+    from skillloop.runtime.evidence_quota import EvidenceQuotaKeeper
+    return EvidenceQuotaKeeper(plan,args.evidence_quota_state)
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--archive',type=Path,required=True);parser.add_argument('--source',type=Path,required=True);parser.add_argument('--tokenizer',type=Path,required=True)
-    parser.add_argument('--resource-admission-plan',type=Path);parser.add_argument('--resource-admission-state',type=Path);parser.add_argument('--resource-admission-socket',type=Path);args=parser.parse_args()
+    parser.add_argument('--resource-admission-plan',type=Path);parser.add_argument('--resource-admission-state',type=Path);parser.add_argument('--resource-admission-socket',type=Path)
+    parser.add_argument('--evidence-quota-plan',type=Path);parser.add_argument('--evidence-quota-state',type=Path);args=parser.parse_args()
     os.umask(0o077);root=args.root.resolve();manifest=sealed(load(root/'manifest.json'));entries=[sealed(load(root/p)) for p in manifest['entries']]
     admission=resource_admission_from_args(args,manifest)
+    evidence=evidence_storage_from_args(args,manifest)
     model_identity(manifest['config']);status=load(root/'status.json') if (root/'status.json').exists() else {'kind':'MacM6MatrixStatus','manifest_digest':manifest['digest'],'entries':{},'phase':'capacity'}
     if status['manifest_digest']!=manifest['digest']:raise ValueError('resume_manifest_changed')
     for profile in manifest['profiles']:
@@ -107,13 +135,13 @@ def main():
         ledger=SpendingLedger(root/'spending'/(profile+'.json'),victim_seconds=manifest['config']['worker_deadline_seconds'],campaign_started_at=value['started_at'])
         current=[e for e in entries if e['profile']==profile]
         for entry in [e for e in current if e['kind']=='capacity']:
-            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
+            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission,evidence_storage=evidence);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
         calibration=gate(root,args.archive,args.source,args.tokenizer,calibration_only=True);save(root/'calibration-gate.json',calibration)
         if calibration['profiles'][profile]['verdict']!='calibration_ready':
             status.update(phase='capacity_blocked',profile=profile);save(root/'status.json',status);return
         status.update(phase='formal_M6',profile=profile);save(root/'status.json',status)
         for entry in [e for e in current if e['kind']=='formal']:
-            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
+            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission,evidence_storage=evidence);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
             if outcome in {'controller_failed','controller_deadline_exceeded','export_failed','consumed_without_container','retained_failed_controller'}:
                 status.update(phase='infrastructure_attention');save(root/'status.json',status);return
         report=gate(root,args.archive,args.source,args.tokenizer);save(root/'m6-gate.json',report)
