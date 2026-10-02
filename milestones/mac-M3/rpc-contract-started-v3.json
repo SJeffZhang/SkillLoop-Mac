@@ -1,0 +1,32 @@
+{
+  "kind": "MacM3RPCContractStarted",
+  "config_id": "mac-m3-rpc-contract-v3",
+  "deployment_epoch": "mac-m3-rpc-contract-3",
+  "plan_digest": "sha256:53e247ce887091cc5941bd7cb032900c4d04c9630cb10736237992668110e86a",
+  "manifest_digest": "sha256:f0efbbe79f0415790e3f53c6e25c395ed74965bef61814fb490c7c67e83f5d05",
+  "worker_source_digest": "sha256:e5e2885e317cc0464e82bf88df5d995f0382059d2fba67e06de098dec84a1409",
+  "worker_image": "sha256:abfd41b26e9d9c10d259e7f8249ac68e7060e627290cf0fd0e2c63d1ccf079e2",
+  "real_cases": 12,
+  "positive_full_chains": 6,
+  "revoke_before_publish": 3,
+  "cancel_fence": 3,
+  "distinct_actual_authority_runtime_foreign_uids": [
+    21001,
+    21002,
+    31003
+  ],
+  "actual_model_calls_bound": 0,
+  "independent_engineering_wall_seconds": 5400,
+  "container_seconds": 1200,
+  "reserved_attempts": 4,
+  "prior_failed_engineering_attempts": 2,
+  "retries_to_dispatch": 0,
+  "actual_work_named_tmpfs_bytes": 67108864,
+  "root_harness_has_SETUID_SETGID_CHOWN_DAC_OVERRIDE_for_role_tests": true,
+  "full_M2": false,
+  "full_M3": false,
+  "production_ready": false,
+  "raw_uploaded": false,
+  "state": "actual_runner_started",
+  "digest": "sha256:80662b24fb675588d0a77be51cfcce1fa38b6fc609150fb0f9d820ee84a42052"
+}
