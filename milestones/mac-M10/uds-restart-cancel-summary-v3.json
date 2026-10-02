@@ -1,0 +1,14 @@
+{
+  "kind": "MacM10ActualUDSRestartCancelDrill",
+  "scope": "isolated copy of real protected-run authority; Linux SO_PEERCRED SOCK_SEQPACKET and real process termination",
+  "cancel_committed_before_unread_ack": true,
+  "process_terminated_and_restarted": true,
+  "same_request_replay_idempotent": true,
+  "replay_fence_increment_once": true,
+  "stale_fence_rejected": true,
+  "sqlite_integrity_ok": true,
+  "new_model_calls": 0,
+  "formal_m10_complete": false,
+  "production_ready": false,
+  "retained_failed_setup_activities": 2
+}
