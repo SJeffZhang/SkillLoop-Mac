@@ -22,17 +22,26 @@ def model_identity(config):
         if key and data[key]!=expected:raise ValueError('ollama_version_changed')
         if route=='tags' and not any(model['name']==config['model_id'] and 'sha256:'+model['digest']==config['model_manifest_digest'] for model in data['models']):raise ValueError('model_snapshot_changed')
 
-def execute(root,archive,entry,ledger):
+def validated_entry_path(root, entry, entry_path=None):
+    path = Path(entry_path) if entry_path is not None else root/'entries'/entry['profile']/(entry['entry_id']+'.json')
+    if not path.is_file():
+        raise ValueError('entry_bind_source_not_file')
+    if sealed(load(path)) != entry:
+        raise ValueError('entry_bind_identity_mismatch')
+    return path.resolve()
+
+def execute(root,archive,entry,ledger,entry_path=None):
     target=result_path(root,entry).parent
     if (target/'result.json').exists():return 'retained_completed'
     name='skillloop-m6-'+entry['digest'][7:27];prefix=name
     spent=any(e['item_key']==entry['entry_id'] and e['attempt']==0 for e in ledger.read()['executions'])
     if not spent:
+        bound_entry = validated_entry_path(root, entry, entry_path)
         model_identity(entry['config']);ledger.consume(entry['entry_id'],0)
         subject=Path(entry['subject_root']) if entry.get('kind')=='protected' else ((archive/manifest_campaign(root,entry)/'candidate') if entry['role']=='candidate' else root/'submitted'/entry['profile'])
         command=['docker','run','--name',name,'--network','host','-v','/var/run/docker.sock:/var/run/docker.sock',
             '-v',prefix+'-authority:/work','-v',prefix+'-model:/bridge','-v',prefix+'-proxy:/interfaces',
-            '-v',str((root/'entries'/entry['profile']/(entry['entry_id']+'.json')).resolve())+':/entry.json:ro',
+            '--mount','type=bind,src='+str(bound_entry)+',dst=/entry.json,readonly',
             '-v',str(subject.resolve())+':/subject:ro','-e','SKILLLOOP_CONTROLLER_ID='+name,entry['config']['mac_runtime_image'],'scripts/mac_container_admission.py',
             '--image',entry['config']['mac_runtime_image'],'--socket-volume',prefix+'-proxy','--model-volume',prefix+'-model',
             '--model-port',str(entry['config']['model_service_port']),'--run-entry','/entry.json']

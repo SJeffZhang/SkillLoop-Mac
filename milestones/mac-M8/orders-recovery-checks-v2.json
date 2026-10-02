@@ -1,0 +1,23 @@
+{
+  "scope": "local_authority_exact_pr_experiment",
+  "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "profiles": [
+    {
+      "profile": "orders_total",
+      "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+      "config_digest": "sha256:563c6041ed0bd156b9948cf27b68c056ce58c808590844789c75e2d833fbbfd9",
+      "generation": 2,
+      "verdict": "pass",
+      "development_complete": 15,
+      "protected_complete": 12,
+      "scope": "local_authority_exact_pr_experiment",
+      "production_ready": false,
+      "review_digest": "sha256:8ea517377be82fc2214cc2824117ad649c92ca0fa285c35bda596e9ee9aeeccf",
+      "check_id": 110738716858,
+      "check_url": "https://github.com/SJeffZhang/skillloop-ci-test/runs/110738716858",
+      "conclusion": "success",
+      "registry_receipt_digest": "sha256:e595c3c11027aab8a1c6470829e16633d408aa3a3fa22b5e354ca16a78198002"
+    }
+  ],
+  "production_ready": false
+}
