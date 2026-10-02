@@ -1,0 +1,42 @@
+{
+  "kind": "MacM9ExactPRCampaignEvidenceIndex",
+  "scope": "local_authority_exact_pr_experiment",
+  "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "prior_index_digest": "sha256:92beae1870715e8dd5dd01a8fd4f1b674781ab9a66fc6df0b6049e37f5a0f4a3",
+  "complete_exact_pr_profile_chains": 2,
+  "profiles": {
+    "orders_total": {
+      "verdict": "inconclusive",
+      "development_complete": 14,
+      "protected_complete": 0,
+      "check_id": 110719996059,
+      "conclusion": "neutral",
+      "registry_receipt_digest": "sha256:78a1b7e05975cffc75033c5610ee165ca5cf65a5da45b84d68b405d9d7e957b7"
+    },
+    "refunds_total": {
+      "verdict": "pass",
+      "development_complete": 15,
+      "protected_complete": 12,
+      "check_id": 110720010179,
+      "conclusion": "success",
+      "registry_receipt_digest": "sha256:33c5762fa816eb9a7ad8ce89332d2b0235ee15c486ef69bd9c4b70a8ead9ef51"
+    },
+    "markdown_index": {
+      "verdict": "pass",
+      "development_complete": 15,
+      "protected_complete": 12,
+      "check_id": 110720025963,
+      "conclusion": "success",
+      "registry_receipt_digest": "sha256:c90077716d4a7b1218c287ef1a4587f570bcc3f990432296b1d03be7c8b97a72"
+    }
+  },
+  "production_ready": false,
+  "formal_status": "incomplete_orders_unknown_and_remaining_acceptance",
+  "historical_campaigns_retained": true,
+  "remaining": [
+    "orders exact-PR development has one consumed unknown slot; no protected admission",
+    "cross-account permissions and webhook delivery not verified",
+    "M10 formal acceptance incomplete"
+  ],
+  "digest": "sha256:dac27c102a19a0bdf6c3b2e14c95dc2153857dee4fd00e9bf763ed61b6743510"
+}
