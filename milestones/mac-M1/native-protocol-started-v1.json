@@ -1,0 +1,31 @@
+{
+  "kind": "MacM1NativeProtocolStarted",
+  "config_id": "mac-m1-native-protocol-v1",
+  "deployment_epoch": "mac-m1-native-protocol-1",
+  "plan_digest": "sha256:70134219f17a67f3df870447f6b8d5ddb9d7b34c1f854564f0e13989682c9c87",
+  "manifest_digest": "sha256:523473dfdee8abcec36c2c6c74dc6b96e7edcaf5dc07e51450299f909b839ea1",
+  "worker_source_digest": "sha256:e5e2885e317cc0464e82bf88df5d995f0382059d2fba67e06de098dec84a1409",
+  "worker_image": "sha256:abfd41b26e9d9c10d259e7f8249ac68e7060e627290cf0fd0e2c63d1ccf079e2",
+  "model_identity": {
+    "model_id": "qwen3.8:27b-mxfp8",
+    "model_manifest_digest": "sha256:464021588235c36e23bd48a480c6c306ed1fc1e0619e97998267494a1be68de4",
+    "ollama_version": "0.33.3"
+  },
+  "required_http_requests": 8,
+  "required_model_requests": 7,
+  "reserved_http_requests": 10,
+  "retries_to_dispatch": 0,
+  "independent_engineering_wall_seconds": 1800,
+  "forecast_wall_seconds": 1560,
+  "parent_original_clock_preserved": 1790961710.8368158,
+  "parent_closed_costed_attempts": 78,
+  "new_formal_victim_calls": 0,
+  "purpose": "single/multiple native tools, recoverable simulated echo refusal, malformed HTTP request, actual client timeout, preliminary distinct role process lifecycle",
+  "actual_business_tool_refusal_verified": false,
+  "actual_private_suite_isolation_verified": false,
+  "full_M1_accepted": false,
+  "production_ready": false,
+  "raw_uploaded": false,
+  "state": "actual_runner_started",
+  "digest": "sha256:4bec1bd7fec5e6711e2d314115190029d63ad8e305c60501e5ae63dd02af30aa"
+}
