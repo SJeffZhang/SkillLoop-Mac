@@ -1,0 +1,52 @@
+{
+  "kind": "MacM10MatrixResourceAdmissionSummary",
+  "scope": "real Linux physical resource and UDS admission connected to matrix execute and durable SpendingLedger; no-model worker transport; no formal model evaluation or protected qualification with this scheduler configuration; unknown/expired transport intents fail closed and need trusted reconciliation",
+  "configs_verified": [
+    "mac-m10-scheduler-admission-v2",
+    "mac-m10-scheduler-release-recovery-v3"
+  ],
+  "new_matrix_execute_and_cli_resource_option_connected": true,
+  "single_controller_spending_ledger_owner_required": true,
+  "physical_queue_slots": 16,
+  "peak_reserved_bytes": 4194304,
+  "free_floor_bytes": 3145728,
+  "full_queue_rejected_before_spending_and_worker": true,
+  "precommit_budget_failure_released_without_spending": true,
+  "postcommit_budget_ack_failure_spent_retained_and_resource_released": true,
+  "completed_export_lost_cancel_ack_restart_release_only": true,
+  "cancel_fence_increment_once": true,
+  "all_verified_activity_resources_released": true,
+  "new_targeted_tests_pass": 17,
+  "implementation_tests": {
+    "run": 309,
+    "passed": 305,
+    "environment_skipped": 4
+  },
+  "verified_new_engineering_spending_attempts": 19,
+  "conservative_activity_attempts_including_preserved_failure": 37,
+  "old_evidence_export_failure_preserved": true,
+  "old_unexported_engineering_spent_unknown": 1,
+  "old_slots_reexecuted": false,
+  "original_clock_wall_elapsed": 1265.474261045456,
+  "activity_wall_budget_seconds": 1800,
+  "source_index_digest": "sha256:6129cdecd0db7456d020e924505e614ed7b17a88a782501fe828145e282fcadc",
+  "independent_review_digest": "sha256:0e5cf77444cc4d48fea9bb02590e57261ffcd7fe5b471556f6cf6218223ddb8f",
+  "zero_model_harness": {
+    "worker_transport_substituted": true,
+    "model_identity_transport_substituted": true,
+    "real_proxy_uds_physical_storage_and_ledger": true,
+    "formal_case_results_produced": false
+  },
+  "model_calls": 0,
+  "private_evidence_published": false,
+  "formal_r38_complete": false,
+  "formal_m10_complete": false,
+  "production_ready": false,
+  "remaining_scope": [
+    "real model worker deployment with this resource configuration",
+    "actual evidence filesystem reservation and quota ownership",
+    "DGX 2GiB free floor and 512MiB WAL reservation",
+    "sustained multiworker queue load and whole VM recovery",
+    "trusted reconciliation of expired unknown transport intents"
+  ]
+}
