@@ -1,0 +1,13 @@
+{
+  "scope": "local_authority_exact_pr_fresh_private_renewal_experiment",
+  "development_complete": 15,
+  "development_confirmed_failures": 0,
+  "development_independent_verdict": "pass",
+  "new_fresh_private_required_runs": 12,
+  "private_queue_started": true,
+  "original_activity_clock_inherited": true,
+  "development_capacity_spending_prefix_verified": 17,
+  "historical_model_runs_counted": false,
+  "fresh_private_gate": "pending",
+  "production_ready": false
+}
