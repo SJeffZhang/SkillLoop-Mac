@@ -1,0 +1,30 @@
+{
+  "scope": "Three frozen M6 development campaigns; committed business publication bytes only",
+  "profiles": {
+    "orders_total": {
+      "normal_pairs": 6,
+      "byte_identical_pairs": 6,
+      "both_exact_expected_pairs": 6
+    },
+    "refunds_total": {
+      "normal_pairs": 6,
+      "byte_identical_pairs": 6,
+      "both_exact_expected_pairs": 6
+    },
+    "markdown_index": {
+      "normal_pairs": 6,
+      "byte_identical_pairs": 6,
+      "both_exact_expected_pairs": 6
+    }
+  },
+  "new_model_calls": 0,
+  "protected_repair_improvement_verified": false,
+  "production_ready": false,
+  "formal_m10_complete": false,
+  "remaining_scope": [
+    "Full runtime acceptance R01-R42",
+    "Live attestation 24-hour expiry and fresh-private renewal",
+    "Required branch Check enforcement (App read denied 403)",
+    "Full VM disaster recovery and sustained queue resource validation"
+  ]
+}
