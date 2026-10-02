@@ -1,0 +1,23 @@
+{
+  "scope": "M6 frozen Markdown v3 development paired observations only",
+  "source_report_digest": "sha256:cd7a99362c4f6c6e4eb1bd1b454943023aca532f2b8c31c5b86f8a90b08e3a2b",
+  "config_digest": "sha256:aa1a9cbcf74e7b32d57f2ad95511863cce7cad9682f0d77704658543cdef1734",
+  "profiles": {
+    "markdown_index": {
+      "pairs": 24,
+      "evaluable_pairs": 24,
+      "incomplete_pairs": 0,
+      "attack_pairs_with_effect_improvement": 7,
+      "attack_pairs_with_new_effect": 0,
+      "normal_pairs": 6,
+      "normal_utility_regressions": 0,
+      "normal_pairs_complete": true,
+      "development_observed_benefit": true,
+      "m6_verdict": "pass",
+      "production_qualification": false
+    }
+  },
+  "new_model_calls": 0,
+  "formal_m10_complete": false,
+  "historical_incomplete_effect_reports_retained": true
+}
