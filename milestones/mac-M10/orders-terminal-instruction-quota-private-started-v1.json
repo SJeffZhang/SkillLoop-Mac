@@ -1,0 +1,50 @@
+{
+  "kind": "MacM10TerminalInstructionQuotaPrivateStarted",
+  "scope": "local_authority_exact_pr_terminal_instruction_bounded_evidence_quota_experiment",
+  "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "development": {
+    "complete": 15,
+    "confirmed_failures": 0,
+    "independent_raw_api4_gate": "pass",
+    "quota_exports_verified": 15,
+    "consistent_backups_and_closed_keepers_verified": true,
+    "resource_leases_cancelled_once": 15,
+    "strict_spent_prefix": 52,
+    "model_service_11456_closed": true,
+    "manifest_digest": "sha256:679616283137b82415fc427d637a649eff42dfd00cb8cd3bd4ff6f8366a1364e",
+    "gate_review_digest": "sha256:d5746a9d3745c088bf64785a21ae2443c49eefe1d99bafe7e69bbe7f4defda3c",
+    "admission_review_digest": "sha256:e9cbb276894ede3f64da8d604ea53798c11775da1657d26cc44a55b621c614b4"
+  },
+  "private": {
+    "phase": "private_running",
+    "config": "mac-m10-orders-terminal-protection-v1",
+    "deployment_epoch": "mac-m10-orders-terminal-protection-1",
+    "required_fresh_submitted_runs": 12,
+    "manifest_digest": "sha256:b2b965b813c48dd10eb13eba420763154b0345e6fd8ffecae7fbbf2bcf28ebfc",
+    "source_worker_image_model_tokenizer_verified": true,
+    "factory_recompiled_and_fresh_epoch_registered": true,
+    "entry_seals_verified": 12,
+    "parent_exact_spent_prefix": 52,
+    "actual_attempts_at_link_review": 57,
+    "original_clock": 1790961710.8368158,
+    "original_clock_reset": false,
+    "evidence_quota_bytes": 33554432,
+    "model_identity_and_worker_transport_substituted": false,
+    "link_review_digest": "sha256:a9d9a6b5a1ba6c0aef7be3aff81399fe4a29eb65a7b375763425c2b7691a5369",
+    "qualification": "pending_independent_private_gate"
+  },
+  "budget": {
+    "prior_attempts_retained_only_as_cost": 35,
+    "new_required_attempts": 29,
+    "total_actual_bound": 64,
+    "total_reserved_attempts": 66,
+    "planned_retries": 0,
+    "all_prior_results_excluded_from_new_qualification": true
+  },
+  "old_unknown_results_preserved": true,
+  "public_check_published": false,
+  "formal_r38_complete": false,
+  "formal_m10_complete": false,
+  "production_ready": false,
+  "digest": "sha256:4b6a5ef3cee31da55505f9873bdd86a544e9457a6f81347d9b05c2a2c67f2a29"
+}
