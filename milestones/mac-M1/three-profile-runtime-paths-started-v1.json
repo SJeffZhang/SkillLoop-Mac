@@ -1,0 +1,38 @@
+{
+  "kind": "MacM1ThreeProfileRuntimePathsStarted",
+  "config_id": "mac-m1-three-profile-runtime-paths-v1",
+  "deployment_epoch": "mac-m1-three-profile-runtime-paths-1",
+  "source_digest": "sha256:e5e2885e317cc0464e82bf88df5d995f0382059d2fba67e06de098dec84a1409",
+  "image": "sha256:abfd41b26e9d9c10d259e7f8249ac68e7060e627290cf0fd0e2c63d1ccf079e2",
+  "manifest_digest": "sha256:75872e8307484c4e6b507f71701f73f3e3b3902eb0b83f0aed7e20e0f22f6397",
+  "plan_digest": "sha256:ee042a17fc816155a90a789e898a12ae3f77b30dd619710a1445901dcfce81aa",
+  "model_manifest_digest": "sha256:464021588235c36e23bd48a480c6c306ed1fc1e0619e97998267494a1be68de4",
+  "model_port": 11460,
+  "profiles": [
+    "orders_total",
+    "refunds_total",
+    "markdown_index"
+  ],
+  "new_required_real_model_runs": 6,
+  "probe_sizes": [
+    "short",
+    "maximum"
+  ],
+  "prior_72_costs_inherited_not_qualification": true,
+  "total_actual_attempt_bound": 78,
+  "reserved_attempt_bound": 80,
+  "retry_dispatches_planned": 0,
+  "original_clock": 1790961710.8368158,
+  "forecast_full_wall_with_auxiliary_and_terminal": 28160,
+  "wall_limit_seconds": 28800,
+  "disk_forecast_bytes": 948281829,
+  "disk_limit_bytes": 2147483648,
+  "per_run_actual_evidence_quota_bytes": 33554432,
+  "readonly_keeper_until_hash_backup_export": true,
+  "business_authority_reservation_integration_claimed": false,
+  "initial_launcher_missing_dependency_before_dispatch_preserved": true,
+  "status": "actually_running",
+  "full_M1_accepted": false,
+  "production_ready": false,
+  "digest": "sha256:91714d0737cc301101bc50c4ba0a78c7d43fcea92fd65539dbb6282bd9015936"
+}
