@@ -16,6 +16,7 @@ def main():
         profile_id=current['profile'],skill_bytes=current['skill'].encode(),run_request=current['request'],
         task_binding=current['binding'],fence=1,trust_revision=1,deployment_epoch=current['deployment'],
         deadline_seconds=config['agent_deadline_seconds'],attempt_index=current['attempt'],
+        instruction_suffix=config.get('agent_instruction_suffix',''),
         rendered_mutation=RenderedMutation(**current['mutation']) if current['mutation'] else None)
     Path('/evidence/adapter-result.json').write_text(json.dumps(result))
 
