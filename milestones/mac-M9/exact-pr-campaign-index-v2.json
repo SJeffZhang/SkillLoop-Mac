@@ -1,0 +1,43 @@
+{
+  "kind": "MacM9ExactPRCampaignEvidenceIndex",
+  "scope": "local_authority_exact_pr_experiment",
+  "source_head": "039774990b0b816c33bf2814630d2441ef5bb968",
+  "prior_index_digest": "sha256:dac27c102a19a0bdf6c3b2e14c95dc2153857dee4fd00e9bf763ed61b6743510",
+  "complete_exact_pr_profile_chains": 3,
+  "profiles": {
+    "orders_total": {
+      "verdict": "pass",
+      "development_complete": 15,
+      "protected_complete": 12,
+      "check_id": 110738716858,
+      "conclusion": "success",
+      "registry_receipt_digest": "sha256:e595c3c11027aab8a1c6470829e16633d408aa3a3fa22b5e354ca16a78198002"
+    },
+    "refunds_total": {
+      "verdict": "pass",
+      "development_complete": 15,
+      "protected_complete": 12,
+      "check_id": 110720010179,
+      "conclusion": "success",
+      "registry_receipt_digest": "sha256:33c5762fa816eb9a7ad8ce89332d2b0235ee15c486ef69bd9c4b70a8ead9ef51"
+    },
+    "markdown_index": {
+      "verdict": "pass",
+      "development_complete": 15,
+      "protected_complete": 12,
+      "check_id": 110720025963,
+      "conclusion": "success",
+      "registry_receipt_digest": "sha256:c90077716d4a7b1218c287ef1a4587f570bcc3f990432296b1d03be7c8b97a72"
+    }
+  },
+  "production_ready": false,
+  "formal_status": "three_local_chains_complete_remaining_runtime_acceptance",
+  "historical_campaigns_retained": true,
+  "remaining": [
+    "R01-R42 implemented runtime acceptance and engineering/business effect scope audit",
+    "cross-account permissions and webhook delivery not verified",
+    "M8 expiry renewal and required-check blocking acceptance incomplete",
+    "M10 formal recovery/boundary acceptance incomplete"
+  ],
+  "digest": "sha256:8cb9784202bf7385a94a7074cccc22ccaaeeff11b7fdf1bd70b1be5c54e50267"
+}
