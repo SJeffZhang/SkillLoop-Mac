@@ -1,0 +1,44 @@
+{
+  "kind": "MacM10ClosedEvidenceArchiveSummary",
+  "config": "mac-m10-closed-experiment-archive-v1",
+  "scope": "isolated caller-owned inactive copy; local experiment registry withdrawal then export/all-file hash verification and actual process-crash retirement recovery; original chain validation from archived result records; no production scheduler/archive integration or public qualification withdrawal",
+  "private_source_content_published": false,
+  "original_evidence_and_registry_unchanged": true,
+  "public_checks_mutated": false,
+  "files_exported_and_independently_verified": 664,
+  "bytes_exported_and_independently_verified": 15600774,
+  "archived_execution_records_verified": 27,
+  "original_api4_attestation_verified_from_archived_records": true,
+  "fresh_raw_behavior_revalidation": false,
+  "withdrawal_generation_copy_only": {
+    "before": 3,
+    "after": 4
+  },
+  "withdrawn_copy_eligible": false,
+  "old_worker_rejected": true,
+  "verified_export_preceded_copy_removal": true,
+  "actual_partial_remove_process_exit": 86,
+  "restart_removal_completed": true,
+  "corrupt_export_rejected_source_retained": true,
+  "new_targeted_tests_pass": 14,
+  "implementation_tests": {
+    "run": 292,
+    "passed": 288,
+    "skipped": 4,
+    "skip_scope": "four existing test_m7_protection environment guards"
+  },
+  "original_activity_wall_seconds": 869.2798838615417,
+  "wall_budget_seconds": 1800,
+  "source_index_digest": "sha256:52274143affbbf12788d95798b3b1680ecb9b0f504e9acc6442971d1333cc509",
+  "independent_review_digest": "sha256:d112ad7316ae7b115702b6f06b620b38ab9c501a7059e91d59ba0f1c1335b333",
+  "model_calls": 0,
+  "formal_r38_complete": false,
+  "formal_m10_complete": false,
+  "production_ready": false,
+  "remaining_scope": [
+    "production qualification authority withdrawal",
+    "actual evaluation scheduler and archive integration",
+    "DGX storage thresholds and sustained load",
+    "whole VM disaster recovery"
+  ]
+}
