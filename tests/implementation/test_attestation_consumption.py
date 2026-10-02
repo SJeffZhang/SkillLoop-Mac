@@ -29,3 +29,10 @@ class ConsumptionTests(unittest.TestCase):
     def test_nonpass(self):
         a=make_envelope('EvaluationAttestation',{**self.b,'verdict':'inconclusive'})
         with self.assertRaisesRegex(ValueError,'not_pass'):validate_consumption(a,now=self.issued,**{**self.kw,'verified_attestation_digest':a['digest']})
+    def test_ttl_over_24h(self):
+        a=make_envelope('EvaluationAttestation',{**self.b,'expires_at':(self.issued+timedelta(hours=24,seconds=1)).strftime('%Y-%m-%dT%H:%M:%SZ')})
+        with self.assertRaisesRegex(ValueError,'ttl_invalid'):validate_consumption(a,now=self.issued,**{**self.kw,'verified_attestation_digest':a['digest']})
+    def test_tampered_body(self):
+        import copy
+        a=copy.deepcopy(self.a);a['body']['issuer']='tampered'
+        with self.assertRaises(ValueError):validate_consumption(a,now=self.issued,**self.kw)
