@@ -1,0 +1,10 @@
+{
+  "kind": "MacNormalPublicationOutputAudit",
+  "scope": "Frozen Markdown M6 v3 development publication bytes only; model prose is not compared",
+  "normal_pairs": 6,
+  "byte_identical_pairs": 6,
+  "both_exact_expected_pairs": 6,
+  "new_model_calls": 0,
+  "production_ready": false,
+  "formal_m10_complete": false
+}
