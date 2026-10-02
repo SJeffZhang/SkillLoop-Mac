@@ -3,14 +3,15 @@
 Experiment transport checks retain their separate, historical semantics.
 This mapping establishes neither evidence validity nor branch protection.
 """
-_OUTCOMES = {'pass': (0, 'success'), 'fail': (1, 'failure'),
-             'inconclusive': (3, 'failure'), 'needs_contract': (4, 'action_required')}
+from .decision import CODES
+
+_CONCLUSIONS = {'pass': 'success', 'fail': 'failure',
+                'inconclusive': 'failure', 'needs_contract': 'action_required'}
 
 def qualification_outcome(verdict):
-    if not isinstance(verdict, str) or verdict not in _OUTCOMES:
+    if not isinstance(verdict, str) or verdict not in _CONCLUSIONS:
         raise ValueError('unsupported_qualification_verdict')
-    code, conclusion = _OUTCOMES[verdict]
-    return {'exit_code': code, 'conclusion': conclusion}
+    return {'exit_code': CODES[verdict], 'conclusion': _CONCLUSIONS[verdict]}
 
 def publish_qualification(app, registry, *, pr, check_id, head_sha,
                           config_digest, generation, campaign, decision, summary):
