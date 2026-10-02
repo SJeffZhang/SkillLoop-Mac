@@ -1,0 +1,13 @@
+{
+  "kind": "MacFreshPrivateRenewalProgress",
+  "scope": "new independent local-authority exact-PR experiment",
+  "capacity_independently_verified": 2,
+  "development_required_runs": 15,
+  "fresh_private_required_runs": 12,
+  "historical_model_runs_counted": false,
+  "capacity_clock_inherited": true,
+  "development_queue_started": true,
+  "private_successor_started": true,
+  "production_ready": false,
+  "observed_at_unix_ms": 1790938766490
+}
