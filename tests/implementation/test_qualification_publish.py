@@ -34,3 +34,30 @@ class PublishTests(unittest.TestCase):
         self.r.stale=True
         with self.assertRaisesRegex(ValueError,'stale_generation'):self.call()
         self.assertFalse(self.app.writes)
+    def test_head_changes_before_patch(self):
+        base=self.app.request;calls=0
+        def request(path,method='GET',body=None):
+            nonlocal calls
+            if path=='/pulls/1':
+                calls+=1
+                if calls==2:self.app.head='b'*40
+            return base(path,method,body)
+        self.app.request=request
+        with self.assertRaisesRegex(ValueError,'stale_head'):self.call()
+        self.assertFalse(self.app.writes)
+    def test_head_changes_after_patch_detected(self):
+        base=self.app.request
+        def request(path,method='GET',body=None):
+            result=base(path,method,body)
+            if method=='PATCH':self.app.head='b'*40
+            return result
+        self.app.request=request
+        with self.assertRaisesRegex(ValueError,'stale_head'):self.call()
+        self.assertEqual(len(self.app.writes),1)
+    def test_mismatched_completion_detected(self):
+        base=self.app.request
+        def request(path,method='GET',body=None):
+            result=base(path,method,body)
+            return {**result,'conclusion':'neutral'} if method=='PATCH' else result
+        self.app.request=request
+        with self.assertRaisesRegex(ValueError,'check_completion'):self.call()
