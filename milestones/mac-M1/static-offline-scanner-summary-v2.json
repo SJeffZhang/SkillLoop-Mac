@@ -1,0 +1,76 @@
+{
+  "kind": "IndependentMacStaticScannerSummaryCorrection",
+  "config_id": "mac-m1-static-offline-scanner-v1",
+  "plan_digest": "sha256:9e6dbfd214c47e649eddc4fb51624e4dd05cea1d474fd7da515af1b9f4b6bafa",
+  "scanner_image": "sha256:165f1d7ae6e878970136b78bda4fb9b7cc5a52d305734f7d3b6318d6434ffe9c",
+  "target_platform": "Mac Docker Desktop Linux arm64",
+  "cases": {
+    "clean": {
+      "static_status": "complete",
+      "findings": 0,
+      "rules": [],
+      "semantic_mode": "explicitly_disabled_not_claimed",
+      "normalized_report_digest": "sha256:10691e969b700c8a0ed99986635286ecdcffc9446c4ba7be76e6ba98f55a5d56",
+      "raw_digest": "sha256:a13edb91798d56619e51667a5e6776e110694036902dd3cecb871ca023814144",
+      "analyzer_counts": {
+        "completed": 19,
+        "not_applicable": 5,
+        "disabled": 3
+      },
+      "analyzer_total": 27
+    },
+    "suspicious": {
+      "static_status": "complete",
+      "findings": 1,
+      "rules": [
+        "P1"
+      ],
+      "semantic_mode": "explicitly_disabled_not_claimed",
+      "normalized_report_digest": "sha256:bd37538bead4772951db0d8eb3fb23c919a0fb0a9d5b37d567034b3506fa10d3",
+      "raw_digest": "sha256:6d0c8df600af31800d3947c3299a0084ffc3579f34a6a1d159c6a6001c71aa8c",
+      "analyzer_counts": {
+        "completed": 19,
+        "not_applicable": 4,
+        "disabled": 4
+      },
+      "analyzer_total": 27
+    },
+    "dependency": {
+      "static_status": "complete",
+      "findings": 1,
+      "rules": [
+        "SC4"
+      ],
+      "semantic_mode": "explicitly_disabled_not_claimed",
+      "normalized_report_digest": "sha256:12ac5a6ca7a9b944e5298c4cef82fc4ac60fff8f523858e46411c9c5abd365ed",
+      "raw_digest": "sha256:97176168c9971a3fd9e917b949bd6c9cbcb8fe0b6d7850ceb224efd286349ccc",
+      "analyzer_counts": {
+        "completed": 19,
+        "not_applicable": 4,
+        "disabled": 4
+      },
+      "analyzer_total": 27
+    },
+    "missing-intelligence": {
+      "preflight_rejected": true,
+      "no_complete_report": true
+    }
+  },
+  "installed_inventory_digest": "sha256:7d323f9cdacf1e46f68b817c672bdffc9d26069756b13bb1a40f37b0b7fb6c40",
+  "actual_limits_isolation_verified": true,
+  "model_calls": 0,
+  "engineering_invocations": 9,
+  "original_clock": 1790978083.052542,
+  "elapsed_seconds": 9.222119808197021,
+  "scope": "M1/R29 static offline component on exact imported image; full semantic scan and full M1/M5/R29 remain open",
+  "full_m1_accepted": false,
+  "full_R29_accepted": false,
+  "production_ready": false,
+  "previous_review_digest": "sha256:6cc4753177b4a294da09a8ab81de3a76d064a4b42ac54021657323d4c57f80fe",
+  "correction": "Analyzer counts read from actual analysis_completeness.analyzer_statuses; original reducer/Gate already used this field. No scan/model execution repeated.",
+  "correction_unix": 1790978762.595071,
+  "new_scanner_invocations": 0,
+  "new_model_calls": 0,
+  "completion_digest": "sha256:93a68d2964a1759bb7c8e3224ac753d29b2f6f5d11d66d9a719ab5e18aa5d611",
+  "digest": "sha256:d03bbb7ca5f7c8e50b23885aba431623f4b65491a2afa50085b2549d13baf9f2"
+}
