@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import json
 import time
 from pathlib import Path
@@ -61,11 +62,53 @@ class AgentAdapter:
         self.private_root = Path(private_root)
         self.registry = registry or FamilyRegistry()
 
+    def run_imported(self, *, instruction_resource_id: str, reference_resource_ids: list[str],
+                     **run_options) -> dict[str, Any]:
+        """Fetch only registered package resources through the authenticated Proxy.
+
+        The controller supplies resource IDs; authority policy and TaskBinding
+        byte pins remain the source of authorization. No package filesystem is read.
+        These reads spend the same run's tool budget before model execution.
+        """
+        binding = run_options["task_binding"]
+        validate_envelope(binding)
+        body = binding["body"]
+        ids = [instruction_resource_id, *reference_resource_ids]
+        allowed = {r["resource_id"]: r for r in body["resources"] if r["resource_class"] == "skill"}
+        if (len(set(ids)) != len(ids) or set(ids) != set(allowed) or
+                any(r["access"] != "read" for r in allowed.values())):
+            raise ProtocolError("runtime_package_selection")
+        calls = [make_envelope("ToolCall", {"call_id": "package-" + uuid.uuid4().hex,
+                 "run_id": body["run_id"], "task_instance_id": body["task_instance_id"],
+                 "fencing_token": run_options["fence"], "tool": "read_resource",
+                 "args": {"resource_id": rid}}) for rid in ids]
+        registered = []
+        for index, call in enumerate(calls):
+            self.proxy.import_call(call)
+            registered.append({"call_digest": call["digest"],
+                               "native_tool_call_id": call["body"]["call_id"], "batch_index": index})
+        self.proxy.request("register_call_batch", {"run_id": body["run_id"],
+                           "fence": run_options["fence"], "response_id": "package-context",
+                           "calls": registered})
+        materials = {}
+        for rid, call in zip(ids, calls):
+            result = self.proxy.request("read_resource", {"call_digest": call["digest"]})
+            validate_envelope(result)
+            if result["body"]["outcome"] != "ok":
+                raise ProtocolError("runtime_package_read_denied")
+            raw = result["body"]["data"]["content_utf8"].encode("utf-8")
+            if len(raw) > 4096 or digest_bytes(raw) != allowed[rid]["bytes_digest"]:
+                raise ProtocolError("runtime_package_bytes_mismatch")
+            materials[rid] = raw
+        return self.run(skill_bytes=materials.pop(instruction_resource_id),
+                        approved_references=materials, **run_options)
+
     def run(self, *, profile_id: str, skill_bytes: bytes, run_request: dict[str, Any],
             task_binding: dict[str, Any], fence: int, trust_revision: int,
             deployment_epoch: str, deadline_seconds: float = 180,
             instruction_suffix: str = "", attempt_index: int = 0,
-            rendered_mutation: RenderedMutation | None = None) -> dict[str, Any]:
+            rendered_mutation: RenderedMutation | None = None,
+            approved_references: dict[str, bytes] | None = None) -> dict[str, Any]:
         validate_envelope(run_request)
         validate_envelope(task_binding)
         if run_request["kind"] != "RunRequest" or task_binding["kind"] != "TaskBinding":
@@ -91,6 +134,18 @@ class AgentAdapter:
              profile_id + "-strict-v1, then prepare and publish to destination_id sink:report. "
              "Use the returned validation_receipt_id and grant_ref exactly. " + instruction_suffix},
         ]
+        if approved_references is not None:
+            resources = {r["resource_id"]: r for r in binding["resources"] if r["resource_class"] == "skill"}
+            for rid, raw in sorted(approved_references.items()):
+                if (rid not in resources or type(raw) is not bytes or len(raw) > 4096 or
+                        digest_bytes(raw) != resources[rid]["bytes_digest"]):
+                    raise ProtocolError("runtime_reference_binding")
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeError as exc:
+                    raise ProtocolError("runtime_reference_utf8") from exc
+                messages.append({"role": "user", "content": "Approved reference material: " +
+                                 json.dumps({"resource_id": rid, "content_utf8": text}, ensure_ascii=False)})
         trace = PrivateTrace(self.private_root, run_id)
         started = time.monotonic()
         published = False

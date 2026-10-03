@@ -1,0 +1,133 @@
+{
+  "kind": "ImportedRegisteredPackageNativeRuntimeComponentSummary",
+  "source_commit_at_freeze": "15c56475cc661d3beebddb0b793791a375a7345e",
+  "production_source_files": {
+    "skillloop/proxy/store.py": "sha256:a3733dac762d0cce55f779b133f7e22b1c02dce15c17d2d81799f25a32b6fd28",
+    "skillloop/runtime/adapter.py": "sha256:7f3c78aa48cfd392a567c520b4279adb36a2551fd0b8bcb2f0bd98884d720071"
+  },
+  "actual_image": "sha256:b02496409de5c38a52dc0864d0ca12fcff7155feb43a25566c0cde3bf0899c4f",
+  "production_changes": {
+    "ProxyStore": "SQLite migration2 and atomic imported task/source snapshot/manifest/selected-resource admission pins in same transaction; controller authorization, not formal qualification",
+    "AgentAdapter": "run_imported reads only TaskBinding registered selected instruction/reference via authenticated Proxy; exact bytes checked before references enter actual full model context",
+    "frozen_RPC_enum_changed": false,
+    "old_default_run_calls_compatible": true
+  },
+  "scopes": [
+    {
+      "config": "mac-imported-runtime-v5",
+      "epoch": "mac-imported-runtime-5",
+      "status": "inconclusive_complete_scope",
+      "scope_pass": [
+        "orders_total"
+      ],
+      "scope_fail": [
+        "refunds_total_expired"
+      ],
+      "scope_missing": [
+        "markdown_index"
+      ],
+      "review_digest": "sha256:399aba0e059df9dc5deecc1c0771608baf8156f1309f7bf78b498b7a744c64aa",
+      "source_manifest_digest": "sha256:15de51d35abc47f1432be98bdc0828472d14a09346db736a9b61a79575e1798e",
+      "actual_model_requests": 11
+    },
+    {
+      "config": "mac-imported-runtime-v6",
+      "epoch": "mac-imported-runtime-6",
+      "status": "pass_two_new_profiles_component",
+      "scope_pass": [
+        "refunds_total",
+        "markdown_index"
+      ],
+      "review_digest": "sha256:80094c5999a3bd5b0644861d9184884be402274d05cf2750de83fed4e1899a93",
+      "source_manifest_digest": "sha256:1cc7899dfed49b8dc1a4eb1ad24dcdb2a99d8a830a6da362855d1d1d3c18d642",
+      "source_plan_digest": "sha256:0e5a950804cfc4d8577531cdba7066d765b28c950f4ae040cfe4b615bc1360ef",
+      "actual_model_requests": 12,
+      "authenticated_existing_start_run_just_before_each_runtime": true
+    }
+  ],
+  "three_profile_component_coverage": [
+    "orders_total",
+    "refunds_total",
+    "markdown_index"
+  ],
+  "three_profile_same_epoch_formal_gate": false,
+  "actual_business_publications_across_pass_scopes": 3,
+  "real_native_model_requests_in_v5_v6": 23,
+  "real_native_model_runs_in_v5_v6_including_expired": 4,
+  "actual_registered_instruction_reference_transport": true,
+  "complete_golden_bytes_and_once_publication_outbox_consumed_grants_in_pass_scopes": true,
+  "durable_actual_SQLite_admission_source_manifest_pins": true,
+  "actual_native_full_context_and_tool_token_count_equal_backend": true,
+  "actual_native_context_overflow_before_HTTP_tokens": 51014,
+  "runtime_UID": 21002,
+  "authority_controller_UID": 21001,
+  "runtime_filesystem_package_Git_authority_DB_Docker_socket_absent": true,
+  "runtime_network_none_readonly_capdropALL": true,
+  "actual_native_backend_observed": "Ollama MLX Metal logs; no CUDA or KV dtype inference",
+  "model_identity": {
+    "model_id": "qwen3.8:27b-mxfp8",
+    "model_manifest_digest": "sha256:464021588235c36e23bd48a480c6c306ed1fc1e0619e97998267494a1be68de4",
+    "ollama_version": "0.33.3"
+  },
+  "original_78_victim_20670_ledger_clock_unchanged": true,
+  "parent_failures": [
+    {
+      "epoch": "mac-imported-runtime-1",
+      "status": "harness_chown_then_chmod_without_FOWNER",
+      "business_RPC": 0,
+      "model": 0
+    },
+    {
+      "epoch": "mac-imported-runtime-2",
+      "status": "COPY_source_directory0700_file0600_authority_import_denied",
+      "business_RPC": 0,
+      "model": 0
+    },
+    {
+      "epoch": "mac-imported-runtime-3",
+      "status": "evidence_directory_owner_DAC_setup_failure",
+      "staged_tasks": 3,
+      "authority_durable_DB_lost_after_tmpfs_last_mount_exit": true,
+      "full_raw_inventory": "incomplete"
+    },
+    {
+      "epoch": "mac-imported-runtime-4",
+      "status": "host_timeout_keyword_failure_stopped_native_while_runtime_active",
+      "registered_package_reads": 2,
+      "model_request_attempt_unknown": 1,
+      "authority_durable_DB_lost_after_tmpfs_last_mount_exit": true,
+      "full_raw_inventory": "incomplete"
+    }
+  ],
+  "old_parent_budget_reserved_7920_and_four_OCI_spent_not_extended": true,
+  "v5_v6_budget": {
+    "full_reserved_seconds": 5280,
+    "wall_seconds": 9000,
+    "elapsed_seconds": 1205.7072880268097,
+    "actual_OCI_attempts": 2,
+    "reserved_OCI_attempts": 2,
+    "unused_reserved_OCI": 0,
+    "actual_native_runs": 4,
+    "reserved_native_runs": 4,
+    "unused_reserved_native_runs": 0,
+    "actual_native_model_requests": 23,
+    "retries": 0,
+    "new_formal_victim": 0
+  },
+  "all_exact_own_resources_removed": true,
+  "keeper_exit_after_consistent_export_review": 137,
+  "completion_digest": "sha256:91fab24acad89af1713255e30487a1dc386a8d86327e0b0fe50de88fd4abde6a",
+  "closed_inventory_digest": "sha256:d1a589fc6ab39af82d6e278831e5ad345e9745b20edcf0ea481374706d43a624",
+  "remaining": [
+    "persistent pins are controller-approved admission, not authenticated complete source/manifest qualification lifecycle",
+    "full controller/runtime/evaluator/Gate role registry and all lifecycle negative cases pending",
+    "global CLI/loader/control integration, independent family remote builder/oracle/fixtures pending",
+    "formal exact acceptance command R33, M1-M10 and 42 runtime rows incomplete",
+    "Mac DeploymentLock and R36 pending user normative decisions; GitHub required-status403 retained",
+    "v5 full Gate inconclusive and v3/v4 lost durable evidence never repaired, removed or promoted"
+  ],
+  "full_R33": false,
+  "all_M1_M10_accepted": false,
+  "production_ready": false,
+  "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e"
+}

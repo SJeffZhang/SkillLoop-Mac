@@ -82,11 +82,22 @@ class ProxyStore:
                 except BaseException:
                     db.execute("ROLLBACK")
                     raise
-            elif version != 1:
+            elif version not in (1, 2):
                 raise ProxyError("unsupported_database_version")
             row = db.execute("SELECT deployment_epoch FROM trust_state WHERE singleton=1").fetchone()
             if row is None or row[0] != deployment_epoch:
                 raise ProxyError("deployment_epoch_mismatch")
+            if db.execute("PRAGMA user_version").fetchone()[0] == 1:
+                db.execute("BEGIN IMMEDIATE")
+                try:
+                    db.execute("CREATE TABLE imported_admissions (task_instance_id TEXT PRIMARY KEY REFERENCES tasks(task_instance_id), source_snapshot_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, admission_json BLOB NOT NULL)")
+                    db.execute("INSERT INTO schema_migrations VALUES (2, ?)", (_stamp(_now()),))
+                    db.execute("PRAGMA user_version = 2")
+                    db.execute("COMMIT")
+                except BaseException:
+                    db.execute("ROLLBACK")
+                    raise
+
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -204,7 +215,16 @@ class ProxyStore:
         selected = selection.resource_bytes()
         if set(selected) & set(input_resources):
             raise AuthorizationError("loader_resource_class_overlap")
-        capability = self.stage_task(resources={**input_resources, **selected}, **task_setup)
+        admission = {"source_snapshot": source_snapshot, "manifest": skill_manifest,
+                     "source_snapshot_digest": selection.source_snapshot_digest,
+                     "manifest_digest": selection.manifest_digest,
+                     "subject_digest": selection.subject_digest, "profile_id": profile_id,
+                     "selected_resources": [{"path": path, "resource_id": rid,
+                                             "bytes_digest": digest_bytes(raw)}
+                                            for path, rid, raw in selection.files],
+                     "scope": "controller_approved_source_not_formal_qualification"}
+        capability = self.stage_task(resources={**input_resources, **selected},
+                                     _imported_admission=admission, **task_setup)
         return {"capability": capability, "source_snapshot_digest": selection.source_snapshot_digest,
                 "manifest_digest": selection.manifest_digest,
                 "selected_paths": [path for path, _, _ in selection.files]}
@@ -213,7 +233,8 @@ class ProxyStore:
                    binding: dict[str, Any], run_request: dict[str, Any],
                    profile_id: str, resources: dict[str, bytes], approval_digest: str,
                    run_deadline: str, campaign_id: str,
-                   parent_policy: dict[str, Any] | None = None) -> dict[str, Any]:
+                   parent_policy: dict[str, Any] | None = None,
+                   _imported_admission: dict[str, Any] | None = None) -> dict[str, Any]:
         """Trusted setup verifies exact resource bytes before any run starts."""
         cap = compile_capability(domain, binding, policy, profile_id,
                                  parent_policy=parent_policy, registry=self.registry)
@@ -249,6 +270,10 @@ class ProxyStore:
                        (binding["digest"], "TaskBinding", _json(binding)))
             db.execute("INSERT OR IGNORE INTO staged_objects VALUES (?, ?, ?, 'controller')",
                        (run_request["digest"], "RunRequest", _json(run_request)))
+            if _imported_admission is not None:
+                db.execute("INSERT INTO imported_admissions VALUES (?, ?, ?, ?)",
+                           (b["task_instance_id"], _imported_admission["source_snapshot_digest"],
+                            _imported_admission["manifest_digest"], _json(_imported_admission)))
         return cap
 
     def start_run(self, run_request_digest: str, binding_digest: str,
