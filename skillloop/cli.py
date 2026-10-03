@@ -1,13 +1,18 @@
-"""API4 operator CLI. Currently implements the frozen import command only."""
+"""API4 operator CLI. Frozen import and authenticated report commands."""
 from __future__ import annotations
 import argparse
 import os
 import sqlite3
 import sys
 import subprocess
+import socket
+import struct
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from .protocol import ProtocolError, canonical_json_line, decode_json, digest_jcs
 from .source import import_git_package
+from .proxy.wire import make_control, validate_control
 
 class SyntaxError64(ValueError):
     pass
@@ -48,6 +53,51 @@ def _operation_result(operation_id: str, parameters: dict, produce) -> dict:
         os.umask(prior)
 
 
+def _report(campaign: str) -> dict:
+    # Endpoint configuration belongs to the operator deployment, never a package.
+    # The frozen report UID and server UID are checked against real kernel peers.
+    if not hasattr(socket, "SO_PEERCRED") or os.geteuid() != 21009:
+        raise PermissionError("report_role_required")
+    directory = os.environ.get("SKILLLOOP_REPORT_SOCKET_DIR")
+    if not directory or not Path(directory).is_absolute():
+        raise PermissionError("report_endpoint_required")
+    request = make_control("ControlRequest", {
+        "operation_id": "report-" + uuid.uuid4().hex,
+        "deadline": (datetime.now(timezone.utc) + timedelta(seconds=9)).isoformat().replace("+00:00", "Z"),
+        "method": "read_public_projection", "params": {"campaign_digest": campaign},
+    })
+    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
+        connection.settimeout(10)
+        connection.connect(str(Path(directory) / "report.sock"))
+        peer = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if peer[1] != 21003:
+            raise PermissionError("report_server_identity")
+        connection.sendall(canonical_json_line(request))
+        raw, _, flags, _ = connection.recvmsg(262145)
+    if not raw or len(raw) > 262144 or flags & socket.MSG_TRUNC:
+        raise OSError("invalid_report_response")
+    try:
+        reply = decode_json(raw)
+        if type(reply) is not dict or type(reply.get("ok")) is not bool:
+            raise ValueError("invalid_response")
+        if reply["ok"] is False:
+            if set(reply) != {"ok", "error_code"}:
+                raise ValueError("invalid_error_response")
+            if reply["error_code"] in {"denied", "expired"}:
+                raise PermissionError("report_denied")
+            if reply["error_code"] == "runtime_error":
+                raise TimeoutError("report_unavailable")
+            raise ValueError("invalid_error_code")
+        if set(reply) != {"ok", "result"}:
+            raise ValueError("invalid_success_response")
+        result = validate_control(reply["result"])
+        if result["kind"] != "PublicReport":
+            raise ValueError("unexpected_result_kind")
+        return result
+    except (ProtocolError, ValueError, KeyError, TypeError) as exc:
+        raise OSError("invalid_report_response") from exc
+
+
 def main(argv=None) -> int:
     parser = Parser(prog="skillloop")
     commands = parser.add_subparsers(dest="command", required=True, parser_class=Parser)
@@ -56,8 +106,15 @@ def main(argv=None) -> int:
     imp.add_argument("--commit", required=True)
     imp.add_argument("--skill-path", required=True)
     imp.add_argument("--operation-id")
+    report = commands.add_parser("report", help="Read the public campaign projection from the authenticated control service")
+    report.add_argument("--campaign", required=True)
+    report.add_argument("--format", choices=["json"], default="json")
     try:
         args = parser.parse_args(argv)
+        if args.command == "report":
+            result = _report(args.campaign)
+            sys.stdout.buffer.write(canonical_json_line(result))
+            return 0
         def produce():
             return import_git_package(args.git_repo, args.commit, args.skill_path)[0]
         if args.operation_id is not None:
