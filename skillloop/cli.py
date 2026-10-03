@@ -67,8 +67,11 @@ def main(argv=None) -> int:
             snapshot = produce()
         sys.stdout.buffer.write(canonical_json_line(snapshot))
         return 0
-    except (SyntaxError64, ProtocolError, ValueError) as exc:
+    except (SyntaxError64, ProtocolError) as exc:
         print(str(exc), file=sys.stderr)
+        return 64
+    except ValueError:
+        print("invalid_source", file=sys.stderr)
         return 64
     except PermissionError:
         print("permission_denied", file=sys.stderr)
