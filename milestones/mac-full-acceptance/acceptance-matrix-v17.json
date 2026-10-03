@@ -1,0 +1,1717 @@
+{
+  "kind": "M1M10FullAcceptanceInventory",
+  "version": 17,
+  "scope": "Mac target deployment full acceptance; historical DGX separately retained",
+  "source_commit": "4863145df943b981bee2960f66f556809682546e",
+  "requirements_digest": "sha256:6b17ad3212541a268a0a4144f51292bbc5859e9a32021fbb8edca8dd3c73c50b",
+  "milestone_definition_digest": "sha256:17d6243273b2d11b214513a83fbf9610ae1d2f199cc6e8b96e8ef7184d6de1fd",
+  "mac_runtime_profile_digest": "sha256:cee40b34c478603675788affae57b8fb0564e8b409061e66f3c013f29a8bfc16",
+  "source_plan_digest": "sha256:71a9ef1b603efc4e62881fdf32745325e2480e599ead01a46d225b34fae94f5f",
+  "review_digest": "sha256:7bb1b9fd347624b41355d2f56d17aeb9af13a8444eb14b64ef3c57891665f7f9",
+  "audit_assignment_not_spec_change": true,
+  "milestones": [
+    {
+      "milestone": "M1",
+      "title": "M1 DGX Spark 平台可行性",
+      "completion_gate_text": "harness 在 Spark 上验证原生单工具/多工具调用、解析错误、超时、三份 Skill 的短正常路径和最大输入、一次模拟工具拒绝后恢复、最终文本/工具参数取证；记录峰值内存、token、时延、日志增长和结构化解析率。scanner 分别对普通、可疑、缺离线情报 Skill 做 smoke，并提供逐 analyzer 覆盖。角色切换的正文/缓存隔离有初步证据；如果不成立，保护使用独立服务生命周期。实测上限小于拟支持输入时先修改 profile，再重测。M4 用生产 Runtime/Proxy 重做路径验证，M6 用其数据完成正式预算校准。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R25",
+        "ACCEPT-R27",
+        "ACCEPT-R28",
+        "ACCEPT-R29",
+        "ACCEPT-R41",
+        "ACCEPT-R42"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "docs/m1-platform-acceptance.zh-CN.md",
+          "file_digest": "sha256:e2324c8f5bc8051ba8d1fe9f35790650148e29c84b27aec89bc26e3383925068",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-migration/progress.json",
+          "file_digest": "sha256:e3829e16ca4d5d04180fa2769b30f34be7052dbb6575fbe444ccca5aeedb9d68",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M8/capacity-gate-v1.json",
+          "file_digest": "sha256:0e1c0095235113be46dc5facb7a8871b72de0b70dcf3792686ace18e80403015",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "native single/multi tool calls, malformed request/timeout and recoverable refusal; role lifecycle/cache/log isolation; current Mac DeploymentLock/calibration qualification",
+        "DGX-specific hardware clauses need explicit approved Mac profile correspondence",
+        "Native import CLI component exists; Linux Git dependency, approved runtime reference/token integration and full service role enforcement remain unaccepted.",
+        "Native imported context and persistent controller admission pins have component evidence; complete source qualification/control-role/CLI lifecycle and exact formal acceptance identities still pending."
+      ],
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "scope": "native exact Git import component; Linux dependency failure retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "scope": "actual approved registered package to isolated native model Runtime; durable controller admission pins; orders and two new profiles separately reviewed"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/role-control-read-summary-v1.json",
+          "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf",
+          "status": "functional_component_pass_whole_activity_inconclusive_expired_closure"
+        }
+      ]
+    },
+    {
+      "milestone": "M2",
+      "title": "M2 两家族业务合同",
+      "completion_gate_text": "六组固定 fixture、空集合/零金额/最大金额/重复名称/重复锚点/最大文档与排序金样通过；非法 CSV 引号、金额词法、孤立外键、非法 Markdown 链接/围栏、重复 JSON key、浮点/指数/额外空白都拒绝。加入退款 profile 不修改表格 parser、oracle 或通用运算。独立 oracle 对故意植入的构建器错误能报错。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R12",
+        "ACCEPT-R13",
+        "ACCEPT-R31",
+        "ACCEPT-R32",
+        "ACCEPT-R33",
+        "ACCEPT-R39",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "docs/implementation-status-m0-m2.zh-CN.md",
+          "file_digest": "sha256:3c911973c9236f17fe0022c1729a7f2d4fc35ceb8b37773c73828f3a7877a1ac",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "authenticated family capability/loader admission and complete contract service boundary in current deployment; this probe is implementation component only",
+        "Approved manifest/reference registration component exists; persist authority source/manifest qualification, connect selected package to actual token/context admission, full role filesystem/service separation and remaining family methods.",
+        "Native imported context and persistent controller admission pins have component evidence; complete source qualification/control-role/CLI lifecycle and exact formal acceptance identities still pending."
+      ],
+      "authenticated_capability_service_component_digest": "sha256:0f1e517674220eefa910545a2eecab6ff35f01ee407bbe603312c603903bb10e",
+      "remaining_authenticated_family_service_scope": "remote builder/oracle invocation, integrated deployment role registry and complete loader/acceptance commands remain; authenticated capability admission with pinned profiles/source/schema now real component evidence",
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "scope": "native exact Git import component; Linux dependency failure retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/linux-git-object-import-summary-v1.json",
+          "digest": "sha256:277d4c2746e229500ee512216cf779a35cdb97bc03a76875ff17e0043836f7b2",
+          "scope": "new real Linux exact-object import component; original Linux failure retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/approved-loader-resource-summary-v1.json",
+          "digest": "sha256:249c3ea1e6acf9a33357cea6324395abd51ac58001bc35a580b47f2d4be0cb2f",
+          "scope": "approved reference/task resource production admission and registered UDS projection only"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "scope": "actual approved registered package to isolated native model Runtime; durable controller admission pins; orders and two new profiles separately reviewed"
+        }
+      ]
+    },
+    {
+      "milestone": "M3",
+      "title": "M3 授权、Proxy 与本地事务",
+      "completion_gate_text": "无模型完成 `read → build/write → validate → prepare → publish`；错误资源/租户、空 read binding、未知参数、权限扩大、旧 fence、未登记 call、同 ID 异参均拒绝。发布与撤销交错、commit 前/后杀进程、响应丢失后同 key 恢复、相同字节重写导致旧 receipt 失效均用真实 SQLite 并发与故障测试验证；一次任务最多一条新 publication。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R10",
+        "ACCEPT-R11",
+        "ACCEPT-R12",
+        "ACCEPT-R13",
+        "ACCEPT-R15",
+        "ACCEPT-R32",
+        "ACCEPT-R33",
+        "ACCEPT-R34",
+        "ACCEPT-R35",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "docs/m3-proxy-acceptance.zh-CN.md",
+          "file_digest": "sha256:41a349f8fcd79be703f99c1c3b9270bb12928d98ddb656163e849e78f5ab80f3",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M10/uds-restart-cancel-summary-v3.json",
+          "file_digest": "sha256:9607be49d88cdd14072be3e3bc3f2ed7222473f0d05f86cf12dc981006a02e2e",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "authenticated family plugin handshake and remaining broad denied/malformed input/control boundaries",
+        "integrated operational CLI/acceptance service, role deployment and current Mac qualification identity",
+        "historical original RPC pre-exit backup-sidecar inventory discrepancy retained; independently closed durable functional scope remains explicit",
+        "Approved manifest/reference registration component exists; persist authority source/manifest qualification, connect selected package to actual token/context admission, full role filesystem/service separation and remaining family methods.",
+        "Native imported context and persistent controller admission pins have component evidence; complete source qualification/control-role/CLI lifecycle and exact formal acceptance identities still pending."
+      ],
+      "authenticated_capability_service_component_digest": "sha256:0f1e517674220eefa910545a2eecab6ff35f01ee407bbe603312c603903bb10e",
+      "remaining_authenticated_family_service_scope": "remote builder/oracle invocation, integrated deployment role registry and complete loader/acceptance commands remain; authenticated capability admission with pinned profiles/source/schema now real component evidence",
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "scope": "native exact Git import component; Linux dependency failure retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/linux-git-object-import-summary-v1.json",
+          "digest": "sha256:277d4c2746e229500ee512216cf779a35cdb97bc03a76875ff17e0043836f7b2",
+          "scope": "new real Linux exact-object import component; original Linux failure retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/approved-loader-resource-summary-v1.json",
+          "digest": "sha256:249c3ea1e6acf9a33357cea6324395abd51ac58001bc35a580b47f2d4be0cb2f",
+          "scope": "approved reference/task resource production admission and registered UDS projection only"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "scope": "actual approved registered package to isolated native model Runtime; durable controller admission pins; orders and two new profiles separately reviewed"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/role-control-read-summary-v1.json",
+          "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf",
+          "status": "functional_component_pass_whole_activity_inconclusive_expired_closure"
+        }
+      ]
+    },
+    {
+      "milestone": "M4",
+      "title": "M4 真实模型 Runtime 与全量取证",
+      "completion_gate_text": "三份 Skill 各自完成正常任务，并在一次可恢复拒绝后仍能完成；模型产生的每个调用能追溯 response ID、内部 call_id、batch index、参数摘要、Proxy 决定和结果。整批超额零执行、批内后续 skipped 仍计额；正常停止但缺产物为业务 fail，provider timeout 为 unknown/incomplete。4 MiB trace 或 token 上限触发明确不完整，不静默截断。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R11",
+        "ACCEPT-R15",
+        "ACCEPT-R16",
+        "ACCEPT-R19",
+        "ACCEPT-R26",
+        "ACCEPT-R27",
+        "ACCEPT-R35",
+        "ACCEPT-R41",
+        "ACCEPT-R42"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "docs/m4-runtime-acceptance.zh-CN.md",
+          "file_digest": "sha256:69af20415ae11d58db19d92bbef4149538535b56e62040114a35e27213912bc4",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+          "file_digest": "sha256:91b0da2d4570a79cfaf33378ad7a0b3fae11533739a72461ed0d6b9673175541",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "all lifecycle, token/trace/batch limits and role isolation positive and negative runtime acceptance",
+        "Native imported context and persistent controller admission pins have component evidence; complete source qualification/control-role/CLI lifecycle and exact formal acceptance identities still pending."
+      ],
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "scope": "actual approved registered package to isolated native model Runtime; durable controller admission pins; orders and two new profiles separately reviewed"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/role-control-read-summary-v1.json",
+          "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf",
+          "status": "functional_component_pass_whole_activity_inconclusive_expired_closure"
+        }
+      ]
+    },
+    {
+      "milestone": "M5",
+      "title": "M5 静态发现、攻击生成与开发判定",
+      "completion_gate_text": "零 finding 仍跑基础套件；扫描退出 0 但缺 analyzer 归为不完整；相同 payload 重放不能冒充变体。原资源/payload/渲染字节分别留摘要，最终字节和 tokenizer 上限在执行前检查；未读、未投递、已暴露、模型尝试、代理拦截、真实禁止效果分别记事实。模拟秘密在私有模型输入不误判泄漏，`final_answer`/`mock_publication`/公开诊断的明文及登记编码变体被检测。已证实失败与缺测并存仍 fail。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R01",
+        "ACCEPT-R02",
+        "ACCEPT-R03",
+        "ACCEPT-R18",
+        "ACCEPT-R19",
+        "ACCEPT-R20",
+        "ACCEPT-R23",
+        "ACCEPT-R29",
+        "ACCEPT-R30",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "milestones/M5/discovery-acceptance.json",
+          "file_digest": "sha256:9550da36b9e5c3db390a9d64d1de7229dcd5ec7682346a3c204bca7b1f1068b4",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M8/formal-development-v1.json",
+          "file_digest": "sha256:bebedec8052077dfebcb4d11eb7b1de8b96e3e99ef0873896ed3f70fa96882a5",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "scanner reproducibility, required analyzer coverage plus suspicious/missing-intelligence negative probes and finding-driven suite/reduction acceptance"
+      ]
+    },
+    {
+      "milestone": "M6",
+      "title": "M6 有界修补、回归和预算",
+      "completion_gate_text": "frontmatter、代码、依赖、测试、oracle、Gate、扩大权限的补丁全部拒绝；错父摘要、切断 UTF-8、重叠 edits、纯重排无变化拒绝。跨轮文件 union ≤3、累计增删 ≤8 KiB、最终净增长 ≤4 KiB。每轮重新扫描并运行原攻击、不同变体、正常对照和适用历史；确定失败不可被重试覆盖。无 finding、一个 finding、两轮+active、接近 128 次、历史超容量等代表计划按真实校准计算；容纳不了完整保护矩阵时不冻结假 finalist。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R06",
+        "ACCEPT-R14",
+        "ACCEPT-R21",
+        "ACCEPT-R22",
+        "ACCEPT-R23",
+        "ACCEPT-R24",
+        "ACCEPT-R25",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "milestones/mac-M6/supplemental-v1.json",
+          "file_digest": "sha256:829d4206c2dedf3a1c59494978288f5ef00bed2d42233a270068405e4be95b53",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M6/markdown-v3.json",
+          "file_digest": "sha256:6bd6cee0a2b3ecc72ea0165d563317baf4e35b9840d020ddbd21c43e2173bd7d",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "complete frozen repair plan, two-round/history limits and required subject/pair matrix; historical model identity cannot automatically transfer"
+      ]
+    },
+    {
+      "milestone": "M7",
+      "title": "M7 私有保护、Gate 和证明",
+      "completion_gate_text": "私有套件包含 1 正常 + 3 攻击且每例 3 重复，覆盖三目标，与开发集/已用题去重并通过 oracle、字节/token、canary 碰撞检查。不合格题库返回 `inconclusive/protected_suite_unavailable`；开发角色不能经报告、错误、哈希、缓存解析题目。submitted、finalist、active 的必要矩阵逐项核对；缺一项不通过，失败重试不消失；已投递或投递未知的保护项不重抽同套题。四态 Gate 和每 subject 独立 CIResult 与权威索引重算一致。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R01",
+        "ACCEPT-R02",
+        "ACCEPT-R03",
+        "ACCEPT-R04",
+        "ACCEPT-R05",
+        "ACCEPT-R06",
+        "ACCEPT-R08",
+        "ACCEPT-R09",
+        "ACCEPT-R16",
+        "ACCEPT-R17",
+        "ACCEPT-R20",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "milestones/mac-M7/refunds-v1.json",
+          "file_digest": "sha256:14aa798d91b41842fbccd888adaa60f3402bf6459bf477c513f251c348b5f4c4",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M7/markdown-v1.json",
+          "file_digest": "sha256:dcf0d1b300f19462355e9127cf1e9702ae94b1b5cd79a4c4e968a71b441f4d07",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M9/exact-pr-campaign-index-v2.json",
+          "file_digest": "sha256:5d05215a547ffcb00ba99e6e2275195a709d0967c9f4c7aaa286628abe238650",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "exact subject-role required full protection plan/manifest, fresh factory negative cases and trusted qualification consumption; historical unknowns retained"
+      ]
+    },
+    {
+      "milestone": "M8",
+      "title": "M8 GitHub 持续 CI 与资格登记",
+      "completion_gate_text": "fork PR 只读导入，不运行其脚本；force-push、重复轮询、乱序旧 worker、同 trigger 换 job、配置变更、24 小时证明到期分别产生正确 generation/campaign 关系。submitted fail + candidate pass 时原提交 Check 仍 failure；needs_contract/inconclusive 阻断 required check。采用候选后形成新提交、新 campaign 和新保护 epoch；旧 attestation 不晋级。发布前后核对远端 head，GitHub 失败可幂等恢复且不宣称与本地事务原子。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R04",
+        "ACCEPT-R07",
+        "ACCEPT-R08",
+        "ACCEPT-R17",
+        "ACCEPT-R36",
+        "ACCEPT-R37",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "milestones/mac-M8/reviewed-checks-v1.json",
+          "file_digest": "sha256:9fa2c77b93146901c7b8761d6d99c5627f6c9d9cb026c7be99edff0ccc3ece21",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+          "file_digest": "sha256:cccb79a9f7d6ec04633a3d527278816be48eb29b991d5132223600110ad8b4df",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "complete implemented CLI command/role/output contract",
+        "live elapsed-24h expiry remains time-pending",
+        "required branch check enforcement read is permission-blocked HTTP403",
+        "Frozen CLI uses controlled API polling and webhook_enabled=false; webhook is not a required acceptance target unless scope is explicitly revised. R36 text conflict remains tracked.",
+        "Native import CLI component exists; Linux Git dependency, approved runtime reference/token integration and full service role enforcement remain unaccepted."
+      ],
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "scope": "native exact Git import component; Linux dependency failure retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/live-expiry-observation-summary-v1.json",
+          "digest": "sha256:bd4675c53faa494ec0c7de296a81e1d7d8d56ba0ecffc2494aecf57f697c2a93",
+          "scope": "first original 24h proof real-clock expired refusal; second pending"
+        }
+      ]
+    },
+    {
+      "milestone": "M9",
+      "title": "M9 首版工程与跨家族验收",
+      "completion_gate_text": "三份 Skill 均走完扫描、正常与攻击、候选修补复测、私有保护和最终判定；每个必需 case 各 3 重复，真实输入/事件/输出/报告可追溯。Linux/SQLite/模型/扫描器/GitHub 的生产测试由实际实现运行，[acceptance.json](../specs/v2.2/operations/acceptance.json)中的 runtime_pending 只有在证据齐全时逐项更新。工程正确性和跨家族业务可用性分别记 pass/fail，不用规范测试或同家族两个名称代替。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R39",
+        "ACCEPT-R40",
+        "ACCEPT-R41"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "milestones/mac-M9/exact-pr-campaign-index-v2.json",
+          "file_digest": "sha256:5d05215a547ffcb00ba99e6e2275195a709d0967c9f4c7aaa286628abe238650",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "R01-R42 target-deployment runtime cases and independent three-profile end-to-end scope; existing three local experiment chains are partial evidence"
+      ]
+    },
+    {
+      "milestone": "M10",
+      "title": "M10 修补价值与运行恢复",
+      "completion_gate_text": "至少一个自然运行中已证实的业务劫持或模拟秘密泄漏，有精确父 subject、原攻击、不同变体、正常对照和候选配对证据，且修补后改善、正常任务不退化，才可声明“修补价值已证实”。若没有此证据，结论固定为 `repair_value_not_demonstrated`，工程与业务结果不被改写。归档前撤销依赖旧证据的资格；恢复新 deployment epoch 后旧 receipt/grant/lease/attestation 全部无效；超历史容量能按批准迁移或明确不完整，不能删失败用例凑通过。",
+      "target": "Mac native Ollama + Linux aarch64 Docker exact frozen deployment identities",
+      "status": "partial_evidence_remaining_required_items",
+      "fully_accepted": false,
+      "mapped_acceptance_ids": [
+        "ACCEPT-R10",
+        "ACCEPT-R21",
+        "ACCEPT-R25",
+        "ACCEPT-R26",
+        "ACCEPT-R38",
+        "ACCEPT-R40",
+        "ACCEPT-R41",
+        "ACCEPT-R42"
+      ],
+      "candidate_evidence": [
+        {
+          "path": "milestones/mac-M10/three-profile-normal-output-summary.json",
+          "file_digest": "sha256:1569717bc94512682effdd419110e09e30388a386b2ff342fe09f9148b57480c",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M10/reserved-queue-summary-v4.json",
+          "file_digest": "sha256:ae6bf3b18ea050d4ddf5cdc8024c9ebb42356e58538aed9f1182c730af0be5a5",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+          "file_digest": "sha256:f1eef17fbadacff9c65a1d3c34a7dee62eae120ab9ba6dcda84f2b26237a63f8",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        },
+        {
+          "path": "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+          "file_digest": "sha256:3892223e76c196a694bebf6cfaca828dcaa0e5eb871fad3db02dff70a5ef49fb",
+          "scope_requires_review": true,
+          "DGX_does_not_transfer_to_Mac": true
+        }
+      ],
+      "remaining": [
+        "business-authority reservation/evidence ownership, required queue/resource/cancel/archive/restore integration and physical limits",
+        "complete metrics denominators/p95 and repair-value scope; current quota campaign does not close all operations acceptance"
+      ],
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/role-control-read-summary-v1.json",
+          "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf",
+          "status": "functional_component_pass_whole_activity_inconclusive_expired_closure"
+        }
+      ]
+    }
+  ],
+  "m2_component": {
+    "status": "actual_component_pass",
+    "tests": 13,
+    "goldens": 6,
+    "oracle_negative_cases": 6,
+    "receipt_digest": "sha256:8cfc6566496a720b15a07636e2b520663a243417d12554db01920de39a70e70d",
+    "full_runtime_acceptance": false
+  },
+  "current_terminal_campaign": {
+    "status": "local_experiment_closed_pass",
+    "parent_development_runs": 15,
+    "new_private_runs": 12,
+    "total_API4_records": 27,
+    "costed_attempts": 72,
+    "prior_partial_private_excluded": 8,
+    "generation": 4,
+    "check_id": 111044135963,
+    "check_url": "https://github.com/SJeffZhang/skillloop-ci-test/runs/111044135963",
+    "receipt_file": "milestones/mac-M10/orders-terminal-private-recovery-quota-checks-v2.json",
+    "receipt_file_digest": "sha256:9e9eafad660987a5694b46b60b6224ce3e48776c44b1b82c14dbe403fd530c6e",
+    "production_ready": false
+  },
+  "fully_accepted_milestones": 0,
+  "complete_runtime_acceptance_rows": 0,
+  "all_m1_m10_accepted": false,
+  "production_ready": false,
+  "runtime_acceptance_rows": [
+    {
+      "acceptance_id": "ACCEPT-R01",
+      "audit_milestones": [
+        "M5",
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/formal-development-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R02",
+      "audit_milestones": [
+        "M5",
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/formal-development-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R03",
+      "audit_milestones": [
+        "M5",
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/formal-development-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R04",
+      "audit_milestones": [
+        "M7",
+        "M8"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R05",
+      "audit_milestones": [
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R06",
+      "audit_milestones": [
+        "M6",
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R07",
+      "audit_milestones": [
+        "M8"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_real_clock_and_runtime",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json"
+      ],
+      "unresolved": [
+        "old proof expires2026-10-03T06:51:05Z; renewal expires2026-10-03T12:16:20Z; do not inject clock"
+      ],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R08",
+      "audit_milestones": [
+        "M7",
+        "M8"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R09",
+      "audit_milestones": [
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R10",
+      "audit_milestones": [
+        "M3",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R11",
+      "audit_milestones": [
+        "M3",
+        "M4"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R12",
+      "audit_milestones": [
+        "M2",
+        "M3"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md",
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R13",
+      "audit_milestones": [
+        "M2",
+        "M3"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md",
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R14",
+      "audit_milestones": [
+        "M6"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R15",
+      "audit_milestones": [
+        "M3",
+        "M4"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R16",
+      "audit_milestones": [
+        "M4",
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R17",
+      "audit_milestones": [
+        "M7",
+        "M8"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R18",
+      "audit_milestones": [
+        "M5"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M8/formal-development-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R19",
+      "audit_milestones": [
+        "M4",
+        "M5"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M8/formal-development-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R20",
+      "audit_milestones": [
+        "M5",
+        "M7"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/formal-development-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R21",
+      "audit_milestones": [
+        "M6",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json",
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R22",
+      "audit_milestones": [
+        "M6"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R23",
+      "audit_milestones": [
+        "M5",
+        "M6"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json",
+        "milestones/mac-M8/formal-development-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R24",
+      "audit_milestones": [
+        "M6"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R25",
+      "audit_milestones": [
+        "M1",
+        "M6",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m1-platform-acceptance.zh-CN.md",
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json",
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json",
+        "milestones/mac-M8/capacity-gate-v1.json",
+        "milestones/mac-migration/progress.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R26",
+      "audit_milestones": [
+        "M4",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R27",
+      "audit_milestones": [
+        "M1",
+        "M4"
+      ],
+      "original_runtime_environment": "Linux_aarch64_DGX_Spark_and_GitHub_installation",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m1-platform-acceptance.zh-CN.md",
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M8/capacity-gate-v1.json",
+        "milestones/mac-migration/progress.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false,
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "status": "scope_limited_actual_native_registered_package_component"
+        }
+      ]
+    },
+    {
+      "acceptance_id": "ACCEPT-R28",
+      "audit_milestones": [
+        "M1"
+      ],
+      "original_runtime_environment": "Linux_aarch64_DGX_Spark_and_GitHub_installation",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m1-platform-acceptance.zh-CN.md",
+        "milestones/mac-M8/capacity-gate-v1.json",
+        "milestones/mac-migration/progress.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false,
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "status": "scope_limited_actual_native_registered_package_component"
+        }
+      ]
+    },
+    {
+      "acceptance_id": "ACCEPT-R29",
+      "audit_milestones": [
+        "M1",
+        "M5"
+      ],
+      "original_runtime_environment": "Linux_aarch64_DGX_Spark_and_GitHub_installation",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m1-platform-acceptance.zh-CN.md",
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M8/capacity-gate-v1.json",
+        "milestones/mac-M8/formal-development-v1.json",
+        "milestones/mac-migration/progress.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R30",
+      "audit_milestones": [
+        "M5"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M8/formal-development-v1.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R31",
+      "audit_milestones": [
+        "M2"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R32",
+      "audit_milestones": [
+        "M2",
+        "M3"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md",
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R33",
+      "audit_milestones": [
+        "M2",
+        "M3"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md",
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false,
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "status": "partial_native_only_original_Linux_fail"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/linux-git-object-import-summary-v1.json",
+          "digest": "sha256:277d4c2746e229500ee512216cf779a35cdb97bc03a76875ff17e0043836f7b2",
+          "status": "new_Linux_component_pass_prior_failure_retained"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/approved-loader-resource-summary-v1.json",
+          "digest": "sha256:249c3ea1e6acf9a33357cea6324395abd51ac58001bc35a580b47f2d4be0cb2f",
+          "status": "real_loader_SQLite_registered_RPC_component_pass"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "status": "scope_limited_actual_native_registered_package_component"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/role-control-read-summary-v1.json",
+          "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf",
+          "status": "functional_component_pass_whole_activity_inconclusive_expired_closure"
+        }
+      ],
+      "remaining_component_gaps": [
+        "Formal qualified source/manifest/role lifecycle and CLI/control service acceptance command; new source frontmatter negative matrix and full 42 operations not inferred from native component.",
+        "Six-role control-read boundary verified only; complete roles, run/fence/session issuer, CLI/write paths, qualification lifecycle and actual resource exhaustion remain; original activity budget closure expired."
+      ]
+    },
+    {
+      "acceptance_id": "ACCEPT-R34",
+      "audit_milestones": [
+        "M3"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R35",
+      "audit_milestones": [
+        "M3",
+        "M4"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R36",
+      "audit_milestones": [
+        "M8"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_implementation_and_frozen_text_conflict",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json"
+      ],
+      "unresolved": [
+        "cli specification explicitly implemented_in_this_repository=false; verify runtime implementation before changing status",
+        "Frozen R36 expected-result text swaps needs_contract/inconclusive; CLI/core contract codes 3/4 are implemented in qualification helper, but full CLI runtime acceptance remains open."
+      ],
+      "runtime_complete": false,
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "status": "partial_native_only_original_Linux_fail"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/linux-git-object-import-summary-v1.json",
+          "digest": "sha256:277d4c2746e229500ee512216cf779a35cdb97bc03a76875ff17e0043836f7b2",
+          "status": "new_Linux_component_pass_prior_failure_retained"
+        }
+      ],
+      "remaining_component_gaps": [
+        "Full approved references, resource/token preflight, role services, complete 17 CLI and exact qualified runtime acceptance remain."
+      ]
+    },
+    {
+      "acceptance_id": "ACCEPT-R37",
+      "audit_milestones": [
+        "M8"
+      ],
+      "original_runtime_environment": "Linux_aarch64_DGX_Spark_and_GitHub_installation",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "blocked_permission_and_pending_runtime",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json"
+      ],
+      "unresolved": [
+        "existing App required-status HTTP403; no repeat/increase permissions/branch protection mutation",
+        "same_account authorization retained; cross-account evidence not claimed"
+      ],
+      "runtime_complete": false,
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "status": "partial_native_only_original_Linux_fail"
+        }
+      ],
+      "remaining_component_gaps": [
+        "Native import only; Linux Git missing, full loader/resources/roles/17CLI and integrated runtime acceptance pending."
+      ]
+    },
+    {
+      "acceptance_id": "ACCEPT-R38",
+      "audit_milestones": [
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R39",
+      "audit_milestones": [
+        "M2",
+        "M9"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R40",
+      "audit_milestones": [
+        "M9",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_DGX_Spark_and_GitHub_installation",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R41",
+      "audit_milestones": [
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "M5",
+        "M6",
+        "M7",
+        "M8",
+        "M9",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_implemented_services",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/implementation-status-m0-m2.zh-CN.md",
+        "docs/m1-platform-acceptance.zh-CN.md",
+        "docs/m3-proxy-acceptance.zh-CN.md",
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/M5/discovery-acceptance.json",
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json",
+        "milestones/mac-M10/uds-restart-cancel-summary-v3.json",
+        "milestones/mac-M6/markdown-v3.json",
+        "milestones/mac-M6/supplemental-v1.json",
+        "milestones/mac-M7/markdown-v1.json",
+        "milestones/mac-M7/refunds-v1.json",
+        "milestones/mac-M8/capacity-gate-v1.json",
+        "milestones/mac-M8/formal-development-v1.json",
+        "milestones/mac-M8/orders-fresh-renewal-checks-v1.json",
+        "milestones/mac-M8/reviewed-checks-v1.json",
+        "milestones/mac-M9/exact-pr-campaign-index-v2.json",
+        "milestones/mac-migration/progress.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false
+    },
+    {
+      "acceptance_id": "ACCEPT-R42",
+      "audit_milestones": [
+        "M1",
+        "M4",
+        "M10"
+      ],
+      "original_runtime_environment": "Linux_aarch64_DGX_Spark_and_GitHub_installation",
+      "frozen_command_kind": "planned_not_implemented",
+      "target_status": "pending_runtime_gap_review",
+      "reference_methods_ast_verified": true,
+      "reference_tests_prove_runtime": false,
+      "scope_candidate_evidence_refs": [
+        "docs/m1-platform-acceptance.zh-CN.md",
+        "docs/m4-runtime-acceptance.zh-CN.md",
+        "milestones/mac-M10/closed-evidence-archive-summary-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-private-started-v1.json",
+        "milestones/mac-M10/orders-terminal-instruction-quota-started-v1.json",
+        "milestones/mac-M10/reserved-queue-summary-v4.json",
+        "milestones/mac-M10/three-profile-normal-output-summary.json",
+        "milestones/mac-M8/capacity-gate-v1.json",
+        "milestones/mac-migration/progress.json"
+      ],
+      "unresolved": [],
+      "runtime_complete": false,
+      "component_evidence": [
+        {
+          "path": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+          "digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+          "status": "partial_native_only_original_Linux_fail"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+          "digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+          "status": "scope_limited_actual_native_registered_package_component"
+        },
+        {
+          "path": "milestones/mac-full-acceptance/role-control-read-summary-v1.json",
+          "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf",
+          "status": "functional_component_pass_whole_activity_inconclusive_expired_closure"
+        }
+      ],
+      "remaining_component_gaps": [
+        "Native import only; Linux Git missing, full loader/resources/roles/17CLI and integrated runtime acceptance pending.",
+        "Six-role control-read boundary verified only; complete roles, run/fence/session issuer, CLI/write paths, qualification lifecycle and actual resource exhaustion remain; original activity budget closure expired."
+      ]
+    }
+  ],
+  "previous_matrix_digest": "sha256:ab4d680299aa07d7a80ebb5610b4d1b622923677b062b23678fac2db497a2982",
+  "qualification_contract_correction": {
+    "review_digest": "sha256:22a8bc3e107b9d6a4aff67e58b966a40b4794432bd6dc16735021943acc3af3e",
+    "targeted_tests": 90,
+    "passed": 90,
+    "verdict_exit": {
+      "pass": 0,
+      "fail": 1,
+      "needs_contract": 3,
+      "inconclusive": 4
+    },
+    "frozen_R36_text_conflict": true,
+    "full_R36_accepted": false
+  },
+  "frozen_contract_conflicts": [
+    {
+      "id": "ACCEPT-R36",
+      "authoritative_sources": [
+        "specs/v2.2/operations/cli.json",
+        "skillloop/ci/decision.py",
+        "scripts/spec_v22_core.py"
+      ],
+      "authoritative_codes": {
+        "pass": 0,
+        "fail": 1,
+        "needs_contract": 3,
+        "inconclusive": 4
+      },
+      "conflicting_sources": [
+        "specs/v2.2/operations/acceptance.json",
+        "specs/v2.2/operations/operations.schema.json"
+      ],
+      "status": "preserved_pending_normative_erratum",
+      "frozen_files_modified": false
+    },
+    {
+      "contract": "API4 DeploymentLock platform field",
+      "frozen_value": "linux-aarch64-dgx-spark",
+      "target": "Mac native Ollama with Linux-aarch64 OCI per approved Mac profile",
+      "status": "explicit_Mac_control_envelope_correspondence_pending; original frozen schema unchanged",
+      "source": "specs/v2.2/operations/control.schema.json"
+    }
+  ],
+  "m1_static_offline_component": {
+    "receipt_digest": "sha256:d03bbb7ca5f7c8e50b23885aba431623f4b65491a2afa50085b2549d13baf9f2",
+    "path": "milestones/mac-M1/static-offline-scanner-summary-v2.json",
+    "actual_scanner_invocations": 5,
+    "actual_helpers": 4,
+    "model_calls": 0,
+    "cases": [
+      "clean",
+      "suspicious",
+      "dependency",
+      "missing-intelligence"
+    ],
+    "semantic_not_covered": true,
+    "full_M1": false,
+    "original_display_counts_error_preserved": true
+  },
+  "m1_native_performance_component": {
+    "path": "milestones/mac-M1/native-performance-summary-v1.json",
+    "receipt_digest": "sha256:346a8919213401d612c448b50115a910134e1fde41c3c8f3e78982f73e4abb4c",
+    "status": "performance_sample_component_closed",
+    "model_requests": 42,
+    "prefill_samples": 20,
+    "decode_samples": 20,
+    "full_M1": false
+  },
+  "m1_three_profile_runtime_paths": {
+    "path": "milestones/mac-M1/three-profile-runtime-paths-summary-v1.json",
+    "receipt_digest": "sha256:9d27e94368d70abfbaad0e1abc6d7513c259a4dbd2342b4ea9f959107d2d0704",
+    "status": "six_runtime_component_paths_closed_pass",
+    "required_real_model_runs": 6,
+    "passed_component_runs": 6,
+    "full_M1": false
+  },
+  "m1_native_protocol_component": {
+    "path": "milestones/mac-M1/native-protocol-summary-v1.json",
+    "receipt_digest": "sha256:2bc5255ffa0976df2eea90b7d4741f145575f723b429418e8f49b9008e9314b4",
+    "status": "native_tools_refusal_timeout_preliminary_lifecycle_component_closed",
+    "full_M1": false
+  },
+  "m3_rpc_component": {
+    "path": "milestones/mac-M3/rpc-functional-durable-summary-v1.json",
+    "receipt_digest": "sha256:187e33a01491677e5d703229dbc9997dfebcbf3514941ad67fbb005efb010bbb",
+    "status": "12_functional_cases_complete_durable_review_original_inventory_incomplete",
+    "full_M3": false
+  },
+  "m3_transaction_boundary_component": {
+    "path": "milestones/mac-M3/transaction-boundaries-summary-v1.json",
+    "receipt_digest": "sha256:9dfff9a3e7f3c1239243432e8b980d7ce59710183a6f23fde085de8aea93200b",
+    "status": "15_actual_transaction_boundary_cases_closed",
+    "full_M3": false
+  },
+  "normative_proposals": {
+    "path": "milestones/mac-full-acceptance/mac-profile-and-exit-code-erratum-proposal-v1.md",
+    "status": "pending_user_scope_decision; original frozen contracts untouched"
+  },
+  "m3_R34_mechanism_component": {
+    "path": "milestones/mac-M3/aba-expiry-mechanisms-summary-v1.json",
+    "receipt_digest": "sha256:4d9254596195f5bd073f8f4566183277c4481f182990528d39372b9a59e7471e",
+    "status": "12_actual_ABA_expiry_fence_second_publish_cases_closed",
+    "full_M3": false,
+    "response_loss_parent_scope": "mac-M3/transaction-boundaries-summary-v1.json real same-implementation response-loss cases referenced explicitly, not rerun or merged into new epoch"
+  },
+  "uncommitted_additive_source_at_evidence_freeze": {
+    "skillloop/families/service.py": "sha256:e7ce29570fe3384d2905163d3f9b9246d2fe4fb961ff059902a2502fa58bca0c",
+    "tests/implementation/test_family_service.py": "sha256:3c0cf5f26c948efe1cdc27dac2fe2e5a451aaf820983589afd19e69a64143bd8",
+    "skillloop/source.py": "sha256:7b315c626bd4dfce2fc8b234f2e47eac3c8c37897d8ab3a5e1ad0643e85e0df0",
+    "skillloop/cli.py": "sha256:65fd0788c401f68ef3a16a6bec2f350e59544c5ba7d07535d549edddaac04b97",
+    "skillloop/__main__.py": "sha256:935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d"
+  },
+  "m2_authenticated_capability_service_component": {
+    "path": "milestones/mac-M2/authenticated-family-service-summary-v1.json",
+    "receipt_digest": "sha256:0f1e517674220eefa910545a2eecab6ff35f01ee407bbe603312c603903bb10e",
+    "status": "new_production_authenticated_capability_service_and_three_ProxyStore_integrations_closed",
+    "production_providers": 2,
+    "actual_integration_profiles": 3,
+    "remote_builder_or_oracle_execution_verified": false,
+    "full_M2": false,
+    "full_M3": false
+  },
+  "native_git_import_cli_component": {
+    "summary": "milestones/mac-full-acceptance/native-git-import-cli-summary-v1.json",
+    "summary_digest": "sha256:db447e7d26f40d5f3bc052f07b50817c6871748886b85c979d1c2eb58b84bb6e",
+    "native_component_status": "pass",
+    "Linux_component_status": "failed_missing_Git",
+    "config": "mac-cli-import-v2",
+    "epoch": "mac-cli-import-2",
+    "image": "sha256:f50b3610e62b22cf6cdf9a3adbf1b0561aeab4063b2aafc451ad59c88e622b16",
+    "production_ready": false
+  },
+  "linux_git_object_import_component": {
+    "summary": "milestones/mac-full-acceptance/linux-git-object-import-summary-v1.json",
+    "summary_digest": "sha256:277d4c2746e229500ee512216cf779a35cdb97bc03a76875ff17e0043836f7b2",
+    "status": "component_pass",
+    "config": "mac-cli-object-reader-v1",
+    "epoch": "mac-cli-object-reader-1",
+    "image": "sha256:b96721b3408857b7933a10b8fc57f9701cf9abda960ec9680794172b06861821",
+    "full_acceptance": false
+  },
+  "approved_loader_resource_component": {
+    "summary": "milestones/mac-full-acceptance/approved-loader-resource-summary-v1.json",
+    "summary_digest": "sha256:249c3ea1e6acf9a33357cea6324395abd51ac58001bc35a580b47f2d4be0cb2f",
+    "status": "component_pass_prior_harness_failure_preserved",
+    "config": "mac-loader-admission-v2",
+    "epoch": "mac-loader-admission-2",
+    "image": "sha256:f54e11cee15e5c4ae149e09367322344467de97e59a9382a890455280af77efd",
+    "full_R33": false
+  },
+  "imported_native_runtime_component": {
+    "summary": "milestones/mac-full-acceptance/imported-native-runtime-summary-v1.json",
+    "summary_digest": "sha256:197ad6487b5c115dbbf4016dc46df09449b446dbe942d48f423ee7227cd0d79e",
+    "status": "three_profile_component_scopes_pass_original_failures_retained",
+    "formal_single_scope_all_three_gate": false,
+    "image": "sha256:b02496409de5c38a52dc0864d0ca12fcff7155feb43a25566c0cde3bf0899c4f",
+    "full_R33": false
+  },
+  "role_control_read_component": {
+    "kind": "MacRoleControlReadComponentSummary",
+    "source_commit": "4863145df943b981bee2960f66f556809682546e",
+    "config": "mac-role-object-service-v1",
+    "epoch": "mac-role-object-service-1",
+    "source_digest": "sha256:dc8423d7813fc748c5b8b0d3ba7f93ee98a41c9dc609ec97ddf6998d14f291fb",
+    "image": "sha256:c31560251824100dd82f19649450fee1063617873264e4f5e4cd7b06a18dee81",
+    "plan_digest": "sha256:71a9ef1b603efc4e62881fdf32745325e2480e599ead01a46d225b34fae94f5f",
+    "manifest_digest": "sha256:005d2a7bf2f90e156fda0232c137fe6f842305ffd67103f3506630681b57675e",
+    "independent_review_digest": "sha256:7bb1b9fd347624b41355d2f56d17aeb9af13a8444eb14b64ef3c57891665f7f9",
+    "completion_digest": "sha256:3b62960380cbfdfb5bebcbbae4ecc71f1b76ac04c29962fb8031b4096380ff64",
+    "functional_component_verdict": "pass",
+    "whole_activity_verdict": "inconclusive_expired_budget_closure",
+    "original_wall_seconds": 3600,
+    "original_full_reserved_seconds": 2760,
+    "original_clock_extended": false,
+    "aggregate_attempts": 1,
+    "reserved_aggregate_attempts": 2,
+    "unused_reserved_attempts": 1,
+    "model_requests": 0,
+    "formal_victim_runs": 0,
+    "retries": 0,
+    "RPC_cases": 40,
+    "accepted": 20,
+    "rejected": 20,
+    "strict_core_objects": 11,
+    "strict_control_objects": 48,
+    "consistent_databases": 2,
+    "durable_operations": 8,
+    "durable_read_grants": 8,
+    "unchanged_parent_image_files": 378,
+    "registry_roles": 11,
+    "actually_exercised_read_client_roles": [
+      "protected_evaluator",
+      "gate",
+      "generator",
+      "patcher",
+      "scanner",
+      "report"
+    ],
+    "mechanisms": [
+      "kernel SO_PEERCRED fixed UID and frozen method registry",
+      "per-role UDS with clients mounting sockets only",
+      "exact role/generation/method/params grants",
+      "original-result replay and own-role operation lookup",
+      "revocation/generation advance invalidates old grants and replay",
+      "actual UTC short-role deadline rejects expired request"
+    ],
+    "synthetic_object_fixtures": true,
+    "trusted_local_provisioning_not_qualification_issuer": true,
+    "scope_limits": [
+      "synthetic object fixtures, not actual private qualification",
+      "only six control-read clients; full eleven-role write/service integration missing",
+      "client cgroup limits in command arguments, no resource exhaustion or per-client inspect",
+      "run/fence/session issuer integration missing",
+      "formal CLI and qualification lifecycle missing"
+    ],
+    "cleanup": {
+      "service_exit": 0,
+      "keeper_natural_exit": 0,
+      "containers_removed": 2,
+      "volumes_removed": 2,
+      "host_export_verified": true,
+      "original_tmpfs_remounted": false
+    },
+    "full_R42": false,
+    "all_M1_M10_accepted": false,
+    "production_ready": false,
+    "digest": "sha256:77c7111c1fb310f07de1d0311dbe0fc073e7b5e2753e5f3b925fca639c7928bf"
+  },
+  "original_24h_expiry_observation": {
+    "kind": "OriginalActual24hExpiryPartialSummary",
+    "observation_digest": "sha256:9f6c5ee3c015f4f745e75f677db8aa05bed80bacf6e4293ddf004a8b8bf0b42c",
+    "original_attestation_digest": "sha256:0189673fc00d132765d2351de90e233857716bde8b4732f7377352278729ba8a",
+    "observed_at": "2026-10-03T06:54:34.177424+00:00",
+    "expires_at": "2026-10-03T06:51:05Z",
+    "elapsed_seconds": 86609.177424,
+    "result": "consumption_expired",
+    "first_observation_pass": true,
+    "second_observation_due_at": "2026-10-03T12:16:20Z",
+    "all_original_24h_observations_complete": false,
+    "new_attestation_issued": false,
+    "model_requests": 0,
+    "full_M8": false,
+    "production_ready": false,
+    "digest": "sha256:bd4675c53faa494ec0c7de296a81e1d7d8d56ba0ecffc2494aecf57f697c2a93"
+  },
+  "private_matrix_digest": "sha256:6e271cae97f1c56efbae6334687dc8496fe8b8245e6699f73afec323e708f32a",
+  "digest": "sha256:10f6bf96e111ebfab62cddd9ddec66b3430df8c84c5e9e199ec719902311df95"
+}
