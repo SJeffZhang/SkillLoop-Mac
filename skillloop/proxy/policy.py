@@ -100,6 +100,9 @@ def compile_capability(
         if p["max_tool_calls"] > parent["max_tool_calls"] or not allowed.keys() <= parent_actions.keys():
             raise AuthorizationError("policy_not_subset_of_parent")
 
+    if len(b["resources"]) > 32:
+        raise AuthorizationError("task_resource_limit")
+
     slots = {item["slot"]: item for item in d["slots"]}
     resources = {item["resource_id"]: item for item in b["resources"]}
     mapping = {item["slot"]: item["resource_id"] for item in b["slot_bindings"]}

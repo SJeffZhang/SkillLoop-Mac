@@ -188,6 +188,27 @@ class ProxyStore:
                                    "activate_approval", result)
             return result
 
+    def stage_imported_task(self, *, loader, source_snapshot: dict[str, Any],
+                            package_files: dict[str, bytes], skill_manifest: dict[str, Any],
+                            input_resources: dict[str, bytes], **task_setup) -> dict[str, Any]:
+        """Trusted controller admission: selected package bytes only, then atomic stage.
+
+        This is an in-process trusted setup API; it adds no caller-authorized RPC.
+        Context/token preflight and remote controller role service remain separate.
+        """
+        profile_id = task_setup["profile_id"]
+        family_id = self.registry.profile(profile_id)["family_id"]
+        selection = loader.select(source_snapshot, package_files, skill_manifest,
+                                  profile_id=profile_id, family_id=family_id)
+        selection.check_binding(task_setup["binding"])
+        selected = selection.resource_bytes()
+        if set(selected) & set(input_resources):
+            raise AuthorizationError("loader_resource_class_overlap")
+        capability = self.stage_task(resources={**input_resources, **selected}, **task_setup)
+        return {"capability": capability, "source_snapshot_digest": selection.source_snapshot_digest,
+                "manifest_digest": selection.manifest_digest,
+                "selected_paths": [path for path, _, _ in selection.files]}
+
     def stage_task(self, *, domain: dict[str, Any], policy: dict[str, Any],
                    binding: dict[str, Any], run_request: dict[str, Any],
                    profile_id: str, resources: dict[str, bytes], approval_digest: str,
