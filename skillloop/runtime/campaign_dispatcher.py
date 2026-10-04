@@ -11,6 +11,7 @@ ACTION_FIELDS={
     'import_source':{'approved_repository'},
     'archive_role':{'policy_path','journal_directory'},
     'archive_close':{'policy_path','dispatch_journal','review_path','journal_directory'},
+    'registry_withdraw':{'withdrawal_path','qualification_path','expected_active_revision'},
     'register_campaign':{'registration_path','authority_directory'},
     'deployment':{'manifest_path','journal_directory','start_roles'},
     'role_command':{'role','assignment_directory','role_command','rpc_params','manifest_path','deployment_journal','timeout_seconds','result_path'},
@@ -23,6 +24,7 @@ ACTION_FIELDS={
     'private_runtime':{'policy_path','reference_path','started_path','journal_directory'},
     'protected_close':{'plan_path','journal_directory'},
     'static_scan':{'deployment_path'},
+    'qualification_withdraw':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','maximum_evidence_bytes'},
     'campaign_gate':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','maximum_evidence_bytes'},
     'promote':{'qualification_path','authority_directory'},
     'semantic_discovery':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds'},
@@ -61,7 +63,7 @@ def validate_dispatch_route(route):
                 or type(step['rpc_params']) is not dict or type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120):
             raise ValueError('campaign_role_command_bound')
-        if action=='campaign_gate' and (type(step['timeout_seconds']) is not int
+        if action in {'campaign_gate','qualification_withdraw'} and (type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120 or type(step['maximum_evidence_bytes']) is not int
                 or not 1<=step['maximum_evidence_bytes']<=268435456):
             raise ValueError('campaign_final_gate_full_cost_bound')
@@ -274,38 +276,47 @@ class CampaignDispatcher:
                 from skillloop.discovery.scan_service import ScanController
                 result=ScanController(step['deployment_path']).scan(request['parameters']['snapshot'],
                     scanner_profile=request['parameters'].get('scanner_profile'),operation_id=request['operation_id'])
-            elif step['action']=='campaign_gate':
+            elif step['action'] in {'campaign_gate','qualification_withdraw'}:
                 from skillloop.runtime.whole_deployment import WholeRoleDeployment
                 from skillloop.protection.current_task import _directory,_publish
                 job=read_owned(Path(step['assignment_directory'])/'job.json',uid=21001,gid=21005,limit=262144)
                 deployment=WholeRoleDeployment(manifest_path=step['manifest_path'],journal_directory=step['deployment_journal'],
                     engine=self.engine,ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
-                if deployment.plan['roles']['gate']['config']['Cmd']!=['-m','skillloop.ci.campaign_gate']:
+                withdrawing=step['action']=='qualification_withdraw'
+                module='skillloop.ci.qualification_withdrawal' if withdrawing else 'skillloop.ci.campaign_gate'
+                expected_kind='FormalQualificationWithdrawalAssignment' if withdrawing else 'FormalCampaignGateAssignment'
+                if deployment.plan['roles']['gate']['config']['Cmd']!=['-m',module]:
                     raise ValueError('campaign_final_gate_fixed_role_entry')
                 with self.registry.private_scope(campaign=job['bindings']['campaign']) as state:
-                    if (job.get('kind')!='FormalCampaignGateAssignment' or job['bindings']!=state['bindings']
+                    if (job.get('kind')!=expected_kind or job['bindings']!=state['bindings']
                             or job['deadline']!=state['gate_freeze']['deadline']
                             or job['whole_round_manifest_digest']!=deployment.whole['digest']):
                         raise ValueError('campaign_final_gate_live_original_roster')
                     self.ledger.consume_auxiliary(manifest=deployment.whole,campaign=state['bindings']['campaign'],
-                        stage='gate_qualification_report',operation_key='campaign-gate-'+job['digest'][7:],
+                        stage='resource_archive_restore' if withdrawing else 'gate_qualification_report',
+                        operation_key=('qualification-withdraw-' if withdrawing else 'campaign-gate-')+job['digest'][7:],
                         seconds=step['timeout_seconds']+60,input_tokens=0,output_tokens=0,
                         disk_bytes=step['maximum_evidence_bytes'])
                     # Actual role creation is charged before taking this ledger
                     # snapshot; starting this same created container adds no slot.
-                    deployment.create_role('gate',request['operation_id']+'-campaign-gate')
-                    spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
-                    spending['digest']=digest_jcs(spending)
-                    directory=_directory(step['assignment_directory'],21001,21005,0o750)
-                    _publish(directory/'spending.json',spending,21005)
-                    observed=deployment.start_role('gate',request['operation_id']+'-campaign-gate')
+                    deployment.create_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'))
+                    if not withdrawing:
+                        spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
+                        spending['digest']=digest_jcs(spending)
+                        directory=_directory(step['assignment_directory'],21001,21005,0o750)
+                        _publish(directory/'spending.json',spending,21005)
+                    observed=deployment.start_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'))
                     identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
                     actual=self.engine.inspect(identifier)
                     if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
                         raise RuntimeError('campaign_final_gate_original_failure_preserve_private_evidence')
                     result=read_owned(step['result_path'],uid=21005,gid=21001,limit=262144)
-                    if result.get('kind')!='FormalCampaignGateCompletion' or result.get('assignment_digest')!=job['digest']:
+                    if result.get('kind')!=('FormalQualificationWithdrawalCompletion' if withdrawing else 'FormalCampaignGateCompletion') or result.get('assignment_digest')!=job['digest']:
                         raise ValueError('campaign_final_gate_actual_aggregate_required')
+            elif step['action']=='registry_withdraw':
+                result=self.registry.withdraw_for_archive(withdrawal_path=step['withdrawal_path'],
+                    qualification_path=step['qualification_path'],
+                    expected_active_revision=step['expected_active_revision'],operation_id=request['operation_id'])
             elif step['action']=='archive_role':
                 from skillloop.runtime.archive_dispatch import dispatch_archive_action
                 result=dispatch_archive_action(policy_path=step['policy_path'],

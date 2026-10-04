@@ -313,16 +313,36 @@ class QualificationIssuer:
             db.commit()
         return public
 
-    def revoke(self, campaign, *, expected_generation):
+    def revoke(self, campaign, *, expected_generation, expected_bindings):
+        """Withdraw the exact issued identity without renewing its original TTL.
+
+        The receipt is deterministic on replay. It authorizes no evidence
+        deletion; the archive Gate and Registry still have separate duties.
+        """
         if os.geteuid() != GATE_UID:
             raise PermissionError('gate_issuer_uid_required')
+        if (type(expected_bindings) is not dict or expected_bindings.get('campaign')!=campaign
+                or expected_bindings.get('generation')!=expected_generation
+                or expected_bindings.get('deployment_epoch')!=self.epoch
+                or expected_bindings.get('config_digest')!=self.config):
+            raise ValueError('qualification_withdrawal_exact_identity')
         with closing(self.connect()) as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT generation FROM issued_campaigns WHERE campaign=?', (campaign,)).fetchone()
-            if row != (expected_generation,):
-                raise ValueError('qualification_generation_mismatch')
-            db.execute('UPDATE issued_campaigns SET revoked=1 WHERE campaign=?', (campaign,))
+            identity=db.execute('SELECT epoch,config FROM qualification_identity WHERE singleton=1').fetchone()
+            row=db.execute('SELECT generation,bindings_digest,proof FROM issued_campaigns WHERE campaign=?',(campaign,)).fetchone()
+            if identity!=(self.epoch,self.config) or row is None or row[:2]!=(expected_generation,digest_jcs(expected_bindings)):
+                raise ValueError('qualification_generation_or_binding_mismatch')
+            proof=decode_json(row[2])
+            if (proof.get('kind')!='IssuedCampaignEligibility' or proof.get('bindings')!=expected_bindings
+                    or digest_jcs({k:v for k,v in proof.items() if k!='digest'})!=proof.get('digest')):
+                raise ValueError('qualification_original_eligibility_integrity')
+            db.execute('UPDATE issued_campaigns SET revoked=1 WHERE campaign=?',(campaign,))
             db.commit()
+        receipt={'kind':'GateQualificationWithdrawal','bindings':expected_bindings,
+            'eligibility_digest':proof['digest'],'producer_uid':GATE_UID,
+            'qualification_revoked':True,'deletion_authorized':False}
+        receipt['digest']=digest_jcs(receipt)
+        return receipt
 
 
 @contextmanager

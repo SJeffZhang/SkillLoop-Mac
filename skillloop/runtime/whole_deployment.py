@@ -17,7 +17,7 @@ ROLES={'controller':21001,'runtime':21002,'proxy':21003,'protected_evaluator':21
        'generator':21006,'patcher':21007,'scanner':21008,'report':21009,'admin':21010,'model_gateway':21011}
 MODULES={'controller':{'skillloop.runtime.operator_service'},'runtime':{'scripts.mac_agent_runtime'},
     'proxy':{'skillloop.proxy.service'},'protected_evaluator':{'skillloop.protection.formal_factory','skillloop.protection.formal_session'},
-    'gate':{'skillloop.ci.campaign_gate','skillloop.discovery.formal_task_gate','skillloop.runtime.private_retirement','skillloop.discovery.formal_roster_gate','skillloop.repair.formal_application_gate','skillloop.protection.model_lifecycle_gate'},
+    'gate':{'skillloop.ci.qualification_withdrawal','skillloop.ci.campaign_gate','skillloop.discovery.formal_task_gate','skillloop.runtime.private_retirement','skillloop.discovery.formal_roster_gate','skillloop.repair.formal_application_gate','skillloop.protection.model_lifecycle_gate'},
     'generator':{'skillloop.runtime.proposal_worker'},'patcher':{'skillloop.runtime.proposal_worker'},
     'report':{'skillloop.runtime.role_command_worker'},'admin':{'skillloop.runtime.role_command_worker'},
     'model_gateway':{'skillloop.runtime.model_bridge_service','skillloop.discovery.semantic_worker'}}

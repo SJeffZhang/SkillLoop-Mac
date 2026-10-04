@@ -324,6 +324,77 @@ class CampaignRegistry:
                 db.commit()
                 return result
 
+    def withdraw_for_archive(self, *, withdrawal_path, qualification_path,
+                             expected_active_revision, operation_id):
+        """Invalidate only the active entry linked to the withdrawn campaign.
+
+        Gate withdrawal precedes this local CAS. The issuer read transaction
+        confirms the actual revoked row through the Registry commit; this is
+        not a distributed atomic archive/deletion transaction.
+        """
+        if os.geteuid()!=21001:raise PermissionError('controller_registry_uid_required')
+        if type(expected_active_revision) is not int or expected_active_revision<0:
+            raise ValueError('archive_active_revision_required')
+        if type(operation_id) is not str or not 1<=len(operation_id)<=256:
+            raise ValueError('archive_withdrawal_operation_id')
+        from skillloop.discovery.formal_task_gate import read_owned
+        from .qualification_store import _path
+        completion=read_owned(withdrawal_path,uid=21005,gid=21001,limit=262144)
+        receipt=completion.get('withdrawal',{})
+        if (completion.get('kind')!='FormalQualificationWithdrawalCompletion'
+                or completion.get('qualification_revoked') is not True
+                or completion.get('deletion_authorized') is not False
+                or receipt.get('kind')!='GateQualificationWithdrawal'
+                or receipt.get('producer_uid')!=21005 or receipt.get('qualification_revoked') is not True
+                or receipt.get('deletion_authorized') is not False
+                or digest_jcs({k:v for k,v in receipt.items() if k!='digest'})!=receipt.get('digest')):
+            raise ValueError('archive_gate_withdrawal_required')
+        bindings=receipt['bindings'];campaign=bindings['campaign']
+        operation='archive-withdraw-'+operation_id
+        parameters=digest_jcs([completion['digest'],expected_active_revision])
+        with closing(sqlite3.connect(self.path,timeout=2)) as db:
+            db.execute('PRAGMA synchronous=FULL');db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT project,profile,bindings FROM formal_campaigns WHERE campaign=?',(campaign,)).fetchone()
+            if row is None or decode_json(row[2])!=bindings:
+                raise ValueError('archive_original_registered_campaign_required')
+            project,profile=row[:2]
+            with closing(sqlite3.connect(_path(qualification_path).as_uri()+'?mode=ro',uri=True,timeout=2)) as issuer:
+                issuer.execute('BEGIN')
+                identity=issuer.execute('SELECT epoch,config FROM qualification_identity WHERE singleton=1').fetchone()
+                qualification=issuer.execute('SELECT bindings_digest,proof,revoked FROM issued_campaigns WHERE campaign=?',(campaign,)).fetchone()
+                if (issuer.execute('PRAGMA user_version').fetchone()!=(2,)
+                        or identity!=(bindings['deployment_epoch'],bindings['config_digest'])
+                        or qualification is None or qualification[0]!=digest_jcs(bindings) or qualification[2]!=1):
+                    raise ValueError('archive_live_issuer_withdrawal_required')
+                proof=decode_json(qualification[1])
+                if (proof.get('digest')!=receipt['eligibility_digest'] or proof.get('bindings')!=bindings
+                        or digest_jcs({k:v for k,v in proof.items() if k!='digest'})!=proof.get('digest')):
+                    raise ValueError('archive_withdrawal_original_eligibility_changed')
+                old=db.execute('SELECT parameters,result FROM promotions WHERE operation=?',(operation,)).fetchone()
+                if old:
+                    if old[0]!=parameters:raise ValueError('archive_withdrawal_operation_conflict')
+                    return decode_json(old[1])
+                link=db.execute('SELECT campaign FROM active_campaigns WHERE project=? AND profile=?',(project,profile)).fetchone()
+                active=db.execute('SELECT revision,result FROM active_subjects WHERE project=? AND profile=?',(project,profile)).fetchone()
+                changed=False
+                if link==(campaign,):
+                    if active is None or active[0]!=expected_active_revision:
+                        raise ValueError('archive_active_revision_conflict')
+                    original=decode_json(active[1]);validate_envelope(original)
+                    if original['kind']!='RegistryEntry' or original['body']['subject_digest']!=bindings['subjects']['submitted']:
+                        raise ValueError('archive_active_original_subject_binding')
+                    if original['body']['eligibility']=='eligible':
+                        updated=make_envelope('RegistryEntry',{**original['body'],'eligibility':'revoked'})
+                        db.execute('UPDATE active_subjects SET revision=?,result=? WHERE project=? AND profile=?',
+                            (active[0]+1,canonical_json_line(updated),project,profile));changed=True
+                result={'kind':'RegistryArchiveWithdrawal','campaign':campaign,
+                    'gate_withdrawal_digest':receipt['digest'],'active_entry_changed':changed,
+                    'qualification_revoked':True,'deletion_authorized':False}
+                result['digest']=digest_jcs(result)
+                db.execute('INSERT INTO promotions VALUES(?,?,?)',(operation,parameters,canonical_json_line(result)))
+                db.commit()
+                return result
+
     def active(self, *, project, profile, qualification_path, authority_directory):
         """Resolve current eligibility at consumption, never trust stored pass.
 
