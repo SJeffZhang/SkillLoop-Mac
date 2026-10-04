@@ -148,12 +148,22 @@ def unwrap_for_gate(header,socket_path):
 
 def main():
     os.umask(0o077)
-    service=ArchiveKeyService('/archive-policy/key-service.json');previous={}
+    previous={}
     try:
+        service=ArchiveKeyService('/archive-policy/key-service.json')
         for number in (signal.SIGTERM,signal.SIGINT):
             previous[number]=signal.getsignal(number)
             signal.signal(number,lambda signum,frame: service.stop.set())
         service.serve()
+    except BaseException as error:
+        import traceback
+        try:
+            root=_directory('/archive-keys',21010,21010,0o700)
+            failure={'kind':'PrivateArchiveKeyServiceFailure','error_type':type(error).__name__,
+                'traceback':traceback.format_exc(),'automatic_key_rotation_allowed':False}
+            failure['digest']=digest_jcs(failure);_publish(root/'service.failure.json',failure,21010)
+        except BaseException:pass
+        raise SystemExit(1) from None
     finally:
         for number,handler in previous.items():signal.signal(number,handler)
 
