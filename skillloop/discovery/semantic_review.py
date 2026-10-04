@@ -43,13 +43,8 @@ def review_semantic(directory,*,snapshot,profile,whole):
                     or type(actual.get('eval_count')) is not int or not 0<=actual['eval_count']<=policy['max_output_tokens']):
                 raise ValueError('semantic_review_original_inference_incomplete')
     finally:tokenizer.close()
-    fd=os.open(root/'raw-report.json',os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-    with os.fdopen(fd,'rb') as stream:
-        info=os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=21011 or info.st_gid!=21001
-                or stat.S_IMODE(info.st_mode)!=0o640 or info.st_nlink!=1 or info.st_size>33554432):
-            raise PermissionError('semantic_review_raw_report_custody')
-        raw=stream.read(33554433)
+    from skillloop.discovery.raw_evidence import read_granted_raw
+    raw=read_granted_raw(root/'raw-report.json',uid=21011,gid=21001,limit=33554432)
     report,findings,_=reduce_scan(profile,raw,value['scanner_report']['body']['upstream_exit_code'],
         subject_digest=snapshot['body']['skill_digest'],require_llm=True,allow_risk_exit=True)
     if report!=value['scanner_report'] or findings!=value['findings'] or report['body']['status']!='complete':

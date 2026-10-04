@@ -18,19 +18,9 @@ from skillloop.runtime.round_manifest import read_round_manifest
 
 
 def _patcher_document(directory,name,limit=8388608):
-    root=Path(directory);parent=root.lstat()
-    if (not root.is_absolute() or root.is_symlink() or parent.st_uid!=21007
-            or parent.st_gid!=21001 or stat.S_IMODE(parent.st_mode)!=0o750):
-        raise PermissionError('application_gate_actual_patcher_directory')
-    fd=os.open(root/name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-    with os.fdopen(fd,'rb') as stream:
-        info=os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=21007 or info.st_gid!=21001
-                or stat.S_IMODE(info.st_mode)!=0o640 or info.st_size>limit):
-            raise PermissionError('application_gate_actual_patcher_file')
-        raw=stream.read(limit+1)
-    if len(raw)>limit:raise ValueError('application_gate_patcher_file_capacity')
-    return decode_json(raw)
+    from skillloop.discovery.raw_evidence import read_granted_raw
+    return decode_json(read_granted_raw(Path(directory)/name, uid=21007,
+                                       gid=21001, limit=limit))
 
 
 def review_application(*,assignment_path,patcher_directory,tokenizer_path,

@@ -27,19 +27,8 @@ def _name(value):
 
 def _raw(path, limit):
     """Read an explicit Controller grant, not the scanner's private directory."""
-    parent=path.parent.lstat()
-    if (path.parent.is_symlink() or parent.st_uid!=21001 or parent.st_gid!=21001
-            or stat.S_IMODE(parent.st_mode)!=0o750):
-        raise PermissionError('roster_gate_scan_read_grant_directory')
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-    with os.fdopen(fd,'rb') as stream:
-        info=os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=21001 or info.st_gid!=21001
-                or stat.S_IMODE(info.st_mode)!=0o640 or info.st_size>limit):
-            raise PermissionError('roster_gate_scan_read_grant_file')
-        raw=stream.read(limit+1)
-    if len(raw)>limit:raise ValueError('roster_gate_scan_capacity')
-    return raw
+    from skillloop.discovery.raw_evidence import read_granted_raw
+    return read_granted_raw(path, uid=21001, gid=21001, limit=limit)
 
 
 def _write(root, name, value):
