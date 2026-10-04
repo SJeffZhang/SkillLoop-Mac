@@ -199,10 +199,17 @@ def review_campaign():
         charged+=bound['seconds']
     if charged!=spending['charged_wall_seconds'] or datetime.now(timezone.utc).timestamp()-spending['campaign_started_at']+_remaining_whole_seconds(spending,reservation)>28800:
         raise ValueError('campaign_gate_original_full_budget_exhausted')
+    source_history=read_owned('/source-history/source-authority.json',uid=21003,gid=21005,limit=16777216)
+    from skillloop.proxy.archive_projection import verify_source_history
+    archived_sources=verify_source_history(source_history,campaign=campaign,epoch=record['deployment_epoch'],
+        config_digest=record['config_digest'],trust_revision=record['trust_revision'])
     chains={};reductions=[];reviewed={};subjects=bindings['subjects']
     with current_authority('/authority-projection',epoch=record['deployment_epoch'],config_digest=record['config_digest'],
             trust_revision=record['trust_revision'],approval_digests=record['approval_digests']) as live:
         admitted={a['subject_digest']:a for a in live.get('source_admissions',[]) if a['campaign_id']==campaign}
+        if archived_sources!=admitted:raise ValueError('campaign_gate_source_history_not_current_authority')
+        if not set(record['approval_digests'])<={a['approval_digest'] for a in source_history['approvals']}:
+            raise ValueError('campaign_gate_full_original_approval_history')
         heads=[h for h in live['plan_heads'] if h['campaign_id']==campaign]
         if len(heads)!=1 or heads[0]['plan_digest']!=freeze['development_plan_digest']:raise ValueError('campaign_gate_current_plan_head')
         for role,subject in subjects.items():
@@ -242,7 +249,8 @@ def review_campaign():
     _publish(vault/'archive-obligations.json',obligations,21005)
     facts={'whole-round':whole,'development-assignment':devjob,
         'development-evidence':development,'roster-freeze':freeze,
-        'authority-snapshot':authority.snapshot,'model-lifecycle':lifecycle,'spending':snapshot}
+        'authority-snapshot':authority.snapshot,'model-lifecycle':lifecycle,'spending':snapshot,
+        'source-history':source_history}
     # Preserve the actual facts reviewed by this Gate inside its own vault.
     # This copies objects, not live database permissions or Controller access.
     for name,value in facts.items():_publish(vault/('archive-fact-'+name+'.json'),value,21005)

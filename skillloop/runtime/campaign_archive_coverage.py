@@ -13,7 +13,7 @@ from scripts.spec_v22_core import execution_record
 
 # These categories need producers bound to actual owner snapshots, rather than
 # caller-declared booleans or arbitrary collections of files.
-UNBOUND_CATEGORIES=('source_and_approval_history','discovery_and_candidate_raw_history',
+UNBOUND_CATEGORIES=('discovery_and_candidate_raw_history',
     'qualification_and_registry_snapshots',
     'operation_recovery_and_resource_ownership','archive_and_restore_lifecycle')
 
@@ -99,7 +99,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
     fact_kinds={'whole-round':'FrozenWholeRound','development-assignment':'FormalDevelopmentRosterAssignment',
         'development-evidence':'FormalDevelopmentRosterEvidence','roster-freeze':'FrozenCampaignSubjectRoster',
         'authority-snapshot':'EvaluatorGateAuthoritySnapshot','model-lifecycle':'GatePrivateModelLifecycleReview',
-        'spending':'CampaignGateSpendingSnapshot'}
+        'spending':'CampaignGateSpendingSnapshot','source-history':'ProxyCampaignSourceAuthoritySnapshot'}
     if set(evidence.get('archive_fact_digests',{}))!=set(fact_kinds):
         raise ValueError('campaign_archive_original_fact_bindings_required')
     facts={name:resolve(evidence['archive_fact_digests'][name],kind)[0][1]
@@ -112,6 +112,14 @@ def review_campaign_inventory(*,policy,inventory,budget):
             or facts['authority-snapshot']['digest']!=evidence['authority_snapshot_digest']
             or facts['model-lifecycle']['digest']!=evidence['lifecycle_digest']):
         raise ValueError('campaign_archive_original_fact_chain')
+    source_history=facts['source-history']
+    from skillloop.proxy.archive_projection import verify_source_history
+    source_map=verify_source_history(source_history,campaign=policy['campaign'],epoch=policy['deployment_epoch'],
+        config_digest=evidence['bindings']['config_digest'],trust_revision=evidence['bindings']['trust_revision'])
+    if (not set(evidence['bindings']['subjects'].values())<=set(source_map)
+            or not any(row['uid']==21003 and row['gid']==21005 for row,_ in
+                resolve(source_history['digest'],'ProxyCampaignSourceAuthoritySnapshot'))):
+        raise ValueError('campaign_archive_original_proxy_source_projection_required')
     covered=[];protected={}
     for task in tasks:
         budget()
@@ -202,7 +210,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'archive_obligations_digest':obligations['digest'],'source_inventory_digest':inventory['digest'],
         'reviewed_tasks':covered,'all_reviewed_task_bytes_present':True,
         'original_gate_fact_digests':evidence['archive_fact_digests'],
-        'factory_and_session_database_verified':True,
+        'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
         'missing_categories':list(UNBOUND_CATEGORIES),'campaign_coverage_complete':False,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)
