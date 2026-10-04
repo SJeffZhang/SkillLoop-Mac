@@ -42,6 +42,9 @@ class OperatorOperationStore:
             if row:
                 if row[0]!=params:raise ValueError('operator_same_id_parameter_conflict')
                 return decode_json(row[1])
+            deadline=datetime.fromisoformat(route['deadline'].replace('Z','+00:00'))
+            if deadline.tzinfo is None or datetime.now(timezone.utc)>=deadline:
+                raise TimeoutError('operator_original_admission_deadline')
             if db.execute("SELECT count(*) FROM operations WHERE state IN ('accepted','running')").fetchone()[0]>=16:
                 raise TimeoutError('operator_queue_full')
             db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?,?,NULL,NULL)',

@@ -4,7 +4,7 @@ It schedules frozen production routes; it neither expands public RPC methods
 nor treats unavailable stage providers as acceptance.
 """
 from datetime import datetime,timezone
-import errno,fcntl,os,socket,stat,struct,threading
+import errno,fcntl,os,signal,socket,stat,struct,threading
 from pathlib import Path
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
@@ -20,7 +20,8 @@ class OperatorService:
                 or cfg['kind']!='OperatorServiceDeployment' or type(cfg['operator_uids']) is not list
                 or any(type(uid) is not int or uid<1 or uid in set(range(21002,21010))|{21011} for uid in cfg['operator_uids'])):
             raise ValueError('operator_service_frozen_deployment')
-        self.dispatcher=dispatcher;self.stop=threading.Event()
+        self.dispatcher=dispatcher;self.stop=threading.Event();self.inflight_preserved=False
+        self.admission_lock=threading.Lock()
         self.store=OperatorOperationStore(cfg['store'],cfg['deployment_epoch'])
         self.routes={}
         for path in cfg['routes']:
@@ -45,6 +46,11 @@ class OperatorService:
             try:self.store.complete(ref,self.dispatcher.recover_final(request,route))
             except Exception:self.store.fail(ref,'unknown_requires_recovery')
 
+    def stop_admission(self):
+        # Signal handlers only fence admission. The original worker owns its
+        # runtime, lease, cancellation and evidence journals until it drains.
+        self.stop.set()
+
     def request(self,uid,value):
         if value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):raise ValueError('operator_request_seal')
         if uid not in self.config['operator_uids']:raise PermissionError('operator_peer_not_admitted')
@@ -58,10 +64,14 @@ class OperatorService:
         if value['command'].startswith('admin ') and uid!=21010:raise PermissionError('operator_admin_actual_peer')
         route=self.routes.get((value['command'],digest_jcs(value['parameters'])))
         if route is None:raise TimeoutError('operator_unadmitted_required_route')
-        return self.store.accept(uid,value,route)
+        with self.admission_lock:
+            if self.stop.is_set():raise TimeoutError('operator_admission_stopping')
+            return self.store.accept(uid,value,route)
     def worker(self):
         while not self.stop.is_set():
-            item=self.store.claim()
+            with self.admission_lock:
+                if self.stop.is_set():break
+                item=self.store.claim()
             if item is None:self.stop.wait(0.25);continue
             ref,request,route=item
             try:self.store.complete(ref,self.dispatcher.execute(request,route))
@@ -143,7 +153,9 @@ class OperatorService:
                 self.stop.set();worker.join(timeout=30)
                 # A live worker keeps its process/evidence; do not unlink and
                 # replace the endpoint as if this service drained successfully.
-                if worker.is_alive():raise RuntimeError('operator_inflight_custody_preserved')
+                if worker.is_alive():
+                    self.inflight_preserved=True
+                    raise RuntimeError('operator_inflight_custody_preserved')
                 current=endpoint.lstat()
                 if (current.st_dev,current.st_ino)!=(bound.st_dev,bound.st_ino):
                     raise RuntimeError('operator_socket_changed_before_cleanup')
@@ -162,13 +174,22 @@ def main():
     if cfg.get('kind')!='ControllerCampaignDeployment':raise ValueError('controller_campaign_deployment')
     controller=FormalTaskController(**cfg['task_controller'])
     tokenizer=ExactLocalTokenizer('/model',expected_hashes=cfg['tokenizer_hashes'])
+    service=None;previous_signals={}
     try:
         dispatcher=CampaignDispatcher(controller=controller,registry=CampaignRegistry(cfg['registry']),
             ledger=SpendingLedger(Path(cfg['ledger']),victim_seconds=cfg['victim_seconds'],campaign_started_at=cfg['campaign_started_at']),
             engine=DockerEngine(cfg['engine_socket']),tokenizer=tokenizer,
             whole_round_manifest_path=cfg['whole_round_manifest_path'],phase_journal=cfg['phase_journal'])
-        OperatorService(deployment_path='/deployment/operator-service.json',dispatcher=dispatcher).serve()
-    finally:tokenizer.close()
+        service=OperatorService(deployment_path='/deployment/operator-service.json',dispatcher=dispatcher)
+        for number in (signal.SIGTERM,signal.SIGINT):
+            previous_signals[number]=signal.getsignal(number)
+            signal.signal(number,lambda signum,frame: service.stop_admission())
+        service.serve()
+    finally:
+        for number,handler in previous_signals.items():signal.signal(number,handler)
+        # A non-daemon worker may still be committing or preserving original
+        # evidence. Closing its shared tokenizer during that work is unsafe.
+        if service is None or not service.inflight_preserved:tokenizer.close()
 
 
 if __name__=='__main__':main()
