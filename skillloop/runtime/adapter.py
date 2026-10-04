@@ -72,6 +72,17 @@ class AgentAdapter:
         """
         binding = run_options["task_binding"]
         validate_envelope(binding)
+        request=run_options['run_request']
+        validate_envelope(request)
+        if (request['kind']!='RunRequest' or binding['kind']!='TaskBinding'
+                or request['body']['subject_digest']!=binding['body']['subject_digest']
+                or request['body']['authorization_domain_digest']!=binding['body']['domain_digest']):
+            raise ProtocolError('runtime_request_binding_mismatch')
+        if (binding['kind']!='TaskBinding' or type(instruction_resource_id) is not str
+                or type(reference_resource_ids) is not list
+                or any(type(rid) is not str for rid in reference_resource_ids)
+                or len(reference_resource_ids)>31):
+            raise ProtocolError('runtime_package_selection_shape')
         body = binding["body"]
         ids = [instruction_resource_id, *reference_resource_ids]
         allowed = {r["resource_id"]: r for r in body["resources"] if r["resource_class"] == "skill"}
@@ -108,7 +119,9 @@ class AgentAdapter:
             deployment_epoch: str, deadline_seconds: float = 180,
             instruction_suffix: str = "", attempt_index: int = 0,
             rendered_mutation: RenderedMutation | None = None,
-            approved_references: dict[str, bytes] | None = None) -> dict[str, Any]:
+            approved_references: dict[str, bytes] | None = None,
+            record_terminal_output: bool = False) -> dict[str, Any]:
+        if type(record_terminal_output) is not bool:raise ProtocolError("terminal_recording_flag")
         validate_envelope(run_request)
         validate_envelope(task_binding)
         if run_request["kind"] != "RunRequest" or task_binding["kind"] != "TaskBinding":
@@ -118,6 +131,8 @@ class AgentAdapter:
         run_id, task_id = binding["run_id"], binding["task_instance_id"]
         if rr["subject_digest"] != binding["subject_digest"]:
             raise ProtocolError("runtime_subject_mismatch")
+        if rr['authorization_domain_digest']!=binding['domain_digest']:
+            raise ProtocolError('runtime_authorization_domain_mismatch')
         try:
             skill_text = skill_bytes.decode("utf-8")
         except UnicodeError as exc:
@@ -284,6 +299,20 @@ class AgentAdapter:
             infra_status = "runtime_error"
         if rendered_mutation is not None and mutation_reads and not exposed and not incomplete:
             incomplete.append("mutation_delivery_unconfirmed")
+        if record_terminal_output:
+            try:
+                output_digest=digest_bytes((final_text if final_text is not None else '').encode('utf-8'))
+                acknowledgement=self.proxy.request('record_terminal_output',
+                    {'run_id':run_id,'fence':fence,'raw_output_digest':output_digest})
+                if (acknowledgement['kind']!='ObjectAck'
+                        or acknowledgement['body']['object_kind']!='TerminalOutput'
+                        or acknowledgement['body']['object_digest']!=output_digest):
+                    raise ProtocolError('terminal_acknowledgement_binding')
+                trace.append({'type':'terminal_output_ack','raw_output_digest':output_digest,
+                              'acknowledgement':acknowledgement})
+            except (ProxyRPCError,ProtocolError,TraceLimit,KeyError,TypeError) as error:
+                incomplete.append('terminal_output_recording:'+type(error).__name__)
+                terminal_reason='runtime_error';infra_status='runtime_error'
         try:
             trace.append({"type": "terminal", "terminal_reason": terminal_reason,
                           "infra_status": infra_status, "published": published,

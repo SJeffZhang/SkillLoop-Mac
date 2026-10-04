@@ -1,5 +1,6 @@
 """Trusted controller for one real Mac container admission run."""
 import argparse,json,os,sqlite3,base64
+from contextlib import closing
 from pathlib import Path
 from deploy.scanner.qwen_relay import HostModelBridge
 from scripts.dgx_m5_development import run_one
@@ -19,8 +20,9 @@ def main():
         'proxy_deadline_seconds':255,'worker_deadline_seconds':265,'mac_runtime_image':args.image,
         'gateway_backend':'ollama'}
     if args.config_file:config=json.loads(args.config_file.read_text())
-    resources={'socket_volume':args.socket_volume,'model_volume':args.model_volume}
-    def execute(*positional):return container_execute(*positional,resource_context=resources)
+    resources={'socket_volume':args.socket_volume,'model_volume':args.model_volume,
+        'proxy_server_uid':os.geteuid()}
+    def execute(*positional,**options):return container_execute(*positional,resource_context=resources,**options)
     case=args.profile+'.'+(args.capacity_case or 'clean-a')
     options={}
     if args.capacity_case:
@@ -36,6 +38,15 @@ def main():
         if config['mac_runtime_image']!=args.image or entry['source_index_digest']!=digest_jcs(source_index(Path('/code'))):raise ValueError('formal_source_identity')
         if config['model_service_port']!=args.model_port:raise ValueError('formal_model_service_binding')
         options={'compiled_suite':entry['compiled'],'skill_root':Path('/subject'),'execution_plan':entry['plan'],'campaign_id':entry['campaign_id']}
+        if entry.get('source_admission') is not None:
+            admission=entry['source_admission']
+            from skillloop.loader import validate_source_admission
+            validate_source_admission(admission, config, entry['compiled']['subject_digest'])
+            encoded=admission['package_files']
+            if type(encoded) is not dict or len(encoded)>32 or any(type(v) is not str or len(v)>5464 for v in encoded.values()):
+                raise ValueError('source_admission_package_bound')
+            options['imported_admission']={**admission,'package_files':
+                {name:base64.b64decode(value,validate=True) for name,value in encoded.items()}}
         scope='formal_M6_individual_run'
         if entry.get('kind')=='protected':
             options.update(protected_options(entry))
@@ -54,7 +65,7 @@ def main():
         path=output/'result.json';data=json.loads(path.read_text())
         data['runner_source_digest']=digest_jcs(source_index(Path('/code')))
         path.write_text(json.dumps(data,indent=2))
-    with sqlite3.connect(output/'authority.db') as source,sqlite3.connect(output/'authority.backup.db') as target:
+    with closing(sqlite3.connect(output/'authority.db')) as source,closing(sqlite3.connect(output/'authority.backup.db')) as target:
         source.backup(target)
         if target.execute('PRAGMA integrity_check').fetchone()!=('ok',):raise ValueError('backup_integrity_failure')
     (output/'admission-result.json').write_text(json.dumps({'scope':scope,'result':result,'model_requests':bridge.chat_requests,'consistent_sqlite_backup':True},indent=2))

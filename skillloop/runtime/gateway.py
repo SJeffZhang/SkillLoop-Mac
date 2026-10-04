@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import base64
 import http.client
 import os
 import socket
+import struct
 import select
 import subprocess
 import threading
@@ -13,6 +15,9 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import stat
+import re
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -152,15 +157,54 @@ class ExactDockerTokenizer:
         return count
 
 
+def verify_tokenizer_snapshot(model_path, expected_hashes):
+    """Check the complete bounded snapshot before loading tokenizer code/data."""
+    from skillloop.protocol import digest_bytes
+    root = Path(model_path)
+    if (not root.is_absolute() or root.is_symlink() or not root.is_dir()
+            or type(expected_hashes) is not dict or not 1 <= len(expected_hashes) <= 32
+            or not {'tokenizer.json', 'tokenizer_config.json'} <= set(expected_hashes)):
+        raise GatewayError('tokenizer_frozen_snapshot_required')
+    for name, digest in expected_hashes.items():
+        if (type(name) is not str or not re.fullmatch(r'[A-Za-z0-9_.-]+', name)
+                or name in {'.','..'} or name.endswith('.py')
+                or type(digest) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',digest)):
+            raise GatewayError('tokenizer_snapshot_pin_invalid')
+    names=set()
+    with os.scandir(root) as entries:
+        for entry in entries:
+            names.add(entry.name)
+            if len(names)>32:
+                raise GatewayError('tokenizer_snapshot_inventory_capacity')
+    if names != set(expected_hashes):
+        raise GatewayError('tokenizer_snapshot_inventory_changed')
+    total = 0
+    for name, digest in expected_hashes.items():
+        fd = os.open(root/name, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        with os.fdopen(fd,'rb') as stream:
+            info = os.fstat(stream.fileno())
+            total += info.st_size
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_size > 67108864
+                    or total > 134217728 or info.st_mode & 0o022):
+                raise GatewayError('tokenizer_snapshot_file_invalid')
+            raw = stream.read(info.st_size+1)
+            if len(raw) != info.st_size or digest_bytes(raw) != digest:
+                raise GatewayError('tokenizer_snapshot_bytes_changed')
+    return dict(expected_hashes)
+
+
 class ExactLocalTokenizer:
     """Offline tokenizer for a pinned local model snapshot inside the Linux VM."""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, *, expected_hashes=None):
         if not os.path.isdir(model_path):
             raise GatewayError("tokenizer_snapshot_missing")
+        self.snapshot_hashes = (verify_tokenizer_snapshot(model_path, expected_hashes)
+                                if expected_hashes is not None else None)
+        self.model_path = model_path
         from transformers import AutoTokenizer
         self._tokenizer = AutoTokenizer.from_pretrained(
-            model_path, local_files_only=True, trust_remote_code=True)
+            model_path, local_files_only=True, trust_remote_code=expected_hashes is None)
         self._text_counts: dict[str, int] = {}
         from .ollama_bpe import OllamaPinnedBPE
         self._native_bpe = OllamaPinnedBPE(model_path)
@@ -312,7 +356,8 @@ class OllamaGateway:
     def __init__(self, endpoint: str, tokenizer: ExactDockerTokenizer, *,
                  model: str = "qwen3.8:27b-mxfp8", template_overhead_tokens: int | None = None,
                  max_context_tokens: int = 16_384, max_output_tokens: int = 2_048,
-                 timeout_seconds: float = 180, unix_socket_path: str | None = None):
+                 timeout_seconds: float = 180, unix_socket_path: str | None = None,
+                 expected_server_uid: int | None = None, temperature: float = 1.0, top_p: float = 0.95):
         parsed = urlparse(endpoint)
         if parsed.scheme != "http" or parsed.hostname not in {
                 "127.0.0.1", "localhost", "host.docker.internal"}:
@@ -327,6 +372,13 @@ class OllamaGateway:
         self.max_output_tokens = max_output_tokens
         self.timeout_seconds = timeout_seconds
         self.unix_socket_path = unix_socket_path
+        if expected_server_uid is not None and (type(expected_server_uid) is not int or expected_server_uid != 21011 or unix_socket_path is None):
+            raise GatewayError('native_gateway_frozen_peer_required')
+        if (type(temperature) not in (int,float) or not 0<=temperature<=2
+                or type(top_p) not in (int,float) or not 0<top_p<=1):
+            raise GatewayError('native_gateway_sampling_invalid')
+        self.expected_server_uid=expected_server_uid
+        self.temperature,self.top_p=temperature,top_p
 
     def count_final(self, text: str) -> int:
         return self.tokenizer.count_text(text)
@@ -368,13 +420,22 @@ class OllamaGateway:
             raise GatewayError("run_deadline")
         payload = {"model": self.model, "messages": self._ollama_messages(messages),
                    "tools": tools, "stream": False, "think": False,
-                   "options": {"temperature": 1.0, "top_p": 0.95,
+                   "options": {"temperature": self.temperature, "top_p": self.top_p,
                                "num_ctx": self.max_context_tokens,
                                "num_predict": self.max_output_tokens}}
         body = json.dumps(payload, ensure_ascii=False).encode()
         request = urllib.request.Request(self.endpoint + "/api/chat", data=body,
                                          headers={"Content-Type": "application/json"})
         model_started = time.monotonic()
+        def parse_native(raw,status):
+            diagnostic={'http_status':status,
+                'raw_response_b64':base64.b64encode(raw[:4194304]).decode('ascii'),
+                'raw_response_truncated':len(raw)>4194304}
+            if status!=200 or len(raw)>4194304:
+                raise GatewayError('provider_response_invalid',response=diagnostic)
+            try:return decode_json(raw)
+            except (ValueError,UnicodeError) as error:
+                raise GatewayError('provider_response_not_json',response=diagnostic) from error
         try:
             timeout = min(self.timeout_seconds, remaining_seconds)
             if self.unix_socket_path is not None:
@@ -383,18 +444,33 @@ class OllamaGateway:
                 try:
                     connection.sock.settimeout(timeout)
                     connection.sock.connect(self.unix_socket_path)
+                    if self.expected_server_uid is not None:
+                        if not hasattr(socket,'SO_PEERCRED'):raise GatewayError('native_gateway_kernel_peer_unavailable')
+                        peer=connection.sock.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,struct.calcsize('3i'))
+                        if struct.unpack('3i',peer)[1]!=self.expected_server_uid:
+                            raise GatewayError('native_gateway_peer_denied')
                     connection.request("POST", "/api/chat", body=body,
                                        headers={"Content-Type": "application/json"})
                     response = connection.getresponse()
                     raw = response.read(4_194_305)
-                    if response.status != 200 or len(raw) > 4_194_304:
-                        raise GatewayError("provider_response_invalid")
-                    parsed = decode_json(raw)
+                    parsed = parse_native(raw,response.status)
                 finally:
                     connection.close()
             else:
                 with urllib.request.urlopen(request, timeout=timeout) as response:
-                    parsed = decode_json(response.read(4_194_305))
+                    parsed = parse_native(response.read(4_194_305),response.status)
+        except urllib.error.HTTPError as exc:
+            try:diagnostic=exc.read(4194305)
+            except (OSError,http.client.HTTPException) as error:
+                raise GatewayError('provider_timeout',response={'http_status':exc.code,
+                    'body_read_incomplete':True}) from error
+            finally:exc.close()
+            parse_native(diagnostic,exc.code)
+        except http.client.IncompleteRead as exc:
+            partial=exc.partial if type(exc.partial) is bytes else b''
+            raise GatewayError('provider_timeout',response={'body_read_incomplete':True,
+                'raw_response_b64':base64.b64encode(partial[:4194304]).decode('ascii'),
+                'raw_response_truncated':len(partial)>4194304}) from exc
         except (OSError, http.client.HTTPException, urllib.error.URLError) as exc:
             raise GatewayError("provider_timeout") from exc
         if type(parsed) is not dict or parsed.get("model") != self.model:
@@ -404,7 +480,7 @@ class OllamaGateway:
         if parsed.get("prompt_eval_count") != prompt_tokens:
             raise GatewayError("tokenizer_mismatch", response=parsed)
         output_tokens = parsed.get("eval_count")
-        if type(output_tokens) is not int or output_tokens < 0 or output_tokens >= self.max_output_tokens:
+        if type(output_tokens) is not int or output_tokens < 0 or output_tokens > self.max_output_tokens:
             raise GatewayError("output_token_limit", response=parsed)
         native = parsed.get("message")
         if type(native) is not dict or native.get("role") != "assistant":

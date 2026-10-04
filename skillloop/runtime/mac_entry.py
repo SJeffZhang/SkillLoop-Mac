@@ -8,7 +8,8 @@ def verify_formal_entry(entry,*,image,source_digest,model_port):
     if config['mac_runtime_image']!=image or entry['source_index_digest']!=source_digest:raise ValueError('formal_source_identity')
     if config['model_service_port']!=model_port:raise ValueError('formal_model_service_binding')
     compiled=entry['compiled'];plan=entry['plan'];role=entry['role']
-    if role not in {'candidate','submitted'}:raise ValueError('formal_subject_role')
+    roles={'candidate','submitted','finalist','active_baseline'} if config.get('whole_flow_required') else {'candidate','submitted','finalist','active','active_baseline'}
+    if role not in roles:raise ValueError('formal_subject_role')
     if compiled['profile_id']!=entry['profile'] or entry['case_id'] not in compiled['cases']:raise ValueError('formal_case_binding')
     validate_plan(plan,compiled['suite'])
     if plan['body']['config_digest']!=digest_jcs(config) or plan['body']['campaign_id']!=entry['campaign_id']:raise ValueError('formal_plan_config')
@@ -18,15 +19,25 @@ def verify_formal_entry(entry,*,image,source_digest,model_port):
 
 
 def verify_protected_entry(entry, *, image, source_digest, model_port):
-    """Private controller-only entry. Agents receive only their current request."""
+    """Evaluator/Gate-private entry. Runtime receives only its current request."""
     import base64
     from skillloop.protocol import digest_bytes
     if entry.get('digest')!=digest_jcs({k:v for k,v in entry.items() if k!='digest'}):raise ValueError('protected_entry_digest')
     config=entry['config'];compiled=entry['compiled'];plan=entry['plan']
-    if entry.get('kind')!='protected' or entry['role'] not in {'submitted','finalist'}:raise ValueError('protected_subject_role')
+    roles={'submitted','finalist','active_baseline'} if config.get('whole_flow_required') else {'submitted','finalist','active','active_baseline'}
+    if entry.get('kind')!='protected' or entry['role'] not in roles:raise ValueError('protected_subject_role')
     if config['mac_runtime_image']!=image or entry['source_index_digest']!=source_digest:raise ValueError('protected_source_identity')
     if config['model_service_port']!=model_port:raise ValueError('protected_model_service_binding')
-    if config['deployment_epoch']==entry['development_epoch'] or not entry['model_lifecycle_digest'] or not entry['approval_factory_digest']:raise ValueError('protected_lifecycle')
+    if config.get('whole_flow_required'):
+        if (config['deployment_epoch']!=entry['development_epoch']
+                or 'development_suite_epoch_id' not in entry
+                or (entry['development_suite_epoch_id'] is not None and
+                    (type(entry['development_suite_epoch_id']) is not str or not entry['development_suite_epoch_id']))
+                or entry['epoch_id']==entry['development_suite_epoch_id']):
+            raise ValueError('protected_deployment_or_fresh_factory_epoch')
+    elif config['deployment_epoch']==entry['development_epoch']:
+        raise ValueError('protected_lifecycle')
+    if not entry['model_lifecycle_digest'] or not entry['approval_factory_digest']:raise ValueError('protected_lifecycle')
     if compiled['profile_id']!=entry['profile'] or compiled['suite']['body']['visibility']!='private_evaluation' or compiled['suite']['body']['epoch_id']!=entry['epoch_id']:raise ValueError('protected_suite_binding')
     case=compiled['cases'][entry['case_id']]
     if case['body']['split']!='protected':raise ValueError('protected_case_required')

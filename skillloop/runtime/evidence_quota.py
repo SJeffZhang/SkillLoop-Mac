@@ -248,7 +248,7 @@ print(json.dumps(files))
                                '/work/'+component, str(self.policy['quota_bytes'])])
         return decode_json(result.stdout.encode())
 
-    def verify_and_close(self, entry, target):
+    def verify_export(self, entry, target):
         self._entry(entry)
         with self._lock():
             state = self._load(entry)
@@ -276,7 +276,61 @@ print(json.dumps(files))
                 receipt['digest'] = digest_jcs(receipt)
                 state = self._save(entry, {**{k: v for k, v in state.items() if k != 'digest'},
                     'state': 'export_verified', 'receipt': receipt})
-            if state['state'] != 'closed':
-                self._stop(entry)
-                state = self._save(entry, {**{k: v for k, v in state.items() if k != 'digest'}, 'state': 'closed'})
+            # Export is not an independent behavior review. Keep the tmpfs alive.
             return state['receipt']
+
+    def close_reviewed(self, entry, target, review_path):
+        """Release custody only after an entry-specific authoritative raw review.
+
+        This runs in the trusted controller after its independent Gate subprocess.
+        It does not issue qualifications or turn a failed Gate into a pass.
+        """
+        if os.geteuid() != 21001:
+            raise PermissionError('controller_custody_uid_required')
+        # A dict supplied by the controller is not an authenticated Gate review.
+        # Read a bounded artifact from the Gate-owned metadata grant instead.
+        from skillloop.ci.qualification_store import _path
+        artifact = _path(review_path)
+        descriptor = os.open(artifact, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if info.st_uid != 21005 or info.st_gid != 21001 or info.st_mode & 0o777 != 0o640:
+                raise PermissionError('gate_review_file_grant')
+            raw = stream.read(262145)
+        if len(raw) > 262144:
+            raise ValueError('gate_review_size')
+        review = decode_json(raw)
+        receipt = self.verify_export(entry, target)
+        if (type(review) is not dict or review.get('digest') != digest_jcs(
+                {k: v for k, v in review.items() if k != 'digest'}) or
+                review.get('kind') != 'EntryEvidenceReview' or
+                review.get('entry_digest') != entry['digest'] or
+                review.get('export_receipt_digest') != receipt['digest'] or
+                review.get('manifest_digest') != self.plan['manifest_digest'] or
+                review.get('source_index_digest') != entry['source_index_digest'] or
+                review.get('raw_inventory_digest') != digest_jcs(receipt['files']) or
+                review.get('evidence_complete') is not True or
+                review.get('verdict') not in {'pass', 'fail', 'inconclusive', 'needs_contract'}):
+            raise ValueError('independent_entry_review_required')
+        with self._lock():
+            state = self._load(entry)
+            if state.get('review_digest') and state['review_digest'] != review['digest']:
+                raise ValueError('evidence_review_changed')
+            if state['state'] == 'closed':
+                if state.get('review_digest') != review['digest']:
+                    raise ValueError('evidence_review_changed')
+                return receipt
+            if state['state'] != 'export_verified' or self._inventory(target) != receipt['files']:
+                raise ValueError('evidence_export_changed')
+            # Journal authorization before stopping; interrupted cleanup is recoverable.
+            self._save(entry, {**{k: v for k, v in state.items() if k != 'digest'},
+                              'review_digest': review['digest']})
+            self._stop(entry)
+            self._save(entry, {**{k: v for k, v in state.items() if k != 'digest'},
+                              'state': 'closed', 'review_digest': review['digest']})
+            return receipt
+
+    def verify_and_close(self, entry, target):
+        # Kept as a transport-compatible name; it no longer retires unaudited data.
+        # Formal controllers must call close_reviewed after independent raw review.
+        return self.verify_export(entry, target)

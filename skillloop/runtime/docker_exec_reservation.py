@@ -37,13 +37,14 @@ class DockerExecResourceAdmission:
         identifier = c.get('Id', '')
         if (not re.fullmatch(r'[0-9a-f]{64}', identifier) or
                 c.get('Image') != self.image or not c.get('State', {}).get('Running') or
+                c.get('Config', {}).get('User') != '21001:21001' or
                 any(c.get('Config', {}).get('Labels', {}).get(k) != v for k, v in self.labels.items()) or
                 not c.get('HostConfig', {}).get('ReadonlyRootfs') or
                 c.get('HostConfig', {}).get('NetworkMode') != 'none'):
             raise ValueError('resource_container_identity')
         message = {'operation': operation, 'entry': entry,
                    'expected_plan_digest': self.plan_digest}
-        result = subprocess.run(['docker', 'exec', '-i', '--user', '0', identifier,
+        result = subprocess.run(['docker', 'exec', '-i', '--user', '21001:21001', identifier,
                                  'python', '/resource-client.py'],
             input=canonical_json_line(message).decode(), capture_output=True,
             text=True, timeout=20)
