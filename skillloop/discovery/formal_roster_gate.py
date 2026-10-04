@@ -148,6 +148,14 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
         items[item['item_id']]=record['digest']
     if set(job['approval_digests'])!=approval_digests or len(job['approval_digests'])!=len(approval_digests):
         raise ValueError('roster_gate_actual_approval_set')
+    from skillloop.discovery.raw_evidence import preserve_reviewed_raw
+    raw_history=[]
+    maximum_raw_bytes=int(os.environ['SKILLLOOP_RAW_HISTORY_MAX_BYTES'])
+    def preserve(sources):
+        pins=preserve_reviewed_raw(output_directory,sources,maximum_bytes=maximum_raw_bytes)
+        raw_history.extend(pins)
+        return pins
+    preserve([{'path':assignment_path,'uid':21001,'gid':21005,'limit':8388608,'value':job}])
     applications=[];parent=bindings['subjects']['submitted']
     for number,pin in enumerate(job['applications'],1):
         application=read_owned(Path(application_directory)/_name(pin['assignment_digest']),uid=21005,gid=21001,limit=262144)
@@ -179,6 +187,10 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
                 uid=21005,gid=21001,limit=8388608)
             if len(original)!=raw_pin['size_bytes'] or digest_bytes(original)!=raw_pin['bytes_digest']:
                 raise ValueError('roster_gate_candidate_original_input_changed')
+        preserve([{'path':Path(application_directory)/p['name'],'uid':21005,'gid':21001,
+            'limit':8388608,'bytes_digest':p['bytes_digest']} for p in raw_pins])
+        preserve([{'path':Path(application_directory)/_name(pin['assignment_digest']),
+            'uid':21005,'gid':21001,'limit':262144,'value':application}])
         parent=application['candidate_bundle_digest'];applications.append(application)
     known={*bindings['subjects'].values(),*(a['candidate_bundle_digest'] for a in applications)}
     if {i['subject_digest'] for i in required.values()}!=known:
@@ -243,10 +255,15 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
                 or scan_review['deployment_digest']!=receipt['deployment_digest']
                 or report['body']['status']!='complete'):
             raise ValueError('roster_gate_real_semantic_scan_incomplete')
+        preserve([{'path':folder/'scan-evidence.json','uid':21001,'gid':21001,'limit':262144,'value':receipt},
+            {'path':folder/'source-snapshot.json','uid':21001,'gid':21001,'limit':262144,'value':snapshot},
+            {'path':folder/'raw-report.json','uid':21001,'gid':21001,'limit':33554432,'bytes_digest':digest_bytes(raw)},
+            {'path':Path(scan_review_directory)/_name(digest_jcs(receipt['operation_id'])),
+             'uid':21005,'gid':21001,'limit':262144,'value':scan_review}])
         semantic_digest=None
         if 'semantic_directory' in pin:
             from skillloop.discovery.semantic_review import review_semantic
-            report,findings,semantic_digest=review_semantic(pin['semantic_directory'],snapshot=snapshot,profile=scope['profile'],whole=whole)
+            report,findings,semantic_digest=review_semantic(pin['semantic_directory'],snapshot=snapshot,profile=scope['profile'],whole=whole,raw_sink=preserve)
         if subject==nominee:
             application=next(a for a in applications if a['candidate_bundle_digest']==subject)
             if pin['package_digest']!=application['package_digest']:
@@ -267,7 +284,8 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
             'plan_digest':plan['digest'],'whole_round_manifest_digest':whole['digest'],
             'required_run_manifests':manifests,'case_reductions':reductions,
             'task_review_digests':reviews,'applications':applications,'scans':scans,
-            'subjects':final_subjects,'qualification_issued':False})
+            'subjects':final_subjects,'reviewed_raw_inputs':raw_history,
+            'all_attempt_history_complete':False,'qualification_issued':False})
         return _write(Path(output_directory),'freeze.json',{'kind':'FrozenCampaignSubjectRoster',
             'campaign_id':bindings['campaign'],'generation':bindings['generation'],
             'deployment_epoch':bindings['deployment_epoch'],'config_digest':config_digest,

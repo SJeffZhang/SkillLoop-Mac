@@ -7,11 +7,13 @@ from skillloop.protocol import decode_json,digest_bytes
 from skillloop.runtime.gateway import ExactLocalTokenizer
 
 
-def review_semantic(directory,*,snapshot,profile,whole):
+def review_semantic(directory,*,snapshot,profile,whole,raw_sink=None):
     if os.geteuid()!=21005:raise PermissionError('semantic_review_actual_gate')
     root=Path(directory)
     job=read_owned(root/'assignment.json',uid=21011,gid=21001,limit=2097152)
     value=read_owned(root/'discovery.json',uid=21011,gid=21001,limit=8388608)
+    originals=[{'path':root/'assignment.json','uid':21011,'gid':21001,'limit':2097152,'value':job},
+        {'path':root/'discovery.json','uid':21011,'gid':21001,'limit':8388608,'value':value}]
     policy=job['model_policy']
     if (job['kind']!='FormalGatewaySemanticDiscovery' or job['source_snapshot']!=snapshot
             or job['profile']!=profile or job['whole_round_manifest_digest']!=whole['digest']
@@ -29,6 +31,9 @@ def review_semantic(directory,*,snapshot,profile,whole):
         for slot in range(value['model_requests']):
             request=read_owned(root/('request-'+str(slot)+'.json'),uid=21011,gid=21001,limit=2097152)
             response=read_owned(root/('response-'+str(slot)+'.json'),uid=21011,gid=21001,limit=12582912)
+            for prefix,document,limit in (('request-',request,2097152),('response-',response,12582912)):
+                originals.append({'path':root/(prefix+str(slot)+'.json'),'uid':21011,
+                                  'gid':21001,'limit':limit,'value':document})
             raw=base64.b64decode(request['raw_b64'],validate=True);body=decode_json(raw)
             actual=decode_json(base64.b64decode(response['raw_b64'],validate=True))
             tokens=tokenizer.count(body['messages'],[],enable_thinking=False)
@@ -49,4 +54,7 @@ def review_semantic(directory,*,snapshot,profile,whole):
         subject_digest=snapshot['body']['skill_digest'],require_llm=True,allow_risk_exit=True)
     if report!=value['scanner_report'] or findings!=value['findings'] or report['body']['status']!='complete':
         raise ValueError('semantic_review_real_analyzer_coverage_incomplete')
+    originals.append({'path':root/'raw-report.json','uid':21011,'gid':21001,
+                      'limit':33554432,'bytes_digest':digest_bytes(raw)})
+    if raw_sink is not None:raw_sink(originals)
     return report,findings,value['digest']

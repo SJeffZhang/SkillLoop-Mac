@@ -27,7 +27,7 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             or policy['digest']!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
             or type(policy['timeout_seconds']) is not int or not 1<=policy['timeout_seconds']<=120
             or type(policy['maximum_evidence_bytes']) is not int
-            or not 1<=policy['maximum_evidence_bytes']<=16777216):
+            or not 1<=policy['maximum_evidence_bytes']<=268435456):
         raise ValueError('roster_dispatch_original_frozen_policy')
     whole=read_round_manifest(whole_round_manifest_path)
     job=read_owned(Path(assignment_directory)/'job.json',uid=21001,gid=21005,limit=8388608)
@@ -61,7 +61,8 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             'VolumeOptions':{'Subpath':pin['subpath']}})
     config={'Image':policy['image'],'User':'21005:21005','Entrypoint':['python'],
         'Cmd':['-m','skillloop.discovery.formal_roster_gate'],
-        'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code'],
+        'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
+               'SKILLLOOP_RAW_HISTORY_MAX_BYTES='+str(policy['maximum_evidence_bytes'])],
         'Labels':{'skillloop.role':'roster_gate','skillloop.whole_round':whole['digest'],
                   'skillloop.dispatch_policy':policy['digest']},
         'HostConfig':{'GroupAdd':['21001','21004'],'NetworkMode':'none','ReadonlyRootfs':True,
