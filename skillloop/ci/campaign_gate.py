@@ -200,6 +200,8 @@ def review_campaign():
     if charged!=spending['charged_wall_seconds'] or datetime.now(timezone.utc).timestamp()-spending['campaign_started_at']+_remaining_whole_seconds(spending,reservation)>28800:
         raise ValueError('campaign_gate_original_full_budget_exhausted')
     source_history=read_owned('/source-history/source-authority.json',uid=21003,gid=21005,limit=16777216)
+    if source_history.get('protected_plan_digest')!=plan['digest']:
+        raise ValueError('campaign_gate_source_history_private_plan_fence')
     from skillloop.proxy.archive_projection import verify_source_history
     archived_sources=verify_source_history(source_history,campaign=campaign,epoch=record['deployment_epoch'],
         config_digest=record['config_digest'],trust_revision=record['trust_revision'])

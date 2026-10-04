@@ -5,6 +5,7 @@ source grants (including package bytes), approval objects and Admin operation
 history come from one authoritative transaction, not caller-provided facts.
 """
 from datetime import datetime,timezone
+from contextlib import closing
 import os
 from pathlib import Path
 import re
@@ -34,7 +35,8 @@ class SourceArchiveInbox:
             if name in self.seen:continue
             request=read_owned(self.directory/name,uid=21010,gid=21003,limit=262144)
             if request['digest']!='sha256:'+name[:-5]:raise ValueError('source_archive_request_digest')
-            self.export(request);self.seen.add(name);return
+            if self.export(request) is not None:self.seen.add(name)
+            return
 
     def export(self,request):
         fields={'kind','deployment_epoch','deployment_digest','campaign','config_digest',
@@ -53,6 +55,12 @@ class SourceArchiveInbox:
             if deadline.tzinfo is None or datetime.now(timezone.utc)>=deadline or time.monotonic()-started>=request['timeout_seconds']:
                 raise TimeoutError('source_archive_original_budget')
         budget()
+        # A request can be provisioned before development has finished. Wait
+        # for the actual Proxy private-plan fence, which forbids further source
+        # admission, rather than exporting the first partial candidate roster.
+        with closing(self.store._connect()) as check:
+            frozen=check.execute('SELECT protected_plan FROM evaluator_protected_campaigns WHERE campaign=?',(campaign,)).fetchone()
+        if frozen is None:return None
         # Persist the original projection before publication. Restart may
         # republish these exact bytes; it cannot take a newer authority view.
         with self.store._transaction() as db:
@@ -90,9 +98,12 @@ class SourceArchiveInbox:
                 identity=db.execute('SELECT deployment_epoch,trust_revision FROM trust_state WHERE singleton=1').fetchone()
                 head=db.execute('SELECT plan,revision_digest FROM controller_plan_heads WHERE campaign=?',(campaign,)).fetchone()
                 revisions=db.execute('SELECT authorization,receipt FROM controller_plan_revisions WHERE campaign=? ORDER BY digest',(campaign,)).fetchall()
+                frozen_plan=db.execute('SELECT protected_plan FROM evaluator_protected_campaigns WHERE campaign=?',(campaign,)).fetchone()
+                if frozen_plan is None:raise ValueError('source_archive_original_private_plan_fence_lost')
                 value={'kind':'ProxyCampaignSourceAuthoritySnapshot','producer_uid':21003,'reader_gid':21005,
                     'request_digest':request['digest'],'campaign':campaign,'deployment_epoch':identity[0],
                     'config_digest':request['config_digest'],'trust_revision':identity[1],
+                    'protected_plan_digest':frozen_plan[0],'development_source_admission_closed':True,
                     'sources':sources,'approvals':history,'approval_objects':objects,
                     'admin_operations':[{'operation':r[0],'method':r[1],'request_digest':r[2],'result':decode_json(r[3])} for r in operations],
                     'approval_revocations':[{'operation':r[0],'request_digest':r[1],'result':decode_json(r[2])} for r in revocations],
@@ -122,7 +133,8 @@ def verify_source_history(value,*,campaign,epoch,config_digest,trust_revision):
     if (value.get('kind')!='ProxyCampaignSourceAuthoritySnapshot' or value.get('producer_uid')!=21003
             or value.get('reader_gid')!=21005 or value.get('campaign')!=campaign
             or value.get('deployment_epoch')!=epoch or value.get('config_digest')!=config_digest
-            or value.get('trust_revision')!=trust_revision or value.get('task_resources_disclosed') is not False):
+            or value.get('trust_revision')!=trust_revision or value.get('task_resources_disclosed') is not False
+            or value.get('development_source_admission_closed') is not True):
         raise ValueError('archive_source_authority_identity')
     sources=value['sources']
     if not 1<=len(sources)<=4 or len({r['subject'] for r in sources})!=len(sources):

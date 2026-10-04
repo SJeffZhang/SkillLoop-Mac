@@ -182,7 +182,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
         budget();authority=ProtectionAuthority(location,readonly=True)
         bundle=authority.resolve_formal_bundle(campaign=policy['campaign'],opaque_ref=snapshot['opaque_ref'])
         if (bundle['bundle']['epoch_id']!=obligations['factory_epoch_id']
-                or bundle['subjects']!=evidence['bindings']['subjects']):
+                or bundle['subjects']!=evidence['bindings']['subjects']
+                or bundle['private_plan']['digest']!=source_history['protected_plan_digest']):
             raise ValueError('campaign_archive_original_factory_identity')
         with authority.connect() as db:
             db.set_progress_handler(lambda: (budget() or 0),1000)
