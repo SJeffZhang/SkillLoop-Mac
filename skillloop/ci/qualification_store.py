@@ -38,19 +38,19 @@ def _path(path, *, create=False):
             os.close(fd)
     info = path.lstat()
     if (not stat.S_ISREG(info.st_mode) or info.st_uid != GATE_UID or
-            info.st_gid != CONTROLLER_UID or stat.S_IMODE(info.st_mode) != 0o640):
+            info.st_gid != CONTROLLER_UID or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o640):
         raise PermissionError('qualification_file_grant')
     return path
 
 
-def _private_path(path):
+def _private_path(path, *, create=False):
     path=Path(path)
     if not path.is_absolute() or path.is_symlink() or path.parent.is_symlink():
         raise PermissionError('qualification_private_path')
     parent=path.parent.lstat()
     if (parent.st_uid!=GATE_UID or parent.st_gid!=GATE_UID or stat.S_IMODE(parent.st_mode)!=0o700):
         raise PermissionError('qualification_private_gate_directory')
-    if not path.exists():
+    if create and not path.exists():
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         os.close(fd)
     info=path.lstat()
@@ -65,10 +65,15 @@ class QualificationIssuer:
         if os.geteuid() != GATE_UID:
             raise PermissionError('gate_issuer_uid_required')
         self.path = _path(path, create=True)
-        self.private_path = _private_path(private_path)
+        self.private_path = _private_path(private_path,create=True)
         if self.private_path==self.path:raise ValueError("qualification_separate_private_store_required")
         self.epoch, self.config = deployment_epoch, config_digest
         self.authority_directory=authority_directory
+        # Bind the private vault before opening or creating public tables. A
+        # restore must use a fresh vault; matching proof bytes do not authorize
+        # carrying credentials across deployment epochs or configurations.
+        with closing(self.private_connect(initialize=True)) as db:
+            db.commit()
         with closing(self.connect()) as db:
             version=db.execute('PRAGMA user_version').fetchone()[0]
             existing=db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
@@ -83,14 +88,29 @@ class QualificationIssuer:
                 raise ValueError('qualification_deployment_mismatch')
             db.execute('INSERT OR IGNORE INTO qualification_identity VALUES(1,?,?)', (self.epoch, self.config))
             db.execute('PRAGMA user_version=2');db.commit()
-        with closing(sqlite3.connect(self.private_path)) as db:
+
+    def private_connect(self, *, initialize=False):
+        _private_path(self.private_path)
+        db=sqlite3.connect(self.private_path,timeout=2)
+        try:
             db.execute('PRAGMA synchronous=FULL')
+            db.execute('BEGIN IMMEDIATE')
             version=db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0,2):raise ValueError('qualification_private_schema_version')
-            if version==0 and db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
-                raise ValueError('qualification_private_new_store_required')
-            db.execute('CREATE TABLE IF NOT EXISTS private_campaign_proofs(campaign TEXT PRIMARY KEY,bindings_digest TEXT NOT NULL,proof BLOB NOT NULL)')
-            db.execute('PRAGMA user_version=2');db.commit()
+            tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if initialize and version==0 and not tables:
+                db.execute('CREATE TABLE private_qualification_identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL,config TEXT NOT NULL)')
+                db.execute('INSERT INTO private_qualification_identity VALUES(1,?,?)',(self.epoch,self.config))
+                db.execute('CREATE TABLE private_campaign_proofs(campaign TEXT PRIMARY KEY,bindings_digest TEXT NOT NULL,proof BLOB NOT NULL)')
+                db.execute('PRAGMA user_version=3')
+            elif version!=3 or tables!={'private_qualification_identity','private_campaign_proofs'}:
+                raise ValueError('qualification_private_fresh_v3_store_required')
+            identity=db.execute('SELECT epoch,config FROM private_qualification_identity WHERE singleton=1').fetchone()
+            if identity!=(self.epoch,self.config):
+                raise ValueError('qualification_private_deployment_mismatch')
+            return db
+        except BaseException:
+            db.close()
+            raise
 
     def connect(self):
         _path(self.path)
@@ -262,8 +282,7 @@ class QualificationIssuer:
             # Commit the complete proof in Gate-only custody before publishing
             # minimal eligibility. An interrupted publication reuses this exact
             # proof and original UTC; it cannot renew the campaign's TTL.
-            with closing(sqlite3.connect(self.private_path,timeout=2)) as private:
-                private.execute('PRAGMA synchronous=FULL');private.execute('BEGIN IMMEDIATE')
+            with closing(self.private_connect()) as private:
                 old=private.execute('SELECT bindings_digest,proof FROM private_campaign_proofs WHERE campaign=?',(campaign,)).fetchone()
                 if old:
                     original=decode_json(old[1])
