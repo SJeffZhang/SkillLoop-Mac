@@ -233,7 +233,8 @@ def dispatch_application_gate(*, assignment_directory, reviews_directory, policy
                        'VolumeOptions':{'Subpath':pin['subpath']}})
     config={'Image':policy['image'],'User':'21005:21005','Entrypoint':['python'],
         'Cmd':['-m','skillloop.repair.formal_application_gate'],
-        'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code'],
+        'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
+               'SKILLLOOP_RAW_HISTORY_MAX_BYTES='+str(policy['maximum_evidence_bytes'])],
         'Labels':{'skillloop.role':'candidate_application_gate','skillloop.dispatch_policy':policy['digest'],
                   'skillloop.whole_round':whole['digest']},
         'HostConfig':{'GroupAdd':['21001'],'NetworkMode':'none','ReadonlyRootfs':True,

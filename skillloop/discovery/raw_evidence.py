@@ -28,3 +28,55 @@ def read_granted_raw(path, *, uid, gid, limit):
             or identity(before) != identity(current)):
         raise ValueError('raw_evidence_changed_during_review')
     return raw
+
+
+def preserve_reviewed_raw(output_directory, sources, *, maximum_bytes):
+    """Preserve successful review inputs; this is not an all-attempt inventory.
+
+    Each source carries its expected decoded value or exact byte digest so a
+    later reread cannot silently replace the bytes the Gate reviewed.
+    """
+    from skillloop.protocol import decode_json, digest_bytes
+    output = Path(output_directory)
+    info = output.lstat()
+    if (os.geteuid() != 21005 or not output.is_absolute() or output.is_symlink()
+            or not stat.S_ISDIR(info.st_mode) or info.st_uid != 21005
+            or info.st_gid != 21001 or stat.S_IMODE(info.st_mode) != 0o750
+            or type(maximum_bytes) is not int or maximum_bytes < 1048576):
+        raise PermissionError('raw_evidence_preservation_custody_or_budget')
+    # Metadata and final review outputs retain a separate one MiB allowance.
+    total = sum(p.stat().st_size for p in output.iterdir()
+                if p.is_file() and not p.is_symlink())
+    pins = []
+    for source in sources:
+        raw = read_granted_raw(source['path'], uid=source['uid'],
+                               gid=source['gid'], limit=source['limit'])
+        checksum = digest_bytes(raw)
+        if (('value' in source and decode_json(raw) != source['value'])
+                or ('bytes_digest' in source and checksum != source['bytes_digest'])):
+            raise ValueError('raw_evidence_review_input_changed')
+        name = 'reviewed-raw-' + checksum[7:] + '.bin'
+        destination = output / name
+        if destination.exists():
+            if read_granted_raw(destination, uid=21005, gid=21001,
+                                limit=source['limit']) != raw:
+                raise ValueError('raw_evidence_existing_copy_conflict')
+        else:
+            if total + len(raw) + 1048576 > maximum_bytes:
+                raise ValueError('raw_evidence_original_capacity_exhausted')
+            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                         | os.O_NOFOLLOW, 0o640)
+            with os.fdopen(fd, 'wb') as stream:
+                os.fchown(stream.fileno(), -1, 21001)
+                os.fchmod(stream.fileno(), 0o640)
+                stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+            total += len(raw)
+        pins.append({'name': name, 'bytes_digest': checksum, 'size_bytes': len(raw),
+                     'original_name': Path(source['path']).name,
+                     'original_uid': source['uid'], 'original_gid': source['gid']})
+    fd = os.open(output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return pins

@@ -80,3 +80,9 @@ Final Gate 必须读取该实际 Proxy 投影，重新验证每个包、subject�
 ### 发现与修补原始证据读取一致性
 
 Gate 的静态报告、语义报告和 Patcher 原始请求/响应读取统一检查实际授予的 UID/GID、目录 0750、文件 0640、单硬链接与容量上限，并比较读取前后及当前路径的 inode、大小、mtime、ctime。读取期间变化的字节不得进入独立评估。此修改只完成生产读取连接；原始历史复制、完整尝试清单与加密归档覆盖仍未闭合，未执行运行实验。
+
+### 候选应用的原始输入保全
+
+Application Gate 在独立重建合法候选后，将实际审查的 Controller assignment、Patcher proposal、session policy、原始 request/response 保存为按字节摘要寻址的 Gate 副本。复制前重新比较原审查对象，使用原调度 policy 的 maximum_evidence_bytes 并留出元数据空间；不足时拒绝，原部分副本保留。名单冻结 Gate 逐份核对实际副本的权限、原始大小和字节摘要后才接纳应用结果。
+
+这只覆盖成功应用的五份原始输入，不包含被拒绝、unknown 或未完成的全部发现/候选尝试；all_attempt_history_complete 仍为 false。加密归档的完整历史覆盖类别保持未闭合，未进行模型或运行实验。

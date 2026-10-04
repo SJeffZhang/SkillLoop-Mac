@@ -160,6 +160,25 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
                 or application.get('repair_round')!=number
                 or application.get('parent_subject_digest')!=parent):
             raise ValueError('roster_gate_actual_bounded_repair_chain')
+        from skillloop.discovery.raw_evidence import read_granted_raw
+        raw_pins=application.get('reviewed_raw_inputs')
+        if (type(raw_pins) is not list or len(raw_pins)!=5
+                or {p.get('original_name') for p in raw_pins}!=
+                    {'job.json','proposal.json','session-policy.json','request-0.json','response-0.json'}):
+            raise ValueError('roster_gate_candidate_original_inputs_missing')
+        for raw_pin in raw_pins:
+            if (type(raw_pin) is not dict or set(raw_pin)!=
+                    {'name','bytes_digest','size_bytes','original_name','original_uid','original_gid'}
+                    or type(raw_pin['bytes_digest']) is not str
+                    or not re.fullmatch(r'sha256:[0-9a-f]{64}',raw_pin['bytes_digest'])
+                    or raw_pin['name']!='reviewed-raw-'+raw_pin['bytes_digest'][7:]+'.bin'
+                    or type(raw_pin['size_bytes']) is not int
+                    or not 0<=raw_pin['size_bytes']<=8388608):
+                raise ValueError('roster_gate_candidate_original_input_pin')
+            original=read_granted_raw(Path(application_directory)/raw_pin['name'],
+                uid=21005,gid=21001,limit=8388608)
+            if len(original)!=raw_pin['size_bytes'] or digest_bytes(original)!=raw_pin['bytes_digest']:
+                raise ValueError('roster_gate_candidate_original_input_changed')
         parent=application['candidate_bundle_digest'];applications.append(application)
     known={*bindings['subjects'].values(),*(a['candidate_bundle_digest'] for a in applications)}
     if {i['subject_digest'] for i in required.values()}!=known:

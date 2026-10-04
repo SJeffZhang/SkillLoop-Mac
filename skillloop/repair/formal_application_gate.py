@@ -114,13 +114,24 @@ def review_application(*,assignment_path,patcher_directory,tokenizer_path,
     applied=apply_proposal(rebuilt,files,job['history'],job['parent_policy'])
     validate_envelope(applied['candidate_bundle'])
     if datetime.now(timezone.utc)>=deadline:raise TimeoutError('application_gate_original_clock_exhausted')
+    from skillloop.discovery.raw_evidence import preserve_reviewed_raw
+    raw_sources=[{'path':assignment_path,'uid':21001,'gid':21005,
+                  'limit':8388608,'value':job}]
+    for name,value,limit in (('proposal.json',proposal,8388608),
+            ('session-policy.json',policy,262144),('request-0.json',request,8388608),
+            ('response-0.json',response,8388608)):
+        raw_sources.append({'path':Path(patcher_directory)/name,'uid':21007,
+                            'gid':21001,'limit':limit,'value':value})
+    raw_pins=preserve_reviewed_raw(output_directory,raw_sources,
+        maximum_bytes=int(os.environ['SKILLLOOP_RAW_HISTORY_MAX_BYTES']))
     result={'kind':'GateBoundedCandidateApplication','campaign_id':job['campaign_id'],
         'deployment_epoch':whole['deployment_epoch'],'config_digest':job['config_digest'],
         'parent_subject_digest':parent['digest'],'candidate_bundle_digest':applied['candidate_subject_digest'],
         'package_digest':applied['candidate_bundle']['body']['skill_digest'],
         'assignment_digest':job['digest'],'proposal_output_digest':proposal['digest'],
         'application_digest':digest_jcs(applied),'application_verified':True,
-        'repair_round':job['repair_round'],'qualification_issued':False,
+        'repair_round':job['repair_round'],'reviewed_raw_inputs':raw_pins,
+        'all_attempt_history_complete':False,'qualification_issued':False,
         'development_pairing_verified':False,'source_admission_issued':False,
         'review_completed_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z')}
     result['digest']=digest_jcs(result)
