@@ -57,6 +57,41 @@ def _task(intent,private):
         'archive_review_path':str(archive_path)}
 
 
+def _archive_obligations(evaluations, paths):
+    """Retain every reviewed task, including candidates removed by the roster.
+
+    These are private archival obligations, not an assertion that the archive
+    contains all campaign files. The later archive Gate must resolve the raw
+    receipt/inventory and verify its bytes independently.
+    """
+    rows=[]
+    for evaluation in evaluations:
+        record=evaluation['execution_record'];pin=paths[record['digest']]
+        request=evaluation['run_request']['body']
+        private=pin['archive_review_path'].startswith('/protected-archives/')
+        gid=21004 if private else 21001
+        review=read_owned(pin['review_path'],uid=21005,gid=gid,limit=262144)
+        archive=read_owned(pin['archive_review_path'],uid=21005,gid=gid,limit=262144)
+        if (review['evaluation_digest']!=evaluation['digest']
+                or archive['task_review_digest']!=review['digest']
+                or archive['intent_digest']!=evaluation['intent_digest']
+                or archive.get('complete') is not True):
+            raise ValueError('campaign_archive_obligation_changed_after_task_review')
+        rows.append({'intent_digest':evaluation['intent_digest'],
+            'entry_digest':evaluation['entry_digest'],'execution_record_digest':record['digest'],
+            'subject_digest':request['subject_digest'],'case_digest':request['case_digest'],
+            'repetition_index':request['repetition_index'],
+            'privacy_domain':'protected' if private else 'development',
+            'evaluation_digest':evaluation['digest'],'task_review_digest':review['digest'],
+            'archive_review_digest':archive['digest'],
+            'archive_receipt_digest':archive['archive_receipt_digest'],
+            'archive_inventory_digest':archive['inventory_digest'],**pin})
+    if (len({r['intent_digest'] for r in rows})!=len(rows)
+            or len({r['execution_record_digest'] for r in rows})!=len(rows)):
+        raise ValueError('campaign_archive_obligation_duplicate_task')
+    return sorted(rows,key=lambda r:r['intent_digest'])
+
+
 def _chain(subject,compiled,plan,evaluations,context):
     selected=[e for e in evaluations if e['result']['body']['subject_digest']==subject]
     records={e['execution_record']['digest']:e['execution_record'] for e in selected}
@@ -192,7 +227,20 @@ def review_campaign():
     reductions=list({case['digest']:case for case in reductions}.values())
     ci=build_ci_result(chains['submitted']['gate'],chains.get('finalist',{}).get('gate'),reductions)
     vault=_directory('/private-result',21005,21005,0o700)
+    obligations={'kind':'PrivateCampaignArchiveObligations','campaign_id':campaign,
+        'deployment_epoch':record['deployment_epoch'],'config_digest':record['config_digest'],
+        'assignment_digest':job['digest'],'whole_round_manifest_digest':whole['digest'],
+        'development_assignment_digest':devjob['digest'],'roster_freeze_digest':freeze['digest'],
+        'factory_epoch_id':record['bundle']['epoch_id'],
+        'tasks':_archive_obligations(evaluations,paths),
+        'spending_snapshot_digest':snapshot['digest'],
+        'authority_snapshot_digest':authority.snapshot['digest'],
+        'lifecycle_digest':lifecycle['digest'],
+        'campaign_coverage_complete':False,'deletion_authorized':False}
+    obligations['digest']=digest_jcs(obligations)
+    _publish(vault/'archive-obligations.json',obligations,21005)
     evidence={'kind':'FormalCampaignGateEvidence','assignment_digest':job['digest'],'bindings':bindings,
+        'archive_obligations_digest':obligations['digest'],
         'chains':chains,'ci_result':ci,'authority_snapshot_digest':authority.snapshot['digest'],
         'spending_snapshot_digest':snapshot['digest'],'lifecycle_digest':lifecycle['digest']}
     evidence['digest']=digest_jcs(evidence)
