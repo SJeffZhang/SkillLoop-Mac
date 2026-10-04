@@ -152,6 +152,10 @@ def close_archive_role(*,policy_path,dispatch_journal,review_path,journal_direct
         if (original.get('encrypted_bundle_digest')!=review.get('encrypted_bundle_digest')
                 or original.get('policy_digest')!=review.get('policy_digest')):
             raise ValueError('archive_closure_exact_reviewed_bundle')
+    deadline=datetime.fromisoformat(policy['deadline'].replace('Z','+00:00'))
+    if deadline.tzinfo is None or type(policy['closure_seconds']) is not int or not 30<=policy['closure_seconds']<=120:
+        raise ValueError('archive_closure_original_budget_policy')
+    started_at=datetime.now(timezone.utc);started=time.monotonic()
     root=_directory(journal_directory,21001,21001,0o700)
     if any(root.iterdir()):raise RuntimeError('archive_original_retirement_recovery_required')
     identifier=created['id'];actual=engine.inspect(identifier)
@@ -161,7 +165,9 @@ def close_archive_role(*,policy_path,dispatch_journal,review_path,journal_direct
             or actual.get('Image')!=original.get('Image') or actual.get('HostConfig')!=original.get('HostConfig')):
         raise ValueError('archive_closure_actual_original_role')
     _save(root,'intent.json',{'kind':'ArchiveRoleRetirementIntent','policy_digest':policy['digest'],
-        'worker_id':identifier,'review_digest':review['digest'],'automatic_reexecution_allowed':False})
+        'worker_id':identifier,'review_digest':review['digest'],'automatic_reexecution_allowed':False,
+        'started_at':started_at.isoformat(),'original_deadline':policy['deadline'],
+        'reserved_closure_seconds':policy['closure_seconds']})
     if actual['State']['Running']:
         if policy['action']!='key_service':raise ValueError('archive_encryption_worker_not_stopped')
         engine.request('POST','/containers/'+identifier+'/stop?t=5',timeout=10)
@@ -169,6 +175,13 @@ def close_archive_role(*,policy_path,dispatch_journal,review_path,journal_direct
     if actual['State']['Running'] or actual['State']['ExitCode']!=0:
         raise RuntimeError('archive_role_closure_unknown_or_failed_preserve_resources')
     engine.remove(identifier)
+    completed_at=datetime.now(timezone.utc);elapsed=time.monotonic()-started
+    # Cleanup may still be necessary after expiry. Record the failed budget
+    # closure rather than extending the original clock or claiming a pass.
+    budget_status=('within_original_budget' if completed_at<deadline and elapsed<=policy['closure_seconds']
+        else 'inconclusive_expired_budget_closure')
     return _save(root,'completion.json',{'kind':'ArchiveRoleRetirementCompletion','worker_id':identifier,
         'review_digest':review['digest'],'original_process_removed':True,'keys_preserved':True,
-        'ciphertext_preserved':True,'source_evidence_preserved':True,'deletion_authorized':False})
+        'ciphertext_preserved':True,'source_evidence_preserved':True,'deletion_authorized':False,
+        'completed_at':completed_at.isoformat(),'elapsed_seconds':elapsed,
+        'original_deadline':policy['deadline'],'budget_closure':budget_status})
