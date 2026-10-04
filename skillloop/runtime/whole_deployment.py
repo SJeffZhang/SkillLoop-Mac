@@ -50,6 +50,8 @@ class WholeRoleDeployment:
             raise ValueError('whole_deployment_original_source_clock_budget')
         self.validate_roles()
     def validate_roles(self):
+        from skillloop.runtime.deployment_bootstrap import validate_directory_manifest
+        validate_directory_manifest(self.plan)
         directories={d['path']:d for d in self.plan['directories']}
         if any(d['privacy'] not in {'configuration','public','development','opaque','protected','current_private','control'} for d in directories.values()):
             raise ValueError('whole_deployment_declared_privacy')
@@ -94,7 +96,16 @@ class WholeRoleDeployment:
                     or hc.get('PidMode','') or hc.get('IpcMode','private') not in {'','private'}
                     or hc.get('Tmpfs')!={'/tmp':'rw,nosuid,nodev,size=64m'}):
                 raise ValueError('whole_role_actual_identity_and_isolation:'+role)
-            for mount in hc['Mounts']:
+            mounts=hc.get('Mounts')
+            if (type(mounts) is not list or not mounts
+                    or any(type(m) is not dict or type(m.get('Target')) is not str
+                        or not PurePosixPath(m['Target']).is_absolute()
+                        or '..' in PurePosixPath(m['Target']).parts
+                        or str(PurePosixPath(m['Target']))!=m['Target']
+                        or type(m.get('ReadOnly')) is not bool for m in mounts)
+                    or len({m['Target'] for m in mounts})!=len(mounts)):
+                raise ValueError('whole_role_unique_canonical_mount_targets')
+            for mount in mounts:
                 if mount['Type']=='bind':
                     if role!='controller' or mount.get('Source')!='/var/run/docker.sock' or mount.get('Target')!='/engine.sock' or mount.get('ReadOnly') is not False:
                         raise PermissionError('whole_role_host_mount_forbidden')
