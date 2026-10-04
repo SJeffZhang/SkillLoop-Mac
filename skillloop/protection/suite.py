@@ -32,15 +32,41 @@ def compile_private(bundle, tokenizer, development):
     return {'profile_id':bundle['profile_id'],'objectives':objectives,'cases':cases,'mutations':mutations,'suite':suite}
 
 def protected_plan(compiled, subjects, campaign, config, parent=None, *, runtime_profile_path=None):
+    if type(subjects) is not dict or set(subjects) not in ({'submitted'}, {'submitted','finalist'}, {'submitted','active'}, {'submitted','finalist','active'}):
+        raise ValueError('protected_subject_set')
+    # Contract identity is (subject, case, repetition), not a role label.
+    # A finalist or active identical to submitted reuses its existing rows;
+    # inventing duplicate runs would both violate validate_plan and spend twice.
+    distinct={};seen=set()
+    for role in ('submitted','finalist','active'):
+        if role not in subjects:continue
+        subject=subjects[role]
+        if subject['subject_digest'] not in seen:
+            distinct['active_baseline' if role=='active' else role]=subject;seen.add(subject['subject_digest'])
+    timeout=265000
+    if config.get('whole_flow_required'):
+        seconds=config.get('worker_deadline_seconds')
+        if type(seconds) is not int or not 1<=seconds<=300:
+            raise ValueError('protected_frozen_worker_timeout_required')
+        timeout=seconds*1000
     items=[{'item_id':role+'.'+cid+'.'+str(rep),'subject_digest':subject['subject_digest'],
         'case_digest':case['digest'],'repetition_index':rep,'phase':case['body']['split'],'subject_role':role,
-        'requirement':'required','reason_code':None,'attempts_reserved':1,'timeout_ms':265000}
-        for role,subject in subjects.items() for cid,case in compiled['cases'].items() for rep in range(3)
+        'requirement':'required','reason_code':None,'attempts_reserved':1,'timeout_ms':timeout}
+        for role,subject in distinct.items() for cid,case in compiled['cases'].items() for rep in range(case['body']['repetitions'])
         if parent is None or case['body']['split']=='protected']
     if parent: items=list(parent['body']['items'])+items
+    budget = config.get('protected_budget')
+    if budget is not None:
+        if (type(budget) is not dict or set(budget) != {'reserved_auxiliary_ms','terminal_reserve_ms'}
+                or any(type(v) is not int or v <= 0 for v in budget.values())):
+            raise ValueError('protected_complete_budget')
+    elif config.get('whole_flow_required'):
+        raise ValueError('protected_complete_budget_required')
+    else:
+        budget = {'reserved_auxiliary_ms':120000,'terminal_reserve_ms':600000}
     p=make_envelope('ExecutionPlan',{'campaign_id':campaign,'revision':parent['body']['revision']+1 if parent else 1,'parent_plan_digest':parent['digest'] if parent else None,
         'suite_digest':compiled['suite']['digest'],'config_digest':digest_jcs(config),'phase':'protected',
-        'items':items,'reserved_rollouts':len(items),'reserved_execution_ms':len(items)*265000,
-        'reserved_auxiliary_ms':120000,'terminal_reserve_ms':600000,'max_campaign_rollouts':128,
+        'items':items,'reserved_rollouts':len(items),'reserved_execution_ms':sum(i['timeout_ms']*i['attempts_reserved'] for i in items),
+        'reserved_auxiliary_ms':budget['reserved_auxiliary_ms'],'terminal_reserve_ms':budget['terminal_reserve_ms'],'max_campaign_rollouts':128,
         'max_campaign_execution_ms':28800000,'runtime_profile_digest':digest_bytes((runtime_profile_path or FAMILY_SPEC.parent/'operations/runtime-profile.json').read_bytes())})
     validate_plan(p,compiled['suite']);return p

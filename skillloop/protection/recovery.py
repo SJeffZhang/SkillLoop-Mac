@@ -14,7 +14,8 @@ def restore_authority(source:Path,target:Path,*,new_epoch:str):
     descriptor,name=tempfile.mkstemp(prefix='.restore-',suffix='.sqlite',dir=target.parent);os.close(descriptor);temporary=Path(name)
     try:
         with closing(sqlite3.connect('file:'+quote(str(source),safe='/')+'?mode=ro',uri=True)) as original,closing(sqlite3.connect(temporary)) as restored:
-            if original.execute('PRAGMA user_version').fetchone()!=(1,):raise ValueError('restore_schema_version')
+            schema_version=original.execute('PRAGMA user_version').fetchone()[0]
+            if schema_version not in (1,2):raise ValueError('restore_schema_version')
             original.backup(restored)
             restored.execute('PRAGMA journal_mode=DELETE')
             if restored.execute('PRAGMA integrity_check').fetchone()!=('ok',):raise ValueError('restore_source_integrity')
@@ -31,6 +32,6 @@ def restore_authority(source:Path,target:Path,*,new_epoch:str):
         directory=os.open(target.parent,os.O_RDONLY)
         try:os.fsync(directory)
         finally:os.close(directory)
-        body={'kind':'FreshDeploymentRestore','consistent_backup_digest':backup_digest,'restored_digest':digest_bytes(target.read_bytes()),'old_epoch':old,'new_epoch':new_epoch,'trust_revision':revision+1,'revoked_approvals':revoked,'cancelled_runs':cancelled,'qualification':'not_qualified','old_instance_qualifications_valid':False,'integrity_check':'ok','source_unchanged':True};body['digest']=digest_jcs(body);return body
+        body={'kind':'FreshDeploymentRestore','schema_version':schema_version,'consistent_backup_digest':backup_digest,'restored_digest':digest_bytes(target.read_bytes()),'old_epoch':old,'new_epoch':new_epoch,'trust_revision':revision+1,'revoked_approvals':revoked,'cancelled_runs':cancelled,'qualification':'not_qualified','old_instance_qualifications_valid':False,'integrity_check':'ok','source_unchanged':True};body['digest']=digest_jcs(body);return body
     finally:
         temporary.unlink(missing_ok=True)
