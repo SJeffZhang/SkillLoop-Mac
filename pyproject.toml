@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skillloop"
+version = "0.1.0.dev1"
+description = "SkillLoop API4 trusted campaign execution"
+requires-python = ">=3.10"
+
+[project.scripts]
+skillloop = "skillloop.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["skillloop*", "scripts*", "specs"]
+
+[tool.setuptools.package-data]
+specs = ["v2.2/*.json", "v2.2/operations/*.json", "v2.2/families/**/*.json"]
