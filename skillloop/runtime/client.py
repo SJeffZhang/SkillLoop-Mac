@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import struct
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,21 +18,53 @@ class ProxyRPCError(RuntimeError):
 
 
 class ProxyClient:
-    def __init__(self, socket_dir: Path, *, timeout_seconds: float = 10):
+    def __init__(self, socket_dir: Path, *, timeout_seconds: float = 10, expected_server_uid: int | None = None):
         self.socket_dir = Path(socket_dir)
         self.timeout_seconds = timeout_seconds
+        if expected_server_uid is not None and (type(expected_server_uid) is not int or expected_server_uid < 0):
+            raise ValueError('proxy_server_identity_configuration')
+        self.expected_server_uid = expected_server_uid
 
     def _send(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
-            connection.settimeout(self.timeout_seconds)
-            connection.connect(str(self.socket_dir / name))
-            connection.sendall(canonical_json_line(payload))
-            raw = connection.recv(262_145)
-        if not raw:
-            raise ProxyRPCError("empty_proxy_response")
-        value = decode_json(raw)
-        if type(value) is not dict or value.get("ok") is not True:
-            raise ProxyRPCError(str(value.get("error_code", "invalid_proxy_response")))
+        if name not in {"control.sock", "tool.sock", "ingress.sock", "admin.sock"}:
+            raise ProxyRPCError("invalid_proxy_endpoint")
+        encoded = canonical_json_line(payload)
+        if len(encoded) > 262_144:
+            raise ProxyRPCError("proxy_request_too_large")
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
+                connection.settimeout(self.timeout_seconds)
+                connection.connect(str(self.socket_dir / name))
+                if self.expected_server_uid is not None:
+                    if not hasattr(socket, 'SO_PEERCRED'):
+                        raise ProxyRPCError('proxy_kernel_identity_unavailable')
+                    peer = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+                    if peer[1] != self.expected_server_uid:
+                        # Reject before sending any tools, private IDs or control request.
+                        raise ProxyRPCError('proxy_server_identity_mismatch')
+                connection.sendall(encoded)
+                raw, _ancillary, flags, _address = connection.recvmsg(262_145)
+        except OSError as exc:
+            # A lost response cannot establish whether a durable effect committed.
+            # Preserve the spent attempt; authoritative recovery precedes any retry.
+            raise ProxyRPCError("proxy_transport_unknown") from exc
+        if not raw or len(raw) > 262_144 or flags & socket.MSG_TRUNC:
+            raise ProxyRPCError("invalid_proxy_response_size")
+        try:
+            value = decode_json(raw)
+        except ValueError as exc:
+            raise ProxyRPCError("invalid_proxy_response") from exc
+        if type(value) is not dict or type(value.get("ok")) is not bool:
+            raise ProxyRPCError("invalid_proxy_response")
+        if value["ok"] is False:
+            if (set(value) != {"ok", "error_code"} or
+                    type(value["error_code"]) is not str or
+                    not value["error_code"] or len(value["error_code"]) > 128):
+                raise ProxyRPCError("invalid_proxy_error_response")
+            raise ProxyRPCError(value["error_code"])
+        expected = {"ok", "call_digest"} if name == "ingress.sock" else {"ok", "result"}
+        if set(value) != expected:
+            raise ProxyRPCError("invalid_proxy_success_response")
         return value
 
     def import_call(self, call: dict[str, Any]) -> str:
@@ -58,3 +91,26 @@ class ProxyClient:
         else:
             validate_control(result)
         return result
+
+    def control_request(self, method: str, params: dict[str, Any], *, operation_id: str,
+                        admin: bool = False) -> dict[str, Any]:
+        """Frozen control request with stable operation ID and real peer identity.
+
+        The deadline bounds this transport attempt; authoritative methods bind
+        replay to logical parameters. A lost reply never triggers an auto retry.
+        """
+        expected = 21010 if admin else 21001
+        import os
+        if os.geteuid() != expected or self.expected_server_uid != 21003:
+            raise PermissionError("formal_control_transport_identity")
+        request = make_control("ControlRequest", {
+            "operation_id": operation_id,
+            "deadline": (datetime.now(timezone.utc) + timedelta(seconds=9)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "method": method, "params": params})
+        reply = self._send("admin.sock" if admin else "control.sock", request)
+        result = reply["result"]
+        if type(result) is not dict:
+            raise ProxyRPCError("invalid_control_result")
+        if result.get("kind") == "Lease":
+            return validate_envelope(result)
+        return validate_control(result)

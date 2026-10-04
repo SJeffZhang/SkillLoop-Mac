@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -223,6 +223,13 @@ class ProxyStore:
                                              "bytes_digest": digest_bytes(raw)}
                                             for path, rid, raw in selection.files],
                      "scope": "controller_approved_source_not_formal_qualification"}
+        candidate = loader.approved_subjects.get(selection.source_snapshot_digest)
+        if candidate is not None:
+            # The candidate binds all four production identities, not just bytes.
+            from scripts.spec_v22_core import canonical_policy
+            if candidate['body']['policy_digest'] != canonical_policy(task_setup['policy'])['digest']:
+                raise AuthorizationError('loader_candidate_policy_binding')
+            admission['candidate_bundle'] = candidate
         capability = self.stage_task(resources={**input_resources, **selected},
                                      _imported_admission=admission, **task_setup)
         return {"capability": capability, "source_snapshot_digest": selection.source_snapshot_digest,
@@ -234,7 +241,8 @@ class ProxyStore:
                    profile_id: str, resources: dict[str, bytes], approval_digest: str,
                    run_deadline: str, campaign_id: str,
                    parent_policy: dict[str, Any] | None = None,
-                   _imported_admission: dict[str, Any] | None = None) -> dict[str, Any]:
+                   _imported_admission: dict[str, Any] | None = None,
+                   _transaction_db: sqlite3.Connection | None = None) -> dict[str, Any]:
         """Trusted setup verifies exact resource bytes before any run starts."""
         cap = compile_capability(domain, binding, policy, profile_id,
                                  parent_policy=parent_policy, registry=self.registry)
@@ -252,10 +260,15 @@ class ProxyStore:
         for name, raw in resources.items():
             if type(raw) is not bytes or digest_bytes(raw) != by_id[name]["bytes_digest"]:
                 raise AuthorizationError("resource_bytes_digest")
-        with self._transaction() as db:
+        with (self._transaction() if _transaction_db is None else nullcontext(_transaction_db)) as db:
             approval = self._one(db, "SELECT * FROM approvals WHERE approval_digest=?", (approval_digest,))
-            if approval["state"] != "active" or approval["domain_digest"] != domain["digest"]:
+            if (approval["state"] != "active" or approval["domain_digest"] != domain["digest"]
+                    or approval["contract_digest"] != domain["body"]["contract_digest"]
+                    or approval["tenant_id"] != b["tenant_id"]):
                 raise AuthorizationError("approval_inactive")
+            if approval["expires_at"] is not None and _parse(approval["expires_at"]) <= _now():
+                raise ProxyError("expired")
+            self._check_formal_approval(db, approval, config_digest=rr["config_digest"])
             db.execute("INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                        (b["task_instance_id"], b["run_id"], b["tenant_id"], profile_id,
                         domain["digest"], approval_digest, binding["digest"], b["subject_digest"],
@@ -276,6 +289,10 @@ class ProxyStore:
                             _imported_admission["manifest_digest"], _json(_imported_admission)))
         return cap
 
+    def _admit_start_capacity(self, db, task):
+        """Legacy stores have no formal capacity authority."""
+        return None
+
     def start_run(self, run_request_digest: str, binding_digest: str,
                   *, operation_id: str, request_digest: str) -> dict[str, Any]:
         with self._transaction() as db:
@@ -287,12 +304,19 @@ class ProxyStore:
             approval = self._one(db, "SELECT * FROM approvals WHERE approval_digest=?", (task["approval_digest"],))
             if approval["state"] != "active":
                 raise ProxyError("approval_required")
+            self._check_formal_approval(db, approval)
+            formal = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='formal_proxy_deployment'").fetchone()
+            if formal and db.execute("SELECT 1 FROM runs WHERE state IN ('active','finalizing') LIMIT 1").fetchone():
+                # Expiry alone does not prove that a model/worker has stopped.
+                # Controller must cancel and preserve the previous run first.
+                raise ProxyError('queue_full')
             deadline = _parse(task["run_deadline"])
             lease = min(deadline, _now() + timedelta(minutes=5))
             if approval["expires_at"] is not None:
                 lease = min(lease, _parse(approval["expires_at"]))
             if lease <= _now():
                 raise ProxyError("expired")
+            self._admit_start_capacity(db, task)
             cap = _load(task["cap_json"])
             db.execute("INSERT INTO runs VALUES (?, ?, ?, 1, 'active', ?, ?, ?, ?, 0, ?)",
                        (task["run_id"], task["task_instance_id"], task["approval_digest"],
@@ -332,7 +356,7 @@ class ProxyStore:
                 if len(duplicates) != len(expected):
                     raise ProxyError("version_conflict")
                 return self._registration_result(run, expected)
-            self._check_live(run, approval)
+            self._check_live(run, approval, db=db)
             if run["consumed_calls"] + len(calls) > run["max_tool_calls"]:
                 raise ProxyError("budget_exhausted")
             prepared = []
@@ -479,7 +503,33 @@ class ProxyStore:
                 if _load(row["result_json"])["body"]["outcome"] == "ok"}
 
     @staticmethod
-    def _check_live(run: sqlite3.Row, approval: sqlite3.Row) -> None:
+    def _check_formal_approval(db, approval, *, config_digest=None):
+        # Legacy immutable scopes are separate. A deployment that enables the
+        # formal issuer cannot stage fixture approvals as an issuance substitute.
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='issued_domain_approvals'").fetchone() is None:
+            return
+        issued = db.execute('SELECT config_digest,factory_profile_digest,factory_approval_ref,operation FROM issued_domain_approvals WHERE approval_ref=?',
+                            (approval['approval_digest'],)).fetchone()
+        if issued is None or (config_digest is not None and issued[0] != config_digest):
+            raise ProxyError('approval_required')
+        factory = db.execute('SELECT approval_ref,expires_at FROM factory_approvals WHERE profile=?', (issued[1],)).fetchone()
+        if factory is None or factory[0] != issued[2]:
+            raise ProxyError('approval_required')
+        if factory[1] is not None and _parse(factory[1]) <= _now():
+            raise ProxyError('expired')
+        source = db.execute("SELECT role,method,result_json FROM operations WHERE operation_id=?", (issued[3],)).fetchone()
+        if source is None or tuple(source[:2]) != ('admin','approve_domain'):
+            raise ProxyError('approval_required')
+        proof = _load(source[2])
+        from .wire import validate_control
+        validate_control(proof)
+        if proof['kind'] != 'ApprovalResult' or proof['body']['approval_ref'] != approval['approval_digest']:
+            raise ProxyError('approval_required')
+
+    @staticmethod
+    def _check_live(run: sqlite3.Row, approval: sqlite3.Row, *, db=None) -> None:
+        if db is not None:
+            ProxyStore._check_formal_approval(db, approval)
         if run["state"] != "active":
             raise ProxyError("skipped_after_failure")
         if approval["state"] != "active":
@@ -539,7 +589,7 @@ class ProxyStore:
                         db.execute("UPDATE call_registration SET status='completed', result_json=? WHERE call_digest=?",
                                    (_json(result), call_digest))
                         return result
-                self._check_live(run, approval)
+                self._check_live(run, approval, db=db)
                 db.execute("SAVEPOINT tool_effect")
                 try:
                     data = self._perform(db, run, task, approval, requested_tool, args)
@@ -697,6 +747,40 @@ class ProxyStore:
             return {"publication_id": publication_id, "artifact_digest": output["bytes_digest"]}
         raise ProxyError("unknown_tool")
 
+    def record_terminal_output(self, run_id, fence, raw_output_digest, *, operation_id, request_digest):
+        """Persist the Runtime's final UTF-8 output digest in the business DB.
+
+        This acknowledges bytes only. Independent Evaluator/Gate must match it
+        against the native trace; a claimed digest never proves a model outcome.
+        """
+        import re
+        from .wire import make_control
+        if type(raw_output_digest) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',raw_output_digest):
+            raise ProxyError('invalid_args')
+        with self._transaction() as db:
+            run,task,approval=self._active_run(db,run_id,fence)
+            previous=self._operation_replay(db,operation_id,request_digest)
+            if previous is not None:return previous
+            self._check_formal_approval(db,approval)
+            if (approval['state']!='active' or _parse(run['approval_lease_expiry'])<=_now()
+                    or _parse(run['deadline'])<=_now()):
+                raise ProxyError('expired' if approval['state']=='active' else 'approval_required')
+            if approval['expires_at'] is not None and _parse(approval['expires_at'])<=_now():raise ProxyError('expired')
+            db.execute('CREATE TABLE IF NOT EXISTS terminal_outputs(run_id TEXT PRIMARY KEY REFERENCES runs(run_id),fence INTEGER NOT NULL,raw_output_digest TEXT NOT NULL,committed_at TEXT NOT NULL)')
+            prior=db.execute('SELECT fence,raw_output_digest,committed_at FROM terminal_outputs WHERE run_id=?',(run_id,)).fetchone()
+            if prior:
+                if (prior['fence'],prior['raw_output_digest'])!=(fence,raw_output_digest):raise ProxyError('version_conflict')
+                committed=prior['committed_at']
+            else:
+                committed=_stamp(_now())
+                db.execute('INSERT INTO terminal_outputs VALUES(?,?,?,?)',(run_id,fence,raw_output_digest,committed))
+                db.execute("UPDATE runs SET state='finalizing' WHERE run_id=?",(run_id,))
+                event=digest_jcs({'run_id':run_id,'fence':fence,'raw_output_digest':raw_output_digest})
+                db.execute("INSERT INTO accepted_events(run_id,event_type,event_digest,committed_at) VALUES(?,'terminal_output',?,?)",(run_id,event,committed))
+            result=make_control('ObjectAck',{'object_kind':'TerminalOutput','object_digest':raw_output_digest,'committed_at':committed})
+            self._record_operation(db,operation_id,'runtime',run_id,request_digest,'record_terminal_output',result)
+            return result
+
     def revoke_approval(self, approval_digest: str, expected_revision: int,
                         *, operation_id: str, request_digest: str) -> dict[str, Any]:
         with self._transaction() as db:
@@ -766,11 +850,32 @@ class ProxyStore:
             if row["role"] != role:
                 raise ProxyError("denied")
             kind = {"activate_approval": "ApprovalResult", "revoke_approval": "ApprovalResult",
-                    "start_run": "Lease", "cancel_run": "CancellationResult"}.get(row["method"])
+                    "start_run": "Lease", "cancel_run": "CancellationResult",
+                    "record_terminal_output":"ObjectAck", "reserve_campaign":"CampaignInspection"}.get(row["method"])
             result = _load(row["result_json"]) if row["result_json"] is not None else None
+            envelope = None
+            if result is not None and row["state"] == "completed":
+                if row["method"] == "start_run":
+                    envelope = validate_envelope(result)
+                elif row["method"] in {"activate_approval", "revoke_approval"}:
+                    from .wire import make_control
+                    envelope = make_control("ApprovalResult", {"operation_id": operation_id,
+                        "approval_ref": result["approval_digest"],
+                        "effective_trust_revision": result["trust_revision"], "state": result["state"],
+                        "committed_at": result["committed_at"], "expires_at": result["expires_at"]})
+                elif row["method"] == "cancel_run":
+                    from .wire import make_control
+                    envelope = make_control("CancellationResult", {"campaign_public_ref": result["campaign_id"],
+                        "run_id": result["run_id"], "effective_fence": result["fence"],
+                        "committed_at": result["committed_at"]})
+                elif row['method'] in {'record_terminal_output','reserve_campaign'}:
+                    from .wire import validate_control
+                    envelope=validate_control(result)
+                else:
+                    raise ProxyError("runtime_error")
             return {"operation_ref": operation_id, "state": row["state"],
-                    "result_kind": kind if row["state"] == "completed" else None,
-                    "result_digest": digest_jcs(result) if result is not None and row["state"] == "completed" else None,
+                    "result_kind": kind if envelope is not None else None,
+                    "result_digest": envelope["digest"] if envelope is not None else None,
                     "error_code": None}
 
     def inspect_publication(self, task_instance_id: str) -> dict[str, Any] | None:

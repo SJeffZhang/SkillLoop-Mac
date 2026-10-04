@@ -35,7 +35,8 @@ class FamilyRegistry:
             profiles[profile_id] = profile
         if set(profiles) != PROFILE_IDS:
             raise ProtocolError("missing_profile")
-        if profiles["orders_total"]["operation"] != profiles["refunds_total"]["operation"] != "group_sum_join":
+        if any(profiles[name]["operation"] != "group_sum_join"
+               for name in ("orders_total", "refunds_total")):
             raise ProtocolError("table_operation_mismatch")
         if profiles["markdown_index"]["operation"] != "local_heading_link_index":
             raise ProtocolError("markdown_operation_mismatch")

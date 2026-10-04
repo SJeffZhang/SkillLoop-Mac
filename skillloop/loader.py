@@ -5,6 +5,7 @@ Skill's self-declared role or manifest. Token/context admission is separate.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from copy import deepcopy
 import re
 from .protocol import ProtocolError, digest_bytes, digest_jcs, validate_envelope
 from .source import LOADER_PROFILE
@@ -41,11 +42,17 @@ class RuntimePackageSelection:
 
 class ApprovedPackageLoader:
     def __init__(self, *, approved_sources: dict[str, str], reference_resource_ids: dict[str, str],
-                 instruction_resource_id: str = "skill:instruction"):
+                 instruction_resource_id: str = "skill:instruction",
+                 approved_subjects: dict[str, dict] | None = None):
         # These maps belong to trusted control-plane configuration.
         self.approved_sources = dict(approved_sources)
         self.reference_resource_ids = dict(reference_resource_ids)
         self.instruction_resource_id = instruction_resource_id
+        self.approved_subjects = deepcopy(approved_subjects or {})
+        for source, candidate in self.approved_subjects.items():
+            validate_envelope(candidate)
+            if source not in self.approved_sources or candidate['kind'] != 'CandidateBundle':
+                raise ProtocolError('loader_candidate_catalog')
 
     def select(self, snapshot: dict, package: dict[str, bytes], manifest: dict,
                *, profile_id: str, family_id: str) -> RuntimePackageSelection:
@@ -97,4 +104,54 @@ class ApprovedPackageLoader:
         ids = [rid for _,rid,_ in selected]
         if any(type(rid) is not str or not _RESOURCE.fullmatch(rid) for rid in ids) or len(set(ids)) != len(ids):
             raise ProtocolError("loader_reference_resource_identity")
-        return RuntimePackageSelection(snapshot["digest"], b["skill_digest"], mh, profile_id, tuple(selected))
+        candidate = self.approved_subjects.get(snapshot['digest'])
+        if candidate is not None and candidate['body']['skill_digest'] != b['skill_digest']:
+            raise ProtocolError('loader_candidate_package_binding')
+        subject = b['skill_digest'] if candidate is None else candidate['digest']
+        return RuntimePackageSelection(snapshot["digest"], subject, mh, profile_id, tuple(selected))
+
+
+def validate_source_admission(admission: dict, config: dict, subject_digest: str) -> None:
+    """Bind a complete internal package projection to the shared frozen config.
+
+    A paired campaign may pin several subjects in one configuration. This does
+    not authorize a package: the trusted loader still checks the source catalog.
+    The old single-package configuration remains an explicit legacy path.
+    """
+    fields = {'source_snapshot', 'manifest', 'approved_sources',
+              'reference_resource_ids', 'package_files'}
+    if type(admission) is not dict or set(admission) not in (fields, fields | {'approved_subjects'}):
+        raise ProtocolError('source_admission_shape')
+    authority=config.get('source_admission_authority')
+    catalog = config.get('source_admission_digests')
+    if authority is not None:
+        # The shared configuration freezes the authority mechanism, not a
+        # digest of prose that the bounded patcher has not generated yet.
+        # This is structural preflight ONLY. The actual Proxy must resolve the
+        # subject/package digest against its Admin-issued durable catalog before
+        # staging a task; Runtime effects still require its authenticated Lease
+        # and exact TaskBinding bytes. Caller maps confer no authorization.
+        if (authority!='admin_campaign_catalog_v1' or config.get('whole_flow_required') is not True
+                or 'source_admission_digest' in config or 'source_admission_digests' in config):
+            raise ProtocolError('source_admission_authority_configuration')
+        pin=digest_jcs(admission)
+    elif catalog is not None:
+        if (type(catalog) is not dict or not catalog or len(catalog) > 128
+                or 'source_admission_digest' in config):
+            raise ProtocolError('source_admission_config_catalog')
+        pin = catalog.get(subject_digest)
+    else:
+        pin = config.get('source_admission_digest')
+    if pin != digest_jcs(admission):
+        raise ProtocolError('source_admission_config_binding')
+    candidates = admission.get('approved_subjects', {})
+    if type(candidates) is not dict or len(candidates) > 32:
+        raise ProtocolError('source_admission_candidate_catalog')
+    if candidates:
+        snapshot = admission['source_snapshot']['digest']
+        candidate = candidates.get(snapshot)
+        if set(candidates) != {snapshot} or type(candidate) is not dict:
+            raise ProtocolError('source_admission_candidate_selection')
+        validate_envelope(candidate)
+        if candidate['kind'] != 'CandidateBundle' or candidate['digest'] != subject_digest:
+            raise ProtocolError('source_admission_candidate_subject')
