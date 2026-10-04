@@ -122,6 +122,8 @@ def compile_dev_suite(profile_id: str, *, skill_root: Path = FAMILY_SPEC) -> dic
 
 def make_dev_plan(compiled: dict[str, Any], *, campaign_id: str,
                   config: dict[str, Any] | None = None) -> dict[str, Any]:
+    if config is not None and config.get('whole_flow_required') is True:
+        return append_formal_dev_plan(compiled,campaign_id=campaign_id,config=config,role='submitted')
     suite = compiled["suite"]
     items = []
     for case in compiled["cases"].values():
@@ -140,3 +142,70 @@ def make_dev_plan(compiled: dict[str, Any], *, campaign_id: str,
         "max_campaign_rollouts": len(items) * 2,
         "max_campaign_execution_ms": len(items) * 2 * 360_000 + 240_000,
         "runtime_profile_digest": digest_bytes((FAMILY_SPEC.parent / "operations/runtime-profile.json").read_bytes())})
+
+
+def append_formal_dev_plan(compiled, *, campaign_id, config, role, parent=None):
+    """Append explicit same-round subject rows without legacy retry defaults.
+
+    New finding/history templates must retain every old case. This function
+    produces a plan, not source authorization or full capacity admission; the
+    live Proxy catalog and whole-round manifest remain independent authorities.
+    """
+    from scripts.spec_v22_core import validate_plan, validate_suite
+    if (config.get('whole_flow_required') is not True
+            or role not in {'submitted','candidate','finalist','active_baseline'}):
+        raise ValueError('formal_development_role_or_configuration')
+    suite=compiled['suite']
+    validate_suite(suite,list(compiled['cases'].values()),compiled['objectives'])
+    if suite['body']['visibility']!='public_dev':raise ValueError('formal_development_public_suite_required')
+    subject=compiled.get('subject_digest')
+    import re
+    if type(subject) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',subject):
+        raise ValueError('formal_development_candidate_bundle_required')
+    seconds=config.get('worker_deadline_seconds');budget=config.get('development_budget')
+    if (type(seconds) is not int or not 1<=seconds<=300
+            or type(budget) is not dict or set(budget)!={'reserved_auxiliary_ms','terminal_reserve_ms'}
+            or any(type(v) is not int or v<1 for v in budget.values())
+            or budget['terminal_reserve_ms']<120000):
+        raise ValueError('formal_development_complete_budget_required')
+    items=[]
+    if parent is not None:
+        validate_envelope(parent)
+        if (parent['kind']!='ExecutionPlan' or parent['body']['phase']!='dev'
+                or parent['body']['campaign_id']!=campaign_id
+                or parent['body']['config_digest']!=digest_jcs(config)):
+            raise ValueError('formal_development_parent_identity_changed')
+        # Validate against the appended suite; absence of an old template or
+        # change to its digest is rejected before any execution begins.
+        parent_for_suite={**parent,'body':{**parent['body'],'suite_digest':suite['digest']}}
+        parent_for_suite=make_envelope('ExecutionPlan',parent_for_suite['body'])
+        validate_plan(parent_for_suite,suite)
+        items=[dict(i) for i in parent['body']['items']]
+    existing={(i['subject_digest'],i['case_digest'],i['repetition_index']):i for i in items}
+    for case in compiled['cases'].values():
+        if case['body']['split']!='dev':raise ValueError('formal_development_private_case_forbidden')
+        for rep in range(case['body']['repetitions']):
+            key=(subject,case['digest'],rep)
+            if key in existing:
+                if existing[key]['requirement']!='required':raise ValueError('formal_development_omitted_item_reintroduced')
+                continue
+            item={'item_id':role+'.'+subject[7:]+'.'+case['digest'][7:]+'.'+str(rep),
+                  'subject_digest':subject,'case_digest':case['digest'],'repetition_index':rep,
+                  'phase':'dev','subject_role':role,'requirement':'required','reason_code':None,
+                  'attempts_reserved':1,'timeout_ms':seconds*1000}
+            items.append(item);existing[key]=item
+    if parent is not None and items==parent['body']['items']:
+        if suite['digest']!=parent['body']['suite_digest']:
+            raise ValueError('formal_development_suite_changed_without_new_rows')
+        return parent
+    plan=make_envelope('ExecutionPlan',{'campaign_id':campaign_id,
+        'revision':parent['body']['revision']+1 if parent else 1,
+        'parent_plan_digest':parent['digest'] if parent else None,'suite_digest':suite['digest'],
+        'config_digest':digest_jcs(config),'phase':'dev','items':items,
+        'reserved_rollouts':sum(i['attempts_reserved'] for i in items if i['requirement']=='required'),
+        'reserved_execution_ms':sum(i['timeout_ms']*i['attempts_reserved'] for i in items if i['requirement']=='required'),
+        'reserved_auxiliary_ms':budget['reserved_auxiliary_ms'],'terminal_reserve_ms':budget['terminal_reserve_ms'],
+        'max_campaign_rollouts':128,'max_campaign_execution_ms':28800000,
+        'runtime_profile_digest':digest_bytes((FAMILY_SPEC.parent/'operations/runtime-profile.json').read_bytes())})
+    validate_plan(plan,suite)
+    return plan

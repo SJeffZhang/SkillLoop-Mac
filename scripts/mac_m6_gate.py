@@ -22,14 +22,14 @@ def result_path(root,entry):return root/('calibration' if entry['kind']=='capaci
 
 def rebuild_entry(root,entry,tokenizer,run_ids,task_ids):
     path=result_path(root,entry);data=load(path)
-    inputs={k:base64.b64decode(v,validate=True) for k,v in entry.get('capacity_inputs',{}).items()} or None
+    inputs={k:base64.b64decode(v,validate=True) for k,v in entry.get('private_inputs',entry.get('capacity_inputs',{})).items()} or None
     if data.get('runner_source_digest')!=entry['source_index_digest']:raise ValueError('runner_source_binding')
     with tempfile.TemporaryDirectory(prefix='skillloop-mac-gate-') as directory:
         working=Path(directory)/'run';shutil.copytree(path.parent,working)
         result=_recompute_run(working/'result.json',profile=entry['profile'],case_id=entry['case_id'],repetition=entry['repetition'],attempt=0,
         case=entry['compiled']['cases'][entry['case_id']],compiled=entry['compiled'],suite=entry['compiled']['suite'],plan=entry['plan'],
         run_ids=run_ids,task_ids=task_ids,tokenizer=tokenizer,expected_config=entry['config'],inputs_override=inputs,
-        deployment_epoch=entry['config']['deployment_epoch'])
+        deployment_epoch=entry['config']['deployment_epoch'],source_admission=entry.get('source_admission'))
     execution=load(path.parent/'container-execution.json')
     if execution['image']!=entry['config']['mac_runtime_image'] or execution['network_mode']!='none' or not execution['exported']:raise ValueError('container_execution_identity')
     if any(v!='denied' for v in load(path.parent/'boundary-probe.json').values()):raise ValueError('container_boundary_probe')

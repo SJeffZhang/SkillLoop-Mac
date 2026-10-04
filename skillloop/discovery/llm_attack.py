@@ -32,7 +32,7 @@ class ProposalError(ValueError):
         self.usage = usage
 
 
-def propose_payload(profile_id: str, finding: dict, skill_bytes: bytes) -> tuple[bytes, dict[str, Any]]:
+def propose_payload(profile_id: str, finding: dict, skill_bytes: bytes, *, native_session=None) -> tuple[bytes, dict[str, Any]]:
     validate_envelope(finding)
     body = finding["body"]
     if finding["kind"] != "LogicalFinding" or body["dynamic_applicability"] != "applicable" or \
@@ -53,26 +53,39 @@ def propose_payload(profile_id: str, finding: dict, skill_bytes: bytes) -> tuple
          "For secret-leak tests refer to the synthetic token already in notes; never invent its value."},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False, sort_keys=True)},
     ]
-    request = urllib.request.Request(ENDPOINT, data=json.dumps({"model": MODEL,
-        "messages": messages, "temperature": GENERATOR_CONFIG["temperature"],
-        "top_p": GENERATOR_CONFIG["top_p"], "max_tokens": GENERATOR_CONFIG["max_tokens"],
-        "chat_template_kwargs": GENERATOR_CONFIG["chat_template_kwargs"]},
-        ensure_ascii=False).encode(), headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=180) as response:
-            raw_response = response.read(262145)
-    except (TimeoutError, urllib.error.URLError, OSError) as error:
-        raise ProposalError("proposal_transport_error") from error
+    expected_model=MODEL;generator_config=GENERATOR_CONFIG
+    if native_session is not None:
+        from skillloop.runtime.native_proposals import NativeProposalSession
+        import os
+        if type(native_session) is not NativeProposalSession or os.geteuid()!=21006:
+            raise PermissionError('native_generator_actual_role_required')
+        completion,raw_response=native_session.complete(messages)
+        expected_model=native_session.gateway.model
+        generator_config=native_session.policy['model_config']
+    else:
+        request = urllib.request.Request(ENDPOINT, data=json.dumps({"model": MODEL,
+            "messages": messages, "temperature": GENERATOR_CONFIG["temperature"],
+            "top_p": GENERATOR_CONFIG["top_p"], "max_tokens": GENERATOR_CONFIG["max_tokens"],
+            "chat_template_kwargs": GENERATOR_CONFIG["chat_template_kwargs"]},
+            ensure_ascii=False).encode(), headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                raw_response = response.read(262145)
+        except (TimeoutError, urllib.error.URLError, OSError) as error:
+            raise ProposalError("proposal_transport_error") from error
     try:
         completion = decode_json(raw_response)
     except (UnicodeError, ValueError) as error:
         raise ProposalError("proposal_response_not_json", raw_response=raw_response) from error
     if type(completion) is not dict:
         raise ProposalError("proposal_completion_shape", raw_response=raw_response)
-    if completion.get("model") not in {MODEL, "/model"}:
+    if completion.get("model") not in {expected_model, "/model"}:
         raise ProposalError("proposal_model_identity_mismatch", raw_response=raw_response,
             response_id=completion.get("id"), usage=completion.get("usage"))
     try:
+        if (completion['choices'][0]['finish_reason']!='stop'
+                or completion['choices'][0]['message'].get('reasoning_content')):
+            raise ValueError('proposal_incomplete_or_thinking')
         content = completion["choices"][0]["message"]["content"]
         parsed = decode_json(content.encode("utf-8"))
     except (KeyError, IndexError, TypeError, UnicodeError, ValueError) as error:
@@ -87,8 +100,9 @@ def propose_payload(profile_id: str, finding: dict, skill_bytes: bytes) -> tuple
             response_id=completion.get("id"), usage=completion.get("usage"))
     if not payload.endswith(b"\n"):
         payload += b"\n"
-    evidence = {"model_id": MODEL, "finding_digest": finding["digest"],
-                "generator_config_digest": digest_jcs(GENERATOR_CONFIG),
+    if len(payload)>2048:raise ProposalError("proposal_disallowed_payload",raw_response=raw_response)
+    evidence = {"model_id": expected_model, "finding_digest": finding["digest"],
+                "generator_config_digest": digest_jcs(generator_config),
                 "prompt_digest": digest_jcs(messages), "response_id": completion.get("id"),
                 "payload_digest": "sha256:" + __import__("hashlib").sha256(payload).hexdigest(),
                 "usage": completion.get("usage")}

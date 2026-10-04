@@ -148,7 +148,7 @@ def _recompute_run(path: Path, *, profile: str, case_id: str, repetition: int,
                     run_ids: set[str], task_ids: set[str], tokenizer: ExactDockerTokenizer,
                     expected_config: dict | None = None,
                     inputs_override: dict[str, bytes] | None = None,
-                    deployment_epoch: str = "m5-development-1") -> dict:
+                    deployment_epoch: str = "m5-development-1", source_admission: dict | None = None) -> dict:
     data = json.loads(path.read_text())
     result = data["result"]
     validate_record(result)
@@ -185,6 +185,57 @@ def _recompute_run(path: Path, *, profile: str, case_id: str, repetition: int,
     traces = list((run_folder / "evidence").glob("*.jsonl"))
     if len(traces) != 1:
         raise ValueError("trace_count:" + case_id)
+    if source_admission is not None:
+        # Rebuild approved selection from the frozen entry, then compare the
+        # actual authority transaction and every model context. Raw result labels
+        # cannot stand in for package-source or registered-read evidence.
+        import base64,sqlite3
+        from contextlib import closing
+        from skillloop.loader import ApprovedPackageLoader, validate_source_admission
+        from skillloop.families.registry import FamilyRegistry
+        from skillloop.protocol import decode_json
+        admission=source_admission
+        validate_source_admission(admission, expected_config, expected_subject)
+        package={name:base64.b64decode(raw,validate=True) for name,raw in admission['package_files'].items()}
+        loader=ApprovedPackageLoader(approved_sources=admission['approved_sources'],
+                                     reference_resource_ids=admission['reference_resource_ids'],
+                                     approved_subjects=admission.get('approved_subjects'))
+        selected=loader.select(admission['source_snapshot'],package,admission['manifest'],profile_id=profile,
+                              family_id=FamilyRegistry().profile(profile)['family_id'])
+        selected.check_binding(data['task_binding'])
+        if selected.subject_digest!=expected_subject or digest_bytes(package['SKILL.md'])!=compiled['skill_digest']:
+            raise ValueError('imported_recompute_subject')
+        expected_admission={'source_snapshot':admission['source_snapshot'],'manifest':admission['manifest'],
+            'source_snapshot_digest':selected.source_snapshot_digest,'manifest_digest':selected.manifest_digest,
+            'subject_digest':selected.subject_digest,'profile_id':profile,
+            'selected_resources':[{'path':name,'resource_id':rid,'bytes_digest':digest_bytes(raw)}
+                                  for name,rid,raw in selected.files],
+            'scope':'controller_approved_source_not_formal_qualification'}
+        if admission.get('approved_subjects'):
+            expected_admission['candidate_bundle']=admission['approved_subjects'][selected.source_snapshot_digest]
+        with closing(sqlite3.connect((run_folder/'authority.db').absolute().as_uri()+'?mode=ro&immutable=1',uri=True)) as db:
+            row=db.execute('SELECT source_snapshot_digest,manifest_digest,admission_json FROM imported_admissions WHERE task_instance_id=?',
+                           (binding['task_instance_id'],)).fetchone()
+            if row is None or row[:2]!=(selected.source_snapshot_digest,selected.manifest_digest) or decode_json(row[2])!=expected_admission:
+                raise ValueError('imported_recompute_authority_admission')
+            for name,rid,raw in selected.files:
+                stored=db.execute('SELECT bytes_digest,content FROM resources WHERE task_instance_id=? AND resource_id=?',
+                                  (binding['task_instance_id'],rid)).fetchone()
+                if stored!=(digest_bytes(raw),raw):raise ValueError('imported_recompute_authority_bytes')
+        model_events=[json.loads(line) for line in traces[0].read_bytes().splitlines() if line]
+        model_events=[event for event in model_events if event.get('type')=='model_response']
+        if result['body']['coverage_complete'] and not model_events:raise ValueError('imported_recompute_missing_model_context')
+        references=[{'role':'user','content':'Approved reference material: '+
+                     json.dumps({'resource_id':rid,'content_utf8':raw.decode('utf-8')},ensure_ascii=False)}
+                    for name,rid,raw in sorted(selected.files,key=lambda item:item[1]) if name!='SKILL.md']
+        for event in model_events:
+            context_raw=(traces[0].parent/'contexts'/event['context_digest'][7:]).read_bytes()
+            if digest_bytes(context_raw)!=event['context_digest']:raise ValueError('imported_recompute_context_digest')
+            context=decode_json(context_raw)
+            if (len(context)<2 or context[1].get('role')!='user' or
+                    not context[1].get('content','').startswith(package['SKILL.md'].decode('utf-8')+'\n\nTask input bindings: ') or
+                    any(reference not in context for reference in references)):
+                raise ValueError('imported_recompute_full_model_materials')
     suffix = "b" if case_id.endswith("clean-b") else "a"
     inputs, expected = load_clean_fixture(profile, suffix)
     if inputs_override is not None:

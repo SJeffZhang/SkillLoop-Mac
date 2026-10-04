@@ -30,13 +30,20 @@ def validated_entry_path(root, entry, entry_path=None):
         raise ValueError('entry_bind_identity_mismatch')
     return path.resolve()
 
-def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None,evidence_storage=None):
+def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None,evidence_storage=None,custody_review_directory=None,custody_dispatcher=None):
+    if entry['config'].get('resource_admission_config') and resource_admission is None:
+        raise ValueError('resource_admission_adapter_required')
     if entry['config'].get('evidence_quota_config') and evidence_storage is None:
         raise ValueError('evidence_quota_adapter_required')
+    if evidence_storage is not None and custody_review_directory is None:
+        raise ValueError('independent_custody_review_directory_required')
+    if entry['config'].get('custody_gate_policy_digest') and custody_dispatcher is None:
+        raise ValueError('automatic_independent_custody_dispatch_required')
     target=result_path(root,entry).parent
     if (target/'result.json').exists():
-        if evidence_storage is not None:evidence_storage.verify_and_close(entry,target)
-        if resource_admission is not None:resource_admission.release(entry)
+        if evidence_storage is not None:
+            if not retire_export(root,entry,target,evidence_storage,resource_admission,custody_review_directory,custody_dispatcher,ledger.campaign_started_at):
+                return 'awaiting_independent_custody_review'
         return 'retained_completed'
     name='skillloop-m6-'+entry['digest'][7:27];prefix=name
     spent=any(e['item_key']==entry['entry_id'] and e['attempt']==0 for e in ledger.read()['executions'])
@@ -87,15 +94,32 @@ def execute(root,archive,entry,ledger,entry_path=None,resource_admission=None,ev
     target.parent.mkdir(parents=True,exist_ok=True)
     copied=subprocess.run(['docker','cp',name+':'+source,str(target)],capture_output=True,text=True)
     exported=copied.returncode==0 and (target/'result.json').exists()
-    if exported and evidence_storage is not None:evidence_storage.verify_and_close(entry,target)
-    if exported and resource_admission is not None:resource_admission.release(entry)
+    if exported and evidence_storage is not None:
+        if not retire_export(root,entry,target,evidence_storage,resource_admission,custody_review_directory,custody_dispatcher,ledger.campaign_started_at):
+            return 'awaiting_independent_custody_review'
     return 'exported' if exported else 'export_failed'
+
+def retire_export(root,entry,target,evidence_storage,resource_admission,review_directory,custody_dispatcher=None,campaign_started_at=None):
+    receipt=evidence_storage.verify_export(entry,target)
+    receipt_path=root/'custody-receipts'/(entry['digest'][7:]+'.json')
+    save(receipt_path,receipt)
+    review=Path(review_directory)/(entry['digest'][7:]+'.json')
+    if not review.exists() and custody_dispatcher is not None:
+        custody_dispatcher.review(root=root,entry=entry,receipt_path=receipt_path,campaign_started_at=campaign_started_at)
+    if not review.exists():return False
+    evidence_storage.close_reviewed(entry,target,review)
+    if resource_admission is not None:resource_admission.release(entry)
+    return True
+
 
 def manifest_campaign(root,entry):return load(root/'manifest.json')['profiles'][entry['profile']]['inherited_campaign']
 
 def resource_admission_from_args(args,manifest):
     values=(args.resource_admission_plan,args.resource_admission_state,args.resource_admission_socket)
-    if not any(values):return None
+    if not any(values):
+        if manifest.get('config', {}).get('resource_admission_config'):
+            raise ValueError('resource_admission_adapter_required')
+        return None
     if not all(values):raise ValueError('resource_admission_arguments')
     plan=sealed(load(args.resource_admission_plan))
     if (plan['manifest_digest']!=manifest['digest'] or
@@ -117,13 +141,26 @@ def evidence_storage_from_args(args,manifest):
     from skillloop.runtime.evidence_quota import EvidenceQuotaKeeper
     return EvidenceQuotaKeeper(plan,args.evidence_quota_state)
 
+def custody_dispatcher_from_args(args,manifest):
+    path=getattr(args,'custody_gate_plan',None)
+    enabled=manifest['config'].get('custody_gate_policy_digest')
+    if path is None:
+        if enabled:raise ValueError('custody_gate_plan_required')
+        return None
+    if not enabled or args.custody_review_directory is None:raise ValueError('custody_gate_configuration_required')
+    from skillloop.runtime.custody_review import GateReviewDispatcher
+    return GateReviewDispatcher(plan=sealed(load(path)),manifest=manifest,source=args.source,
+        tokenizer=args.tokenizer,review_directory=args.custody_review_directory)
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--archive',type=Path,required=True);parser.add_argument('--source',type=Path,required=True);parser.add_argument('--tokenizer',type=Path,required=True)
     parser.add_argument('--resource-admission-plan',type=Path);parser.add_argument('--resource-admission-state',type=Path);parser.add_argument('--resource-admission-socket',type=Path)
-    parser.add_argument('--evidence-quota-plan',type=Path);parser.add_argument('--evidence-quota-state',type=Path);args=parser.parse_args()
+    parser.add_argument('--evidence-quota-plan',type=Path);parser.add_argument('--evidence-quota-state',type=Path);parser.add_argument('--custody-review-directory',type=Path);parser.add_argument('--custody-gate-plan',type=Path);args=parser.parse_args()
     os.umask(0o077);root=args.root.resolve();manifest=sealed(load(root/'manifest.json'));entries=[sealed(load(root/p)) for p in manifest['entries']]
     admission=resource_admission_from_args(args,manifest)
     evidence=evidence_storage_from_args(args,manifest)
+    custody=custody_dispatcher_from_args(args,manifest)
+    if evidence is not None and args.custody_review_directory is None:raise ValueError('independent_custody_review_directory_required')
     model_identity(manifest['config']);status=load(root/'status.json') if (root/'status.json').exists() else {'kind':'MacM6MatrixStatus','manifest_digest':manifest['digest'],'entries':{},'phase':'capacity'}
     if status['manifest_digest']!=manifest['digest']:raise ValueError('resume_manifest_changed')
     for profile in manifest['profiles']:
@@ -135,13 +172,17 @@ def main():
         ledger=SpendingLedger(root/'spending'/(profile+'.json'),victim_seconds=manifest['config']['worker_deadline_seconds'],campaign_started_at=value['started_at'])
         current=[e for e in entries if e['profile']==profile]
         for entry in [e for e in current if e['kind']=='capacity']:
-            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission,evidence_storage=evidence);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
+            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission,evidence_storage=evidence,custody_review_directory=args.custody_review_directory,custody_dispatcher=custody);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
+            if outcome=='awaiting_independent_custody_review':
+                status.update(phase='awaiting_independent_custody_review');save(root/'status.json',status);return
         calibration=gate(root,args.archive,args.source,args.tokenizer,calibration_only=True);save(root/'calibration-gate.json',calibration)
         if calibration['profiles'][profile]['verdict']!='calibration_ready':
             status.update(phase='capacity_blocked',profile=profile);save(root/'status.json',status);return
         status.update(phase='formal_M6',profile=profile);save(root/'status.json',status)
         for entry in [e for e in current if e['kind']=='formal']:
-            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission,evidence_storage=evidence);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
+            outcome=execute(root,args.archive,entry,ledger,resource_admission=admission,evidence_storage=evidence,custody_review_directory=args.custody_review_directory,custody_dispatcher=custody);status['entries'][entry['entry_id']]=outcome;save(root/'status.json',status);print(profile,entry['entry_id'],outcome,flush=True)
+            if outcome=='awaiting_independent_custody_review':
+                status.update(phase='awaiting_independent_custody_review');save(root/'status.json',status);return
             if outcome in {'controller_failed','controller_deadline_exceeded','export_failed','consumed_without_container','retained_failed_controller'}:
                 status.update(phase='infrastructure_attention');save(root/'status.json',status);return
         report=gate(root,args.archive,args.source,args.tokenizer);save(root/'m6-gate.json',report)
