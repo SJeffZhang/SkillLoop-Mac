@@ -40,7 +40,7 @@ def _inventory(policy,budget):
     for root in roots:
         if (type(root) is not dict or set(root)!={'alias','path','uid','gid','mode'}
                 or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',root['alias']) or root['alias'] in aliases
-                or root['uid'] not in {21001,21004,21005} or root['gid']!=21005
+                or root['uid'] not in {21001,21003,21004,21005} or root['gid']!=21005
                 or root['mode'] not in {448,488}):
             raise ValueError('archive_original_private_source_custody')
         aliases.add(root['alias']);base=_directory(root['path'],root['uid'],root['gid'],root['mode'])

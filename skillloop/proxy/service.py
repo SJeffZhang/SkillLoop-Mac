@@ -45,7 +45,7 @@ def deployment(path):
     required = {'kind', 'deployment_epoch', 'database', 'socket_directory', 'catalog', 'deadline', 'digest',
                 'admitted_campaigns', 'task_directory', 'task_receipt_directory', 'snapshot_directory', 'snapshot_timeout_seconds', 'storage_policy', 'authority_projection_directory'}
     if (type(value) is not dict or not required<=set(value)
-            or set(value)-required-{'plan_revision_directory','source_repositories', 'private_task_transport'}
+            or set(value)-required-{'plan_revision_directory','source_repositories', 'private_task_transport','source_archive_directory'}
             or value['kind'] != 'ProxyServiceDeployment'
             or value['digest'] != digest_jcs({k: v for k, v in value.items() if k != 'digest'})
             or type(value['deployment_epoch']) is not str or not 1 <= len(value['deployment_epoch']) <= 256
@@ -54,7 +54,8 @@ def deployment(path):
             or any(type(records) is not dict or not 1 <= len(records) <= 128 for records in value['catalog'].values())):
         raise ValueError('proxy_deployment_shape')
     for field in ('database', 'socket_directory', 'task_directory', 'task_receipt_directory', 'snapshot_directory', 'authority_projection_directory',
-                  *(['plan_revision_directory'] if 'plan_revision_directory' in value else [])):
+                  *(['plan_revision_directory'] if 'plan_revision_directory' in value else []),
+                  *(['source_archive_directory'] if 'source_archive_directory' in value else [])):
         if type(value[field]) is not str or not Path(value[field]).is_absolute():
             raise ValueError('proxy_deployment_absolute_path')
     deadline = deployment_deadline(value['deadline'])
@@ -462,6 +463,9 @@ def main():
         db.execute('INSERT OR IGNORE INTO formal_proxy_deployment VALUES(1,?,?)', (config['digest'], config['deadline']))
     revisions=(PlanRevisionInbox(admission,config['plan_revision_directory'])
                if 'plan_revision_directory' in config else None)
+    from skillloop.proxy.archive_projection import SourceArchiveInbox
+    source_archives=(SourceArchiveInbox(store=store,admission=admission,authority=authority,
+        directory=config['source_archive_directory']) if 'source_archive_directory' in config else None)
     try:
         with ProxyServer(store, directory, controller_uid=21001, runtime_uid=21002,
                          controller_gid=21001, runtime_gid=21002, approval_authority=authority,
@@ -480,6 +484,7 @@ def main():
                 timer.start()
                 def provision():
                     if revisions is not None:revisions.poll()
+                    if source_archives is not None:source_archives.poll()
                     inbox.poll()
                     if private_inbox is not None: private_inbox.poll()
                     snapshots.tick()
