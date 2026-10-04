@@ -9,6 +9,8 @@ from skillloop.runtime.protected_flow import _controller_record
 
 ACTION_FIELDS={
     'import_source':{'approved_repository'},
+    'archive_role':{'policy_path','journal_directory'},
+    'archive_close':{'policy_path','dispatch_journal','review_path','journal_directory'},
     'register_campaign':{'registration_path','authority_directory'},
     'deployment':{'manifest_path','journal_directory','start_roles'},
     'role_command':{'role','assignment_directory','role_command','rpc_params','manifest_path','deployment_journal','timeout_seconds','result_path'},
@@ -304,6 +306,15 @@ class CampaignDispatcher:
                     result=read_owned(step['result_path'],uid=21005,gid=21001,limit=262144)
                     if result.get('kind')!='FormalCampaignGateCompletion' or result.get('assignment_digest')!=job['digest']:
                         raise ValueError('campaign_final_gate_actual_aggregate_required')
+            elif step['action']=='archive_role':
+                from skillloop.runtime.archive_dispatch import dispatch_archive_action
+                result=dispatch_archive_action(policy_path=step['policy_path'],
+                    journal_directory=step['journal_directory'],whole_round_manifest_path=self.manifest_path,
+                    ledger=self.ledger,engine=self.engine)
+            elif step['action']=='archive_close':
+                from skillloop.runtime.archive_dispatch import close_archive_role
+                result=close_archive_role(policy_path=step['policy_path'],dispatch_journal=step['dispatch_journal'],
+                    review_path=step['review_path'],journal_directory=step['journal_directory'],engine=self.engine)
             elif step['action']=='promote':
                 p=request['parameters']
                 result=self.registry.promote(qualification_path=step['qualification_path'],
