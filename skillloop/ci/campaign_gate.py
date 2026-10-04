@@ -79,6 +79,7 @@ def _archive_obligations(evaluations, paths):
             raise ValueError('campaign_archive_obligation_changed_after_task_review')
         rows.append({'intent_digest':evaluation['intent_digest'],
             'entry_digest':evaluation['entry_digest'],'execution_record_digest':record['digest'],
+            'run_request_digest':evaluation['run_request']['digest'],
             'subject_digest':request['subject_digest'],'case_digest':request['case_digest'],
             'repetition_index':request['repetition_index'],
             'privacy_domain':'protected' if private else 'development',
@@ -239,8 +240,15 @@ def review_campaign():
         'campaign_coverage_complete':False,'deletion_authorized':False}
     obligations['digest']=digest_jcs(obligations)
     _publish(vault/'archive-obligations.json',obligations,21005)
+    facts={'whole-round':whole,'development-assignment':devjob,
+        'development-evidence':development,'roster-freeze':freeze,
+        'authority-snapshot':authority.snapshot,'model-lifecycle':lifecycle,'spending':snapshot}
+    # Preserve the actual facts reviewed by this Gate inside its own vault.
+    # This copies objects, not live database permissions or Controller access.
+    for name,value in facts.items():_publish(vault/('archive-fact-'+name+'.json'),value,21005)
     evidence={'kind':'FormalCampaignGateEvidence','assignment_digest':job['digest'],'bindings':bindings,
         'archive_obligations_digest':obligations['digest'],
+        'archive_fact_digests':{name:value['digest'] for name,value in facts.items()},
         'chains':chains,'ci_result':ci,'authority_snapshot_digest':authority.snapshot['digest'],
         'spending_snapshot_digest':snapshot['digest'],'lifecycle_digest':lifecycle['digest']}
     evidence['digest']=digest_jcs(evidence)

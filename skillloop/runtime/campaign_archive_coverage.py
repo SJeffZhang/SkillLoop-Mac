@@ -14,7 +14,7 @@ from scripts.spec_v22_core import execution_record
 # These categories need producers bound to actual owner snapshots, rather than
 # caller-declared booleans or arbitrary collections of files.
 UNBOUND_CATEGORIES=('source_and_approval_history','discovery_and_candidate_raw_history',
-    'factory_and_session_authority_database','qualification_and_registry_snapshots',
+    'qualification_and_registry_snapshots',
     'operation_recovery_and_resource_ownership','archive_and_restore_lifecycle')
 
 
@@ -96,7 +96,23 @@ def review_campaign_inventory(*,policy,inventory,budget):
         if any(v!=candidates[0][1] for _,v in candidates):raise ValueError('campaign_archive_ambiguous_object')
         return candidates
 
-    covered=[]
+    fact_kinds={'whole-round':'FrozenWholeRound','development-assignment':'FormalDevelopmentRosterAssignment',
+        'development-evidence':'FormalDevelopmentRosterEvidence','roster-freeze':'FrozenCampaignSubjectRoster',
+        'authority-snapshot':'EvaluatorGateAuthoritySnapshot','model-lifecycle':'GatePrivateModelLifecycleReview',
+        'spending':'CampaignGateSpendingSnapshot'}
+    if set(evidence.get('archive_fact_digests',{}))!=set(fact_kinds):
+        raise ValueError('campaign_archive_original_fact_bindings_required')
+    facts={name:resolve(evidence['archive_fact_digests'][name],kind)[0][1]
+        for name,kind in fact_kinds.items()}
+    if (facts['whole-round']['digest']!=obligations['whole_round_manifest_digest']
+            or facts['development-assignment']['digest']!=obligations['development_assignment_digest']
+            or facts['roster-freeze']['digest']!=obligations['roster_freeze_digest']
+            or facts['roster-freeze']['development_evidence_digest']!=facts['development-evidence']['digest']
+            or facts['spending']['digest']!=evidence['spending_snapshot_digest']
+            or facts['authority-snapshot']['digest']!=evidence['authority_snapshot_digest']
+            or facts['model-lifecycle']['digest']!=evidence['lifecycle_digest']):
+        raise ValueError('campaign_archive_original_fact_chain')
+    covered=[];protected={}
     for task in tasks:
         budget()
         evaluation=resolve(task['evaluation_digest'],'FormalTaskEvaluation')[0][1]
@@ -106,6 +122,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         request=evaluation['run_request']['body']
         recomputed=execution_record(evaluation['run_request'],evaluation['result'],evaluation['evidence_index'],evaluation['task_binding'])
         if (evaluation['execution_record']!=recomputed or recomputed['digest']!=task['execution_record_digest']
+                or evaluation['run_request']['digest']!=task['run_request_digest']
                 or evaluation['intent_digest']!=task['intent_digest'] or evaluation['entry_digest']!=task['entry_digest']
                 or (request['subject_digest'],request['case_digest'],request['repetition_index'])
                     !=(task['subject_digest'],task['case_digest'],task['repetition_index'])
@@ -135,11 +152,57 @@ def review_campaign_inventory(*,policy,inventory,budget):
                     raise ValueError('campaign_archive_missing_original_raw_bytes')
                 total+=file['bytes']
             if total!=receipt['total_bytes']:raise ValueError('campaign_archive_receipt_byte_total')
+        if task['privacy_domain']=='protected':protected[task['intent_digest']]=task
         covered.append({'intent_digest':task['intent_digest'],'archive_receipt_digest':task['archive_receipt_digest']})
+    # The Factory/session database must itself be included and independently
+    # reopened, not inferred from the presence of its JSON snapshot receipt.
+    snapshot=facts['authority-snapshot']
+    snapshot_copies=resolve(snapshot['digest'],'EvaluatorGateAuthoritySnapshot')
+    authority_locations=[]
+    for row,value in snapshot_copies:
+        if row['uid']!=21004 or row['gid']!=21005:continue
+        prefix=str(PurePosixPath(row['path']).parent)+'/'
+        database=rows.get(prefix+'authority.sqlite')
+        if (database is None or (database['digest'],database['bytes'])
+                !=(snapshot['database_digest'],snapshot['database_size_bytes'])):
+            raise ValueError('campaign_archive_factory_database_missing')
+        alias,relative=row['path'].split('/',1)
+        authority_locations.append((roots[alias]/relative).parent)
+    if not authority_locations:raise ValueError('campaign_archive_actual_evaluator_snapshot_required')
+    from skillloop.protection.authority import ProtectionAuthority
+    for location in authority_locations:
+        budget();authority=ProtectionAuthority(location,readonly=True)
+        bundle=authority.resolve_formal_bundle(campaign=policy['campaign'],opaque_ref=snapshot['opaque_ref'])
+        if (bundle['bundle']['epoch_id']!=obligations['factory_epoch_id']
+                or bundle['subjects']!=evidence['bindings']['subjects']):
+            raise ValueError('campaign_archive_original_factory_identity')
+        with authority.connect() as db:
+            db.set_progress_handler(lambda: (budget() or 0),1000)
+            if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:
+                raise ValueError('campaign_archive_factory_database_integrity')
+            sessions=db.execute('SELECT b.binding,s.state,s.result_digest FROM formal_session_bindings b JOIN sessions s ON s.key=b.key WHERE s.epoch=?',
+                (bundle['bundle']['epoch_id'],)).fetchall()
+        actual={}
+        for raw,state,result_digest in sessions:
+            budget();binding=decode_json(raw);intent=binding['intent_digest'];task=protected.get(intent)
+            if (state!='complete' or intent in actual or task is None
+                    or binding['campaign']!=policy['campaign']
+                    or binding['request_digest']!=task['run_request_digest']
+                    or binding['entry_digest']!=task['entry_digest']
+                    or result_digest!=task['execution_record_digest']):
+                raise ValueError('campaign_archive_complete_original_session_results')
+            actual[intent]=task
+        required={(item['subject_digest'],item['case_digest'],item['repetition_index'])
+            for item in bundle['private_plan']['body']['items']
+            if item['requirement']=='required' and item['phase']=='protected'}
+        if (set(actual)!=set(protected) or required!={(t['subject_digest'],t['case_digest'],t['repetition_index']) for t in protected.values()}):
+            raise ValueError('campaign_archive_full_factory_matrix')
     result={'kind':'IndependentCampaignArchiveCoverage','campaign':policy['campaign'],
         'deployment_epoch':policy['deployment_epoch'],'campaign_gate_evidence_digest':evidence['digest'],
         'archive_obligations_digest':obligations['digest'],'source_inventory_digest':inventory['digest'],
         'reviewed_tasks':covered,'all_reviewed_task_bytes_present':True,
+        'original_gate_fact_digests':evidence['archive_fact_digests'],
+        'factory_and_session_database_verified':True,
         'missing_categories':list(UNBOUND_CATEGORIES),'campaign_coverage_complete':False,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)
