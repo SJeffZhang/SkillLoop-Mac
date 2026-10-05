@@ -287,6 +287,12 @@ class CampaignDispatcher:
                 expected_kind='FormalQualificationWithdrawalAssignment' if withdrawing else 'FormalCampaignGateAssignment'
                 if deployment.plan['roles']['gate']['config']['Cmd']!=['-m',module]:
                     raise ValueError('campaign_final_gate_fixed_role_entry')
+                if not withdrawing:
+                    expected='SKILLLOOP_RAW_HISTORY_MAX_BYTES='+str(step['maximum_evidence_bytes'])
+                    configured=[e for e in deployment.plan['roles']['gate']['config']['Env']
+                                if e.startswith('SKILLLOOP_RAW_HISTORY_MAX_BYTES=')]
+                    if configured!=[expected]:
+                        raise ValueError('campaign_final_gate_original_raw_capacity_config')
                 with self.registry.private_scope(campaign=job['bindings']['campaign']) as state:
                     if (job.get('kind')!=expected_kind or job['bindings']!=state['bindings']
                             or job['deadline']!=state['gate_freeze']['deadline']

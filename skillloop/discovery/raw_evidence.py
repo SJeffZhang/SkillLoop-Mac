@@ -80,3 +80,47 @@ def preserve_reviewed_raw(output_directory, sources, *, maximum_bytes):
     finally:
         os.close(fd)
     return pins
+
+
+def verify_raw_pin(pin, directory):
+    """Verify a roster-bound copy before campaign Gate consumption."""
+    import re
+    from skillloop.protocol import digest_bytes
+    if (type(pin) is not dict or set(pin) != {'name','bytes_digest','size_bytes',
+            'original_name','original_uid','original_gid'}
+            or type(pin['bytes_digest']) is not str
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',pin['bytes_digest'])
+            or pin['name'] != 'reviewed-raw-'+pin['bytes_digest'][7:]+'.bin'
+            or type(pin['size_bytes']) is not int or not 0 <= pin['size_bytes'] <= 33554432):
+        raise ValueError('campaign_gate_raw_input_pin')
+    raw = read_granted_raw(Path(directory)/pin['name'],uid=21005,gid=21001,limit=33554432)
+    if len(raw) != pin['size_bytes'] or digest_bytes(raw) != pin['bytes_digest']:
+        raise ValueError('campaign_gate_raw_input_copy_changed')
+    return raw
+
+
+def preserve_private_raw_history(pins, source_directory, vault, *, maximum_bytes):
+    """Copy reviewed roster bytes into the existing private Gate archive vault."""
+    vault = Path(vault); info = vault.lstat()
+    if (os.geteuid()!=21005 or vault.is_symlink() or not vault.is_absolute()
+            or info.st_uid!=21005 or info.st_gid!=21005
+            or stat.S_IMODE(info.st_mode)!=0o700 or type(pins) is not list
+            or not 1<=len(pins)<=512 or type(maximum_bytes) is not int
+            or not 1048576<=maximum_bytes<=268435456):
+        raise PermissionError('campaign_gate_private_raw_history_budget_or_custody')
+    total=sum(p.stat().st_size for p in vault.iterdir() if p.is_file() and not p.is_symlink())
+    seen=set()
+    for pin in pins:
+        raw=verify_raw_pin(pin,source_directory)
+        if pin['name'] in seen:continue
+        seen.add(pin['name'])
+        if total+len(raw)+1048576>maximum_bytes:
+            raise ValueError('campaign_gate_private_raw_history_capacity')
+        fd=os.open(vault/pin['name'],os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(fd,'wb') as stream:
+            os.fchown(stream.fileno(),-1,21005);os.fchmod(stream.fileno(),0o600)
+            stream.write(raw);stream.flush();os.fsync(stream.fileno())
+        total+=len(raw)
+    fd=os.open(vault,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:os.fsync(fd)
+    finally:os.close(fd)

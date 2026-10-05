@@ -24,7 +24,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
     rows={r['path']:r for r in inventory['files']}
     if len(rows)!=len(inventory['files']):raise ValueError('campaign_archive_duplicate_file')
 
-    def load(row,limit=16777216):
+    def load(row,limit=16777216,decode=True):
         budget()
         alias,relative=row['path'].split('/',1)
         path=roots[alias]/relative
@@ -41,7 +41,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
                 or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)
                     !=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns)):
             raise ValueError('campaign_archive_file_changed')
-        return decode_json(raw)
+        return decode_json(raw) if decode else raw
 
     def original(locator):
         path=Path(locator)
@@ -112,6 +112,25 @@ def review_campaign_inventory(*,policy,inventory,budget):
             or facts['authority-snapshot']['digest']!=evidence['authority_snapshot_digest']
             or facts['model-lifecycle']['digest']!=evidence['lifecycle_digest']):
         raise ValueError('campaign_archive_original_fact_chain')
+    raw_pins=facts['development-evidence'].get('reviewed_raw_inputs')
+    if type(raw_pins) is not list or not 1<=len(raw_pins)<=512:
+        raise ValueError('campaign_archive_discovery_original_inputs_required')
+    raw_covered=[]
+    for pin in raw_pins:
+        if (type(pin) is not dict or type(pin.get('name')) is not str
+                or type(pin.get('bytes_digest')) is not str
+                or pin['name']!='reviewed-raw-'+pin['bytes_digest'][7:]+'.bin'
+                or type(pin.get('size_bytes')) is not int
+                or not 0<=pin['size_bytes']<=33554432):
+            raise ValueError('campaign_archive_discovery_original_input_pin')
+        copies=[r for r in rows.values() if PurePosixPath(r['path']).name==pin['name']
+            and r['uid']==21005 and r['gid']==21005 and r['mode']==0o600]
+        if not copies:raise ValueError('campaign_archive_missing_discovery_original_bytes')
+        for row in copies:
+            if row['bytes']!=pin['size_bytes'] or row['digest']!=pin['bytes_digest']:
+                raise ValueError('campaign_archive_discovery_original_copy_mismatch')
+            load(row,limit=33554432,decode=False)
+        raw_covered.append(pin['bytes_digest'])
     source_history=facts['source-history']
     from skillloop.proxy.archive_projection import verify_source_history
     source_map=verify_source_history(source_history,campaign=policy['campaign'],epoch=policy['deployment_epoch'],
@@ -210,6 +229,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'deployment_epoch':policy['deployment_epoch'],'campaign_gate_evidence_digest':evidence['digest'],
         'archive_obligations_digest':obligations['digest'],'source_inventory_digest':inventory['digest'],
         'reviewed_tasks':covered,'all_reviewed_task_bytes_present':True,
+        'reviewed_discovery_raw_digests':raw_covered,'reviewed_discovery_bytes_present':True,
         'original_gate_fact_digests':evidence['archive_fact_digests'],
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
         'missing_categories':list(UNBOUND_CATEGORIES),'campaign_coverage_complete':False,

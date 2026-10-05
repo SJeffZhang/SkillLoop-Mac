@@ -237,6 +237,14 @@ def review_campaign():
     reductions=list({case['digest']:case for case in reductions}.values())
     ci=build_ci_result(chains['submitted']['gate'],chains.get('finalist',{}).get('gate'),reductions)
     vault=_directory('/private-result',21005,21005,0o700)
+    from skillloop.discovery.raw_evidence import preserve_private_raw_history
+    raw_capacity=int(os.environ['SKILLLOOP_RAW_HISTORY_MAX_BYTES'])
+    original_costs=[c for c in auxiliary if c['stage']=='gate_qualification_report'
+        and c['operation_key']=='campaign-gate-'+job['digest'][7:]]
+    if len(original_costs)!=1 or original_costs[0]['requested_cost']['disk_bytes']!=raw_capacity:
+        raise ValueError('campaign_gate_original_raw_copy_cost_binding')
+    preserve_private_raw_history(development.get('reviewed_raw_inputs'),'/roster',vault,
+        maximum_bytes=raw_capacity)
     obligations={'kind':'PrivateCampaignArchiveObligations','campaign_id':campaign,
         'deployment_epoch':record['deployment_epoch'],'config_digest':record['config_digest'],
         'assignment_digest':job['digest'],'whole_round_manifest_digest':whole['digest'],

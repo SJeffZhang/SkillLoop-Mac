@@ -92,3 +92,9 @@ Application Gate 在独立重建合法候选后，将实际审查的 Controller 
 名单 Gate 现在保全本次 assignment、每个适用 subject 的静态扫描原始报告、SourceSnapshot、扫描 receipt 和独立 review，并通过语义审查调用者保全实际 semantic assignment、discovery、逐请求/响应和原始报告。候选 Gate 保存的原始副本也进入同一名单证据目录。所有输入复制前与审查对象或原始字节摘要比较，副本摘要清单绑定在 FormalDevelopmentRosterEvidence 内。
 
 新 roster 调度可冻结最多 256MiB 的实际证据容量，仍按原 manifest 预收费；这只扩大新部署可配置上界，不变更旧预算。实际容量不足会拒绝，保留部分证据。最终 Gate→加密归档的逐副本核对及所有失败/未知尝试登记仍待接通，all_attempt_history_complete 保持 false。上述为源码修复，未启动运行实验。
+
+### 最终 Gate 与加密归档复核名单原件
+
+最终 campaign Gate 逐字节核对名单原件，并将去重副本保存到 Gate 私有结果卷，供既有加密导出使用。复制上限必须同时匹配 Admin 冻结的角色环境、正式调度步骤与原 SpendingLedger 请求成本；不匹配或超限拒绝，部分副本保留，不复用旧活动预算。新部署生产者仍需配置该冻结环境项。
+
+加密归档独立审查现在要求每个名单原件摘要都对应实际 Gate 私有副本，并核验实际权限、大小与字节。仅 reviewed_discovery_bytes_present 能由此得到；全部失败/unknown 尝试历史尚未接通，完整历史类别、campaign_coverage_complete 与 deletion_authorized 继续为未闭合/false。未执行运行实验。
