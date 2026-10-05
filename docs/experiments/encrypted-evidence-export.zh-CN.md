@@ -523,3 +523,9 @@ OllamaGateway的正常结果保留实际收到的HTTP响应原字节及摘要，
 关闭先持久原进程/原ready/原预算deadline与关闭时钟，然后停止确切进程并核验不再运行。丢失停止响应可继续同一关闭操作，预算过期仍做停止保全但保留inconclusive，不更新原时钟。关闭不删除容器、volume、推理DB或bridge证据；独立archive审查前不能把停止当成证据释放。保护Gateway继续禁Docker日志，不将原生私有响应导入Controller。宿主后端停止与新进程生命周期仍由独立Admin/Gate链处理，这里不是fresh-private证明。
 
 只检查149份Python源码语法与调用差异，未运行模型、OCI、数据库或测试。完整动态recipe、全尝试catalog、共享campaign物理容量、正式CI和新部署restore仍继续修复。
+
+### Proposal原槽失败终态及Application Gate原字节核验
+
+NativeProposalSession的原请求、成功及未知响应均保存严格封印；成功响应及proposal绑定同一Controller inference grant。所有推理异常，包括GatewayError之外的中断，尝试保存原slot的spent/unknown及稳定错误类型，保全失败附着原异常，不覆盖最初根因。已有未知/缺失原请求仍禁止重投。
+
+Application Gate重读原请求/响应封印与grant引用一致性，并解析实际backend原字节核验SHA256及完整JSON对应，不能只信重序列化结果。该检查不是Proxy实际proposal授权表的独立snapshot审查；全attempt catalog和实际权威快照覆盖仍需接通，all_attempt_history_complete继续false。未运行组件、模型、数据库或容器实验，仅源码审查及AST。

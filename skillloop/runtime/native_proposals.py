@@ -77,6 +77,10 @@ class NativeProposalSession:
         self.policy,self.gateway,self.deadline=policy,gateway,deadline
 
     def _save(self, path, value):
+        value=dict(value)
+        if 'digest' not in value:value['digest']=digest_jcs(value)
+        elif value['digest']!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+            raise ValueError('native_proposal_record_seal')
         raw=canonical_json_line(value)
         if len(raw)>8388608:raise ValueError('native_proposal_evidence_capacity')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
@@ -99,7 +103,10 @@ class NativeProposalSession:
         identity=lambda info:(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
         if len(raw)!=before.st_size or identity(before)!=identity(after) or identity(before)!=identity(current):
             raise ValueError('native_proposal_original_record_changed')
-        return decode_json(raw)
+        value=decode_json(raw)
+        if type(value) is not dict or value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+            raise ValueError('native_proposal_original_record_seal')
+        return value
 
     def _next_slot(self,messages):
         names={p.name for p in self.root.iterdir()}
@@ -117,6 +124,8 @@ class NativeProposalSession:
                 raise RuntimeError('native_proposal_original_attempt_unknown_no_dispatch')
             response=self._original(response_name)
             if (type(response) is not dict or response.get('policy_digest')!=self.policy['digest']
+                    or response.get('kind')!='NativeProposalResponse' or response.get('slot')!=slot
+                    or response.get('inference_grant_digest')!=self.inference_grant_digest
                     or response.get('spent') is not True or type(response.get('response')) is not dict):
                 raise ValueError('native_proposal_original_response_identity')
             if intent.get('messages')==messages:
@@ -148,12 +157,23 @@ class NativeProposalSession:
             try:
                 response,prompt,latency=self.gateway.complete(messages,[],remaining_seconds=timeout,
                     inference_context={'grant_digest':self.inference_grant_digest,'slot':slot})
-            except GatewayError as error:
-                self._save(self.root/('response-'+str(slot)+'-unknown.json'),
-                    {'error_code':str(error),'response':error.response,'spent':True,'retry_allowed':False})
+            except BaseException as error:
+                # The original call may have reached the backend even when an
+                # exception is outside GatewayError. Persist the same slot's
+                # unknown terminal evidence; it never authorizes another call.
+                try:
+                    self._save(self.root/('response-'+str(slot)+'-unknown.json'),
+                        {'kind':'NativeProposalUnknown','policy_digest':self.policy['digest'],
+                     'inference_grant_digest':self.inference_grant_digest,'slot':slot,
+                     'error_type':type(error).__name__,'error_code':str(error),
+                     'response':error.response if isinstance(error,GatewayError) else None,
+                         'spent':True,'retry_allowed':False})
+                except BaseException as preservation_error:
+                    error.add_note('native_proposal_unknown_preservation_failed:'+type(preservation_error).__name__)
                 raise
             self._save(self.root/('response-'+str(slot)+'.json'),
-                {'policy_digest':self.policy['digest'],'response':response,
+                {'kind':'NativeProposalResponse','policy_digest':self.policy['digest'],
+                 'inference_grant_digest':self.inference_grant_digest,'slot':slot,'response':response,
                  'actual_prompt_tokens':prompt,'latency_seconds':latency,'spent':True})
             return response, canonical_json_line(response)
         finally:os.close(fd)

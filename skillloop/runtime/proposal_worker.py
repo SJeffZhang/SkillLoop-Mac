@@ -60,6 +60,7 @@ def execute():
             value={'kind':'FormalNativePatchProposal','proposal':proposal,'proposal_evidence':evidence,
                    'raw_response_digest':digest_bytes(raw)}
         value.update(assignment_digest=job['digest'],policy_digest=policy['digest'],producer_uid=uid,
+                     inference_grant_digest=reference['grant_digest'],
                      whole_round_manifest_digest=whole['digest'],qualification_issued=False)
         value['digest']=digest_jcs(value)
         session._save(Path('/evidence/proposal.json'),value)

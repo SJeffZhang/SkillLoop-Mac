@@ -7,6 +7,7 @@ import base64
 from datetime import datetime,timezone
 import math
 import os
+import re
 from pathlib import Path
 import stat
 
@@ -84,6 +85,13 @@ def review_application(*,assignment_path,patcher_directory,tokenizer_path,
     messages=patch_messages(profile=scope['profile'],skill_bytes=skill,diagnosis=assignment['diagnosis'])
     if (request.get('kind')!='NativeProposalIntent' or request.get('slot')!=0
             or request.get('policy_digest')!=policy['digest'] or request.get('messages')!=messages
+            or response.get('kind')!='NativeProposalResponse' or response.get('slot')!=0
+            or request.get('digest')!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
+            or response.get('digest')!=digest_jcs({k:v for k,v in response.items() if k!='digest'})
+            or type(request.get('inference_grant_digest')) is not str
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',request['inference_grant_digest'])
+            or response.get('inference_grant_digest')!=request['inference_grant_digest']
+            or proposal.get('inference_grant_digest')!=request['inference_grant_digest']
             or response.get('policy_digest')!=policy['digest'] or response.get('spent') is not True):
         raise ValueError('application_gate_original_native_request_response')
     model=policy['model_config']
@@ -108,6 +116,10 @@ def review_application(*,assignment_path,patcher_directory,tokenizer_path,
         prompt=tokenizer.count(messages,[],enable_thinking=False)+model['template_overhead_tokens']
     finally:tokenizer.close()
     completion=response['response'];backend=completion['backend_response'];usage=completion['usage']
+    raw_backend=base64.b64decode(completion['backend_response_raw_b64'],validate=True)
+    if (not 1<=len(raw_backend)<=4194304 or decode_json(raw_backend)!=backend
+            or digest_bytes(raw_backend)!=completion.get('backend_response_bytes_digest')):
+        raise ValueError('application_gate_original_backend_response_bytes')
     if (prompt+1024>16384 or type(response.get('actual_prompt_tokens')) is not int
             or response['actual_prompt_tokens']!=prompt
             or backend.get('model')!=model['model'] or backend.get('done') is not True
