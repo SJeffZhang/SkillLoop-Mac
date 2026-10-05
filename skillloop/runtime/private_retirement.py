@@ -76,30 +76,101 @@ def retire_private_runtime(*,reference,completion,grant_path,journal_directory,e
                 (('worker_id','stopped_container_id'),('keeper_id','keeper_id'),('run_volume','run_volume')))):
         raise ValueError('private_retirement_exact_gate_authorization')
     root=_directory(journal_directory,21001,21001,0o700)
-    if any(root.iterdir()):raise ValueError('private_retirement_original_operation_recovery_required')
-    worker=engine.inspect(grant['worker_id']);keeper=engine.inspect(grant['keeper_id'])
-    volume=engine.inspect_volume(grant['run_volume'])
-    original=completion['inspection'];request=original['Config']['Labels']['skillloop.run_request']
-    if (worker.get('Id')!=original['Id'] or worker.get('Image')!=original['Image']
-            or worker.get('Config')!=original['Config'] or worker.get('State',{}).get('Running') is not False
-            or worker.get('State',{}).get('ExitCode')!=closure['actual_exit_code']
-            or keeper.get('Id')!=grant['keeper_id'] or keeper.get('Image')!=worker['Image']
-            or keeper.get('Config',{}).get('User')!='21001:21001'
-            or keeper.get('State',{}).get('Running') is not True
-            or digest_jcs(keeper)!=closure['keeper_inspection_digest']
-            or volume.get('Name')!=grant['run_volume']
-            or volume.get('Labels',{}).get('skillloop.run_request')!=request
-            or not any(m.get('Name')==volume['Name'] and m.get('RW') is False for m in keeper.get('Mounts',[]))):
-        raise ValueError('private_retirement_actual_original_resources')
-    _save(root,'retirement-intent.json',{'kind':'OpaquePrivateRetirementIntent',
-        'grant_digest':grant['digest'],'worker':worker,'keeper':keeper,'volume':volume,
-        'automatic_reexecution_allowed':False})
-    # Lost responses leave the intent for recovery; never infer success or rerun.
-    engine.request('POST','/containers/'+keeper['Id']+'/stop?t=1',timeout=5)
-    stopped=engine.inspect(keeper['Id'])
-    if stopped.get('State',{}).get('Running') is not False:
-        raise RuntimeError('private_retirement_keeper_stop_unknown')
-    engine.remove(worker['Id']);engine.remove(keeper['Id']);engine.remove_volume(volume['Name'])
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.docker_api import DockerEngineError
+    intent_path=root/'retirement-intent.json'
+    if intent_path.exists():
+        intent=_controller_record(intent_path)
+        if (intent.get('kind')!='OpaquePrivateRetirementIntent' or intent.get('grant_digest')!=grant['digest']
+                or intent.get('automatic_reexecution_allowed') is not False
+                or intent.get('worker',{}).get('Id')!=grant['worker_id']
+                or intent.get('keeper',{}).get('Id')!=grant['keeper_id']
+                or intent.get('volume',{}).get('Name')!=grant['run_volume']):
+            raise ValueError('private_retirement_changed_original_intent')
+        worker,keeper,volume=(intent[k] for k in ('worker','keeper','volume'))
+    else:
+        if any(root.iterdir()):raise ValueError('private_retirement_unrecognized_journal')
+        worker=engine.inspect(grant['worker_id']);keeper=engine.inspect(grant['keeper_id'])
+        volume=engine.inspect_volume(grant['run_volume'])
+        original=completion['inspection'];request=original['Config']['Labels']['skillloop.run_request']
+        if (worker.get('Id')!=original['Id'] or worker.get('Image')!=original['Image']
+                or worker.get('Config')!=original['Config'] or worker.get('State',{}).get('Running') is not False
+                or worker.get('State',{}).get('ExitCode')!=closure['actual_exit_code']
+                or keeper.get('Id')!=grant['keeper_id'] or keeper.get('Image')!=worker['Image']
+                or keeper.get('Config',{}).get('User')!='21001:21001'
+                or keeper.get('State',{}).get('Running') is not True
+                or digest_jcs(keeper)!=closure['keeper_inspection_digest']
+                or volume.get('Name')!=grant['run_volume']
+                or volume.get('Labels',{}).get('skillloop.run_request')!=request
+                or not any(m.get('Name')==volume['Name'] and m.get('RW') is False for m in keeper.get('Mounts',[]))):
+            raise ValueError('private_retirement_actual_original_resources')
+        intent=_save(root,intent_path.name,{'kind':'OpaquePrivateRetirementIntent',
+            'grant_digest':grant['digest'],'worker':worker,'keeper':keeper,'volume':volume,
+            'automatic_reexecution_allowed':False})
+    completed=root/'retirement-completion.json'
+    if completed.exists():
+        result=_controller_record(completed)
+        if (result.get('kind')!='OpaquePrivateRetirementCompletion'
+                or result.get('grant_digest')!=grant['digest'] or result.get('reference_digest')!=reference['digest']
+                or result.get('original_runtime_resources_released') is not True):
+            raise ValueError('private_retirement_changed_completion')
+        return result
+    for name,original in (('worker',worker),('keeper',keeper)):
+        done=root/(name+'-removed.json');started=root/(name+'-removing.json')
+        if done.exists():
+            receipt=_controller_record(done)
+            if receipt.get('container_id')!=original['Id'] or receipt.get('intent_digest')!=intent['digest']:
+                raise ValueError('private_retirement_changed_removal_receipt')
+            continue
+        removing=_controller_record(started) if started.exists() else None
+        if removing is not None and (removing.get('container_id')!=original['Id']
+                or removing.get('intent_digest')!=intent['digest']):
+            raise ValueError('private_retirement_changed_removal_intent')
+        try:actual=engine.inspect(original['Id'])
+        except DockerEngineError as error:
+            if error.status!=404 or removing is None:raise
+            _save(root,done.name,{'kind':'PrivateRuntimeResourceRemoved','container_id':original['Id'],
+                'intent_digest':intent['digest'],'actual_inspection_status':404})
+            continue
+        if (actual.get('Id')!=original['Id'] or actual.get('Image')!=original.get('Image')
+                or actual.get('Config')!=original.get('Config') or actual.get('HostConfig')!=original.get('HostConfig')
+                or actual.get('Mounts')!=original.get('Mounts')):
+            raise ValueError('private_retirement_changed_actual_resource')
+        if name=='keeper' and actual.get('State',{}).get('Running') is True:
+            engine.request('POST','/containers/'+original['Id']+'/stop?t=1',timeout=5)
+            actual=engine.inspect(original['Id'])
+        if actual.get('State',{}).get('Running') is not False:
+            raise RuntimeError('private_retirement_original_resource_not_stopped')
+        if name=='worker' and actual['State'].get('ExitCode')!=closure['actual_exit_code']:
+            raise ValueError('private_retirement_changed_worker_exit')
+        if removing is None:
+            _save(root,started.name,{'kind':'PrivateRuntimeResourceRemoving','container_id':original['Id'],
+                'intent_digest':intent['digest'],'inspection':actual})
+        # Never force running processes or let Docker delete anonymous volumes.
+        engine.request('DELETE','/containers/'+original['Id']+'?force=false&v=false')
+        _save(root,done.name,{'kind':'PrivateRuntimeResourceRemoved','container_id':original['Id'],
+            'intent_digest':intent['digest'],'actual_delete_acknowledged':True})
+    done=root/'volume-removed.json';started=root/'volume-removing.json'
+    if not done.exists():
+        removing=_controller_record(started) if started.exists() else None
+        if removing is not None and (removing.get('volume_name')!=volume['Name']
+                or removing.get('intent_digest')!=intent['digest']):
+            raise ValueError('private_retirement_changed_volume_intent')
+        try:actual=engine.inspect_volume(volume['Name'])
+        except DockerEngineError as error:
+            if error.status!=404 or removing is None:raise
+            actual=None
+        if actual is not None:
+            if actual!=volume:raise ValueError('private_retirement_changed_original_volume')
+            if removing is None:
+                _save(root,started.name,{'kind':'PrivateRuntimeVolumeRemoving','volume_name':volume['Name'],
+                    'intent_digest':intent['digest']})
+            engine.remove_volume(volume['Name'])
+        _save(root,done.name,{'kind':'PrivateRuntimeVolumeRemoved','volume_name':volume['Name'],
+            'intent_digest':intent['digest'],'actual_inspection_status':404 if actual is None else 200})
+    receipt=_controller_record(done)
+    if receipt.get('volume_name')!=volume['Name'] or receipt.get('intent_digest')!=intent['digest']:
+        raise ValueError('private_retirement_changed_volume_receipt')
     return _save(root,'retirement-completion.json',{'kind':'OpaquePrivateRetirementCompletion',
         'grant_digest':grant['digest'],'reference_digest':reference['digest'],
         'worker_id':worker['Id'],'keeper_id':keeper['Id'],'run_volume':volume['Name'],

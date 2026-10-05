@@ -204,10 +204,27 @@ def retire_auxiliary_processes(*,processes,journal_directory,engine):
         identifier=original['Id']
         if not re.fullmatch(r'[0-9a-f]{64}',identifier):raise ValueError('protected_aux_container_id')
         done=root/(identifier+'.removed.json')
-        if done.exists():continue
+        if done.exists():
+            receipt=_controller_record(done)
+            if receipt.get('kind')!='ProtectedAuxiliaryRemoved' or receipt.get('container_id')!=identifier:
+                raise ValueError('protected_aux_changed_removal_receipt')
+            continue
         started=root/(identifier+'.removing.json')
-        if started.exists():raise RuntimeError('protected_aux_remove_response_unknown_requires_recovery')
-        actual=engine.inspect(identifier)
+        removing=_controller_record(started) if started.exists() else None
+        if removing is not None and (removing.get('kind')!='ProtectedAuxiliaryRemoving'
+                or removing.get('inspection',{}).get('Id')!=identifier
+                or removing['inspection'].get('Config')!=original.get('Config')
+                or removing['inspection'].get('Image')!=original.get('Image')):
+            raise ValueError('protected_aux_changed_original_removal')
+        from skillloop.runtime.docker_api import DockerEngineError
+        try:actual=engine.inspect(identifier)
+        except DockerEngineError as error:
+            # Only an original durable removal intent permits reconciling 404.
+            # Timeouts, disconnects and other status codes remain unknown.
+            if error.status!=404 or removing is None:raise
+            _save(root,done.name,{'kind':'ProtectedAuxiliaryRemoved','container_id':identifier,
+                'reconciled_original_intent_digest':removing['digest'],'actual_inspection_status':404})
+            continue
         if (actual.get('Id')!=identifier or actual.get('Image')!=original.get('Image')
                 or actual.get('Config')!=original.get('Config')
                 or actual.get('Config',{}).get('User') not in {'21004:21004','21005:21005','21002:21002'}
@@ -217,7 +234,8 @@ def retire_auxiliary_processes(*,processes,journal_directory,engine):
                 or actual.get('HostConfig',{}).get('NetworkMode')!='none'
                 or actual.get('HostConfig',{}).get('LogConfig',{}).get('Type')!='none'):
             raise ValueError('protected_aux_original_stopped_identity')
-        _save(root,started.name,{'kind':'ProtectedAuxiliaryRemoving','inspection':actual})
+        if removing is None:
+            _save(root,started.name,{'kind':'ProtectedAuxiliaryRemoving','inspection':actual})
         # No volume deletion: private raw, snapshots and archive remain owned.
         engine.request('DELETE','/containers/'+identifier+'?force=false&v=false')
         _save(root,done.name,{'kind':'ProtectedAuxiliaryRemoved','container_id':identifier})

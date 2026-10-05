@@ -93,6 +93,49 @@ class CampaignDispatcher:
         self.manifest_path=whole_round_manifest_path
         self.phase=FormalPhaseExecutor(controller=controller,ledger=ledger,tokenizer=tokenizer,
             journal_directory=phase_journal,whole_round_manifest_path=whole_round_manifest_path)
+    def reconcile_original_retirements(self,request,route):
+        """Continue a recorded process removal, never an inference or delivery.
+
+        Called during original-operation recovery before proving the remaining
+        unstarted tail. Only the first incomplete, already started archive-close
+        stage with a durable resource retirement intent can be reconciled.
+        """
+        if os.geteuid()!=21001:raise PermissionError('campaign_recovery_controller')
+        validate_dispatch_route(route)
+        from skillloop.protection.current_task import _directory
+        from skillloop.runtime.proposal_dispatch import _save
+        journal=_directory(route['journal_directory'],21001,21001,0o700)
+        identity=_controller_record(journal/'identity.json')
+        if (identity.get('kind')!='CampaignRouteIdentity' or identity.get('request_digest')!=request['digest']
+                or identity.get('route_digest')!=route['digest']):
+            raise ValueError('campaign_recovery_original_journal_identity')
+        for index,step in enumerate(route['steps']):
+            token=str(index).zfill(4);done=journal/(token+'.completed.json')
+            started=journal/(token+'.started.json')
+            if done.exists():
+                saved=_controller_record(done);begin=_controller_record(started)
+                for value,kind in ((saved,'CampaignStageCompleted'),(begin,'CampaignStageStarted')):
+                    if (value.get('kind')!=kind or value.get('request_digest')!=request['digest']
+                            or value.get('step_digest')!=digest_jcs(step)):
+                        raise ValueError('campaign_recovery_original_prefix')
+                continue
+            if not started.exists():return
+            begin=_controller_record(started)
+            if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
+                    or begin.get('step_digest')!=digest_jcs(step)):
+                raise ValueError('campaign_recovery_original_started_stage')
+            if step['action']!='archive_close':return
+            # Presence and custody of the original intent is checked before the
+            # caller, so recovery cannot initialize a new cleanup operation.
+            intent=_controller_record(Path(step['journal_directory'])/'intent.json')
+            if intent.get('kind')!='ArchiveRoleRetirementIntent':
+                raise ValueError('campaign_recovery_original_retirement_required')
+            from skillloop.runtime.archive_dispatch import close_archive_role
+            result=close_archive_role(policy_path=step['policy_path'],dispatch_journal=step['dispatch_journal'],
+                review_path=step['review_path'],journal_directory=step['journal_directory'],engine=self.engine)
+            _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                'request_digest':request['digest'],'result':result})
+            return
     def recover_unstarted_tail(self,request,route):
         """Prove a committed prefix before requeueing the original operation.
 

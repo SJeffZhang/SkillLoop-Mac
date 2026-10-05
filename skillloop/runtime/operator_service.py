@@ -47,6 +47,7 @@ class OperatorService:
             try:self.store.complete(ref,self.dispatcher.recover_final(request,route))
             except Exception:
                 try:
+                    self.dispatcher.reconcile_original_retirements(request,route)
                     proof=self.dispatcher.recover_unstarted_tail(request,route)
                     self.store.requeue_unstarted_tail(ref,proof)
                 except Exception:self.store.fail(ref,'unknown_requires_recovery')

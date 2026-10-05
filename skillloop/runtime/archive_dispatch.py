@@ -157,27 +157,64 @@ def close_archive_role(*,policy_path,dispatch_journal,review_path,journal_direct
     deadline=datetime.fromisoformat(policy['deadline'].replace('Z','+00:00'))
     if deadline.tzinfo is None or type(policy['closure_seconds']) is not int or not 30<=policy['closure_seconds']<=120:
         raise ValueError('archive_closure_original_budget_policy')
-    started_at=datetime.now(timezone.utc);started=time.monotonic()
     root=_directory(journal_directory,21001,21001,0o700)
-    if any(root.iterdir()):raise RuntimeError('archive_original_retirement_recovery_required')
-    identifier=created['id'];actual=engine.inspect(identifier)
-    original=created['inspection']
-    _verify_role_process(actual,identifier,created['configuration'],created['configuration']['HostConfig']['Mounts'])
-    if (actual['Id']!=identifier or actual.get('Config')!=original.get('Config')
-            or actual.get('Image')!=original.get('Image') or actual.get('HostConfig')!=original.get('HostConfig')):
-        raise ValueError('archive_closure_actual_original_role')
-    _save(root,'intent.json',{'kind':'ArchiveRoleRetirementIntent','policy_digest':policy['digest'],
-        'worker_id':identifier,'review_digest':review['digest'],'automatic_reexecution_allowed':False,
-        'started_at':started_at.isoformat(),'original_deadline':policy['deadline'],
-        'reserved_closure_seconds':policy['closure_seconds']})
-    if actual['State']['Running']:
-        if policy['action']!='key_service':raise ValueError('archive_encryption_worker_not_stopped')
-        engine.request('POST','/containers/'+identifier+'/stop?t=5',timeout=10)
+    identifier=created['id'];original=created['inspection']
+    intent_path=root/'intent.json'
+    if intent_path.exists():
+        retirement=_controller_record(intent_path)
+        if (retirement.get('kind')!='ArchiveRoleRetirementIntent'
+                or retirement.get('policy_digest')!=policy['digest'] or retirement.get('worker_id')!=identifier
+                or retirement.get('review_digest')!=review['digest']
+                or retirement.get('original_deadline')!=policy['deadline']
+                or retirement.get('reserved_closure_seconds')!=policy['closure_seconds']):
+            raise ValueError('archive_closure_changed_original_intent')
+        started_at=datetime.fromisoformat(retirement['started_at'])
+        if started_at.tzinfo is None or started_at>datetime.now(timezone.utc):
+            raise ValueError('archive_closure_original_start_clock')
+    else:
+        if any(root.iterdir()):raise RuntimeError('archive_closure_unrecognized_journal')
         actual=engine.inspect(identifier)
-    if actual['State']['Running'] or actual['State']['ExitCode']!=0:
-        raise RuntimeError('archive_role_closure_unknown_or_failed_preserve_resources')
-    engine.remove(identifier)
-    completed_at=datetime.now(timezone.utc);elapsed=time.monotonic()-started
+        _verify_role_process(actual,identifier,created['configuration'],created['configuration']['HostConfig']['Mounts'])
+        if (actual.get('Config')!=original.get('Config') or actual.get('Image')!=original.get('Image')
+                or actual.get('HostConfig')!=original.get('HostConfig')):
+            raise ValueError('archive_closure_actual_original_role')
+        started_at=datetime.now(timezone.utc)
+        retirement=_save(root,'intent.json',{'kind':'ArchiveRoleRetirementIntent','policy_digest':policy['digest'],
+            'worker_id':identifier,'review_digest':review['digest'],'automatic_reexecution_allowed':False,
+            'started_at':started_at.isoformat(),'original_deadline':policy['deadline'],
+            'reserved_closure_seconds':policy['closure_seconds']})
+    if (root/'completion.json').exists():
+        completed=_controller_record(root/'completion.json')
+        if (completed.get('kind')!='ArchiveRoleRetirementCompletion' or completed.get('worker_id')!=identifier
+                or completed.get('review_digest')!=review['digest'] or completed.get('original_process_removed') is not True):
+            raise ValueError('archive_closure_changed_completion')
+        return completed
+    removing_path=root/'removing.json'
+    removing=_controller_record(removing_path) if removing_path.exists() else None
+    if removing is not None and (removing.get('worker_id')!=identifier
+            or removing.get('intent_digest')!=retirement['digest']):
+        raise ValueError('archive_closure_changed_removal_intent')
+    from skillloop.runtime.docker_api import DockerEngineError
+    try:actual=engine.inspect(identifier)
+    except DockerEngineError as error:
+        if error.status!=404 or removing is None:raise
+        actual=None
+    if actual is not None:
+        _verify_role_process(actual,identifier,created['configuration'],created['configuration']['HostConfig']['Mounts'])
+        if (actual.get('Config')!=original.get('Config') or actual.get('Image')!=original.get('Image')
+                or actual.get('HostConfig')!=original.get('HostConfig')):
+            raise ValueError('archive_closure_changed_original_role')
+        if actual['State']['Running']:
+            if policy['action']!='key_service':raise ValueError('archive_encryption_worker_not_stopped')
+            engine.request('POST','/containers/'+identifier+'/stop?t=5',timeout=10)
+            actual=engine.inspect(identifier)
+        if actual['State']['Running'] or actual['State']['ExitCode']!=0:
+            raise RuntimeError('archive_role_closure_unknown_or_failed_preserve_resources')
+        if removing is None:
+            _save(root,removing_path.name,{'kind':'ArchiveRoleRemoving','worker_id':identifier,
+                'intent_digest':retirement['digest'],'inspection':actual})
+        engine.request('DELETE','/containers/'+identifier+'?force=false&v=false')
+    completed_at=datetime.now(timezone.utc);elapsed=(completed_at-started_at).total_seconds()
     # Cleanup may still be necessary after expiry. Record the failed budget
     # closure rather than extending the original clock or claiming a pass.
     budget_status=('within_original_budget' if completed_at<deadline and elapsed<=policy['closure_seconds']

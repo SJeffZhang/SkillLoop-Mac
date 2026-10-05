@@ -170,3 +170,9 @@ Admin 通用 role_command 不再发送尚无业务实现的 Proxy export/archive
 部署实际核对 Docker local volume 的 Options/epoch，bootstrap 在首次写入前核对实际持久 FS free floor 和完整初始化预算。原每任务有界 tmpfs、Keeper 和临时证据保全流程独立保留；长期数据仍按原角色子目录权限授权。只对新部署身份生效，旧 manifest/卷不迁移、不重启。整个 campaign 的共享物理预留和释放仍未闭合，provision completion 明确 campaign_capacity_verified=false。未构建或运行新部署。
 
 统一角色准入还要求除独立冻结 Scanner 以外的生产角色使用当前 whole-round 精确 image；拒绝重复环境变量名或不合法环境条目，避免已冻结 source/image 与实际角色配置分离。Scanner 仍由自己的 scanner lock/实际报告链复核。未运行部署验证。
+
+### 原资源清理的丢失响应恢复
+
+Docker 客户端保存实际 HTTP 状态，传输超时与明确 404 分开处理。保护辅助进程、原 Runtime/Keeper/任务卷以及加密归档角色清理保存逐资源删除意图；仅在原意图存在且身份一致时，以真实 inspect 404 核实删除。资源仍存在时重读原 image、配置、挂载和停止状态，再继续同一清理；不重新派发任务、不强制删除运行进程，也不让容器删除隐式带走证据卷。
+
+Operator 重启可接续已开始的 archive_close 原清理意图，然后核对已提交前缀再排队原未开始的尾部。归档清理恢复保留原 started_at、deadline 和预算，过期仍输出 inconclusive_expired_budget_closure。保护业务投递未知继续阻断；这不是任意 started 阶段重试。上述代码只经源码、语法和 diff 检查，仍待整轮真实故障验证。

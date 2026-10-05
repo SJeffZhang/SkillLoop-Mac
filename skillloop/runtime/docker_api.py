@@ -3,6 +3,12 @@ from __future__ import annotations
 import http.client,json,socket
 from urllib.parse import quote
 
+class DockerEngineError(RuntimeError):
+    """An actual HTTP rejection, distinct from an unknown transport outcome."""
+    def __init__(self,status,detail):
+        self.status=status
+        super().__init__('docker_engine_'+str(status)+':'+detail)
+
 class DockerEngine:
     def __init__(self,socket_path='/var/run/docker.sock'):
         self.socket_path=socket_path
@@ -23,7 +29,7 @@ class DockerEngine:
                 data=response.read(maximum_response_bytes+1)
                 if len(data)>maximum_response_bytes:raise ValueError('docker_response_capacity')
             else:data=response.read()
-            if response.status>=300:raise RuntimeError('docker_engine_'+str(response.status)+':'+data.decode(errors='replace')[:400])
+            if response.status>=300:raise DockerEngineError(response.status,data.decode(errors='replace')[:400])
             return data if raw else json.loads(data) if data else None
         finally:connection.close()
     def create_volume(self,name,*,driver_options=None,labels=None):
