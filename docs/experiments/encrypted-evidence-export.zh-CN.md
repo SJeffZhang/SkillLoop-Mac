@@ -633,3 +633,7 @@ Controller正式private_factory调用可消费FrozenPrivateFactoryProduction rec
 ### 冻结入口的Factory公开定位与策略生产顺序
 
 Factory仅新增同原opaque commitment字节的固定commit.json普通文件，公开结构与私有可见性不变。原摘要命名结果及固定定位必须都一致才完成dispatch/恢复；先持久epoch后发布，部分文件仍保留unknown且不重新生成。正式evaluate路线强制一次实际Admin private-policy生产位于冻结名单之后、私有任务投递之前，不能用预填策略绕过生产调用者。委托生产重放还核对原spending实际账本记录。仅源码检查，未启动实验。
+
+### 保护计划封存后拒绝迟到开发推理
+
+Proxy实际runtime inference reserve事务在读取原run和授权后，同时核对evaluator_protected_campaigns。当前campaign已封存保护计划时，旧dev run不能再预留新模型请求，稳定返回已有denied代码；不删除原请求、不阻止原完成证据记账、不回收unknown槽。与现有候选/proposal封存拒绝保持同一实际权威边界。仅源码检查，完整失败/unknown尝试catalog仍未闭合，未修改development all_attempt_history_complete=false。

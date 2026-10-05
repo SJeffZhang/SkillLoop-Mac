@@ -71,6 +71,12 @@ class RuntimeInferenceAuthority:
             # Privacy is inferred from the actual Evaluator admission, never
             # from a caller's claim or a path containing the word "private".
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if request['phase']=='dev' and 'evaluator_protected_campaigns' in tables and db.execute(
+                    'SELECT 1 FROM evaluator_protected_campaigns WHERE campaign=?',(request['campaign_id'],)).fetchone():
+                # The private-plan fence closes development inference as well
+                # as candidate admission. A lingering old run cannot create
+                # another request against the fresh protected backend.
+                raise ProxyError('denied')
             private = False
             if 'evaluator_task_transports' in tables:
                 private = db.execute('SELECT 1 FROM evaluator_task_transports p '
