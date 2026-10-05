@@ -36,3 +36,29 @@ def require_unchanged(path,before,after):
     finally:os.close(fd)
     if identity(before)!=identity(after) or identity(before)!=identity(current):
         raise ValueError('archive_original_path_or_bytes_changed')
+
+
+def allocate_output(fd,length,*,free_floor_bytes=2147483648):
+    """Allocate the actual output inode before writing its evidence bytes.
+
+    This is a per-output allocation, not a complete campaign reservation.
+    Failed or partially allocated files are retained for original recovery.
+    """
+    before=os.fstat(fd)
+    if (type(length) is not int or not 0<=length<=2147483648
+            or type(free_floor_bytes) is not int or free_floor_bytes<2147483648
+            or not stat.S_ISREG(before.st_mode) or before.st_nlink!=1
+            or before.st_uid!=os.geteuid() or before.st_size!=0):
+        raise PermissionError('archive_output_new_owned_inode_required')
+    fs=os.fstatvfs(fd)
+    if fs.f_bavail*fs.f_frsize<free_floor_bytes+length:
+        raise OSError('archive_output_allocation_free_floor')
+    if length:
+        if not hasattr(os,'posix_fallocate'):
+            raise RuntimeError('archive_output_real_allocation_unavailable')
+        os.posix_fallocate(fd,0,length)
+    os.fsync(fd);actual=os.fstat(fd);fs=os.fstatvfs(fd)
+    if (actual.st_size!=length or actual.st_blocks*512<length
+            or (actual.st_dev,actual.st_ino)!=(before.st_dev,before.st_ino)
+            or fs.f_bavail*fs.f_frsize<free_floor_bytes):
+        raise OSError('archive_output_real_allocation_or_floor_failed')

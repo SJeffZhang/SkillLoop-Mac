@@ -18,7 +18,7 @@ from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import canonical_json_line,decode_json,digest_bytes,digest_jcs
 from skillloop.runtime.archive_crypto import locked_crypto,key_label,encrypt_stream,verify_stream,read_header,header_bytes,MAGIC
 from skillloop.runtime.archive_key_service import unwrap_for_gate
-from skillloop.runtime.archive_files import open_original,identity,require_unchanged
+from skillloop.runtime.archive_files import open_original,identity,require_unchanged,allocate_output
 
 
 def _hash(path,budget):
@@ -200,7 +200,9 @@ def run_export(policy_path,*,review=False):
     fd=os.open(bundle,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as output:
         os.fchown(output.fileno(),-1,21010);os.fchmod(output.fileno(),0o640)
+        budget();allocate_output(output.fileno(),cipher_size);budget()
         clear_digest,clear_size=encrypt_stream(output=output,chunks=_chunks(inventory,policy,budget),header=header,key=data_key,crypto=crypto,budget=budget)
+        if output.tell()!=cipher_size:raise ValueError('archive_original_ciphertext_extent_length')
         output.flush();os.fsync(output.fileno())
     with bundle.open('rb') as stream:
         if verify_stream(source=stream,key=data_key,crypto=crypto,expected_header=header,budget=budget)!=(clear_digest,clear_size):

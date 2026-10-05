@@ -142,3 +142,9 @@ Registry 的名单冻结和原 campaign 绑定入口也核对已提交的 archiv
 ### 原件读取的完整路径核验
 
 实际操作历史复制、加密 inventory、加密内容写入和独立 campaign 审查共用逐层 openat/O_NOFOLLOW 读取。每一层目录禁止 symlink，读取前后核对 inode、mtime/ctime、大小、权限、owner 和 link count，结束时重新从完整路径打开并比较，防止原 fd 不变但路径已被替换。加密 inventory 还检查扫描期间目录是否变化；操作 SQLite backup 完成后复核实际容量上限。原件变化即拒绝完成，部分副本保留。未运行实验。
+
+### 实际导出和恢复文件提前分配
+
+Durable task 复制、AES-GCM 输出及惰性历史恢复在写入内容前，对即将保存真实证据的原 inode 执行 posix_fallocate；核对实际 blocks/size、所有权、2GiB free floor，并 fsync。加密输出另外核对写入位置等于预计算的完整封装长度。没有支持的实际分配能力或空间不足时拒绝写入完成，部分文件保留；不创建无关占位文件、不降级稀疏文件。
+
+这是这些实际输出文件的提前分配，尚不等同于完整 campaign 所有角色共享的 2GiB 预留、并发容量或紧急空间链。正式资源验收仍未闭合。未进行组件实验或整轮运行。

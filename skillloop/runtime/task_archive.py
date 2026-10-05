@@ -14,6 +14,7 @@ import time
 
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
+from skillloop.runtime.archive_files import open_original,identity,require_unchanged,allocate_output
 
 
 def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engine=None,mount_attestation_path=None):
@@ -136,20 +137,22 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
     inventory=[]
     for relative,source,meta in sorted(paths,key=lambda row:row[0]):
         budget();destination=target/relative;destination.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-        source_fd=os.open(source,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        source_fd=open_original(source)
         with os.fdopen(source_fd,'rb') as reader:
             before=os.fstat(reader.fileno())
-            if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(meta.st_dev,meta.st_ino,meta.st_size,meta.st_mtime_ns):
+            if identity(before)!=identity(meta):
                 raise ValueError('task_archive_source_changed_before_copy')
             target_fd=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             with os.fdopen(target_fd,'wb') as writer:
+                budget();allocate_output(writer.fileno(),meta.st_size);budget()
                 checksum=hashlib.sha256();copied=0
                 for block in iter(lambda:reader.read(1048576),b''):
                     budget();copied+=len(block)
                     if copied>meta.st_size:raise ValueError('task_archive_source_grew')
                     checksum.update(block);writer.write(block)
                 writer.flush();os.fsync(writer.fileno());after=os.fstat(reader.fileno())
-                if copied!=meta.st_size or (after.st_size,after.st_mtime_ns)!=(meta.st_size,meta.st_mtime_ns):
+                require_unchanged(source,meta,after)
+                if copied!=meta.st_size:
                     raise ValueError('task_archive_source_changed_during_copy')
         check=hashlib.sha256()
         with destination.open('rb') as stream:

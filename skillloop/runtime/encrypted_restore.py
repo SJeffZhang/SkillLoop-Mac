@@ -16,6 +16,7 @@ from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
 from skillloop.runtime.archive_crypto import locked_crypto,read_header,verify_stream
+from skillloop.runtime.archive_files import allocate_output
 from skillloop.runtime.archive_key_service import unwrap_for_gate
 from skillloop.runtime.encrypted_archive import _hash
 
@@ -126,7 +127,7 @@ def run_restore(policy_path):
             fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             checksum=hashlib.sha256();remaining=row['bytes']
             with os.fdopen(fd,'wb') as stream:
-                if remaining:os.posix_fallocate(stream.fileno(),0,remaining)
+                budget();allocate_output(stream.fileno(),remaining);budget()
                 while remaining:
                     budget();block=reader.read(min(1048576,remaining));remaining-=len(block)
                     stream.write(block);checksum.update(block)
