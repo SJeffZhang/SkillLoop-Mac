@@ -515,3 +515,11 @@ Admin部署生产者在发布新manifest之前，按Controller实际卷/subpath�
 OllamaGateway的正常结果保留实际收到的HTTP响应原字节及摘要，随后Runtime/Generator/Patcher原证据记录保留同一结果。Gateway→Proxy完成记录同时保存规范化响应摘要和原字节摘要；原Task Evaluator及独立Gate将实际raw字节解析结果、上下文、模型、token与一致Proxy snapshot逐轮比对，不能从重序列化后的JSON推断原始字节。响应丢失、解析失败或没有对应Runtime记录仍保留已花费/未知，不重投。
 
 新部署推理记录采用明确version2及严格列检查，拒绝已有不同版本，不迁移任何旧冻结库。新增原始响应副本需纳入之后完整recipe与证据峰值预算，未给现有预算扩容。仅AST及源码检查，无模型/数据库执行或实验，完整修复继续。
+
+### Campaign正式原生Gateway调用与停止恢复
+
+统一调度器新增内部typed native_gateway/native_gateway_close步骤，直接调用原生产Gateway派发并绑定当前campaign；启动前消费原完整辅助预算，禁止从非空journal重复创建。实际Docker进程核验使用与独立评估相同的完整身份、环境、挂载、资源和权限检查。原ready响应丢失仅恢复已记录同一进程的原receipt，未知创建不再次启动。
+
+关闭先持久原进程/原ready/原预算deadline与关闭时钟，然后停止确切进程并核验不再运行。丢失停止响应可继续同一关闭操作，预算过期仍做停止保全但保留inconclusive，不更新原时钟。关闭不删除容器、volume、推理DB或bridge证据；独立archive审查前不能把停止当成证据释放。保护Gateway继续禁Docker日志，不将原生私有响应导入Controller。宿主后端停止与新进程生命周期仍由独立Admin/Gate链处理，这里不是fresh-private证明。
+
+只检查149份Python源码语法与调用差异，未运行模型、OCI、数据库或测试。完整动态recipe、全尝试catalog、共享campaign物理容量、正式CI和新部署restore仍继续修复。

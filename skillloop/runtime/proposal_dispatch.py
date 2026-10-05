@@ -85,6 +85,8 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     if (not directory.is_absolute() or directory.is_symlink() or not stat.S_ISDIR(info.st_mode)
             or info.st_uid!=21001 or stat.S_IMODE(info.st_mode)!=0o700):
         raise PermissionError('native_gateway_private_journal')
+    if any(directory.iterdir()):
+        raise RuntimeError('native_gateway_original_dispatch_requires_recovery')
     mounts=[]
     targets={'gateway_policy':'/gateway-policy','whole_round':'/whole-round',
              'tokenizer':'/model','model_bridge':'/model-bridge'}
@@ -114,7 +116,9 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
             'Tmpfs':{'/tmp':'rw,nosuid,nodev,size=64m'},'Mounts':mounts}}
     if protected:config['HostConfig']['LogConfig']={'Type':'none','Config':{}}
     _save(directory,'dispatch-intent.json',{'kind':'FormalNativeGatewayDispatchIntent',
-        'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest'],'configuration':config})
+        'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest'],'configuration':config,
+        'campaign_digest':policy['campaign_digest'],'campaign_deadline':policy['campaign_deadline'],
+        'closure_seconds':policy['closure_seconds'],'protected':protected})
     spending=ledger.consume_auxiliary(manifest=whole,campaign=policy['campaign_digest'],stage='private_factory_lifecycle' if protected else 'import_scan',
         operation_key='gateway-'+policy['digest'][7:],seconds=policy['startup_seconds']+policy['closure_seconds'],
         input_tokens=0,output_tokens=0,disk_bytes=policy['maximum_evidence_bytes'])
@@ -123,6 +127,7 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     _save(directory,'created.json',{'kind':'FormalNativeGatewayCreated','container_id':identifier,
                                    'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest']})
     def identity(observed):
+        _verify_role_process(observed,identifier,config,mounts)
         if (observed.get('Id')!=identifier or observed.get('Image')!=whole['image']
                 or observed.get('Config',{}).get('User')!='21011:21011'
                 or observed.get('Config',{}).get('Labels')!=config['Labels']):
@@ -178,6 +183,119 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
         except BaseException as secondary:error.add_note('native_gateway_preservation_requires_recovery:'+type(secondary).__name__)
         raise
 
+
+
+def _original_model_bridge(journal_directory):
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.evaluation_dispatch import _verify_role_process
+    root=Path(journal_directory)
+    intent=_controller_record(root/'dispatch-intent.json')
+    created=_controller_record(root/'created.json')
+    ready=_controller_record(root/'ready.json')
+    spending=_controller_record(root/'spending.json')
+    config=intent['configuration'];identifier=created['container_id']
+    if (intent.get('kind')!='FormalNativeGatewayDispatchIntent'
+            or created.get('kind')!='FormalNativeGatewayCreated'
+            or ready.get('kind')!='FormalNativeGatewayReady'
+            or spending.get('kind')!='FormalNativeGatewaySpending'
+            or ready['container_id']!=identifier
+            or any(value['dispatch_digest']!=intent['dispatch_digest'] for value in (created,ready))
+            or any(value['gateway_policy_digest']!=intent['gateway_policy_digest'] for value in (created,ready))
+            or ready['fresh_backend_lifecycle_verified'] is not intent['protected']
+            or ready['evidence_released'] is not False
+            or spending['spending']['operation_key']!='gateway-'+intent['dispatch_digest'][7:]
+            or spending['spending']['stage']!=('private_factory_lifecycle' if intent['protected'] else 'import_scan')
+            or (intent['protected'] and ready['inspection']['HostConfig'].get('LogConfig',{}).get('Type')!='none')):
+        raise ValueError('native_gateway_original_journal_chain')
+    _verify_role_process(ready['inspection'],identifier,config,config['HostConfig']['Mounts'])
+    return root,intent,ready
+
+
+def recover_model_bridge(*,journal_directory,engine):
+    """Recover an acknowledged start only; never repeat create or inference."""
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('native_gateway_recovery_actual_controller')
+    from skillloop.runtime.evaluation_dispatch import _verify_role_process
+    root,intent,ready=_original_model_bridge(journal_directory)
+    actual=engine.inspect(ready['container_id'])
+    _verify_role_process(actual,ready['container_id'],intent['configuration'],
+                         intent['configuration']['HostConfig']['Mounts'])
+    if intent['protected'] and actual['HostConfig'].get('LogConfig',{}).get('Type')!='none':
+        raise PermissionError('protected_gateway_original_private_logs')
+    # The original receipt remains a historical start fact. A later dispatch
+    # independently requires the process to be running before spending a slot.
+    return ready
+
+
+def close_model_bridge(*,dispatch_journal,journal_directory,engine,expected_campaign=None):
+    """Stop the exact original bridge and retain all evidence for archive Gate.
+
+    No remove occurs here: shutdown is not an independent archive review.
+    A lost stop acknowledgement may inspect/stop this same process, but cannot
+    start a replacement or reset the original closing clock.
+    """
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('native_gateway_close_actual_controller')
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.evaluation_dispatch import _verify_role_process
+    from skillloop.protection.current_task import _directory
+    _,dispatch,ready=_original_model_bridge(dispatch_journal)
+    if expected_campaign is not None and expected_campaign!=dispatch['campaign_digest']:
+        raise ValueError('native_gateway_close_original_campaign')
+    root=_directory(journal_directory,21001,21001,0o700)
+    if root==Path(dispatch_journal):raise ValueError('native_gateway_distinct_closing_journal')
+    identifier=ready['container_id'];config=dispatch['configuration']
+    actual=engine.inspect(identifier)
+    _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
+    if dispatch['protected'] and actual['HostConfig'].get('LogConfig',{}).get('Type')!='none':
+        raise PermissionError('protected_gateway_original_private_logs')
+    now=datetime.now(timezone.utc)
+    deadline=datetime.fromisoformat(dispatch['campaign_deadline'].replace('Z','+00:00'))
+    intent_path=root/'intent.json'
+    if intent_path.exists():
+        intent=_controller_record(intent_path)
+        if (intent.get('kind')!='FormalNativeGatewayCloseIntent'
+                or intent['dispatch_digest']!=dispatch['dispatch_digest']
+                or intent['ready_digest']!=ready['digest'] or intent['container_id']!=identifier
+                or intent['deadline']!=dispatch['campaign_deadline']
+                or intent['closure_seconds']!=dispatch['closure_seconds']):
+            raise ValueError('native_gateway_original_close_identity')
+    else:
+        if any(root.iterdir()):raise RuntimeError('native_gateway_partial_close_unknown')
+        intent=_save(root,'intent.json',{'kind':'FormalNativeGatewayCloseIntent',
+            'dispatch_digest':dispatch['dispatch_digest'],'ready_digest':ready['digest'],
+            'container_id':identifier,'deadline':dispatch['campaign_deadline'],
+            'closure_seconds':dispatch['closure_seconds'],'started_at':now.isoformat()})
+    started=datetime.fromisoformat(intent['started_at'])
+    if started.tzinfo is None or deadline.tzinfo is None or now<started:
+        raise ValueError('native_gateway_original_close_clock')
+    completion=root/'completion.json'
+    if completion.exists():
+        result=_controller_record(completion)
+        if (result.get('kind')!='FormalNativeGatewayClosed'
+                or result['intent_digest']!=intent['digest'] or result['container_id']!=identifier
+                or result['evidence_released'] is not False or actual['State']['Running'] is not False):
+            raise ValueError('native_gateway_original_close_completion')
+        if result['budget_closure']!='within_original_budget':
+            raise TimeoutError('native_gateway_original_close_expired')
+        return result
+    # Even after the original wall clock expires, stop for containment; the
+    # terminal record explicitly retains the budget failure.
+    if actual['State']['Running'] is True:
+        engine.request('POST','/containers/'+identifier+'/stop?t='+str(dispatch['closure_seconds']),
+                       timeout=dispatch['closure_seconds']+1)
+    actual=engine.inspect(identifier)
+    _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
+    if actual['State']['Running'] is not False:
+        raise RuntimeError('native_gateway_stop_unconfirmed')
+    now=datetime.now(timezone.utc);elapsed=(now-started).total_seconds()
+    within=now<deadline and 0<=elapsed<=dispatch['closure_seconds']+60
+    result=_save(root,'completion.json',{'kind':'FormalNativeGatewayClosed',
+        'intent_digest':intent['digest'],'container_id':identifier,'inspection':actual,
+        'elapsed_seconds':elapsed,'evidence_released':False,'archive_review_required':True,
+        'budget_closure':'within_original_budget' if within else 'inconclusive_expired_budget_closure'})
+    if not within:raise TimeoutError('native_gateway_original_close_expired')
+    return result
 
 def dispatch_proposal(*, assignment_directory, evidence_directory, policy,
                       journal_directory,whole_round_manifest_path,ledger,engine,registry):

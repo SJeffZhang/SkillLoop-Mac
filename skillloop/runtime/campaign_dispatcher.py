@@ -33,6 +33,8 @@ ACTION_FIELDS={
     'campaign_gate':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'promote':{'qualification_path','authority_directory'},
     'semantic_discovery':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
+    'native_gateway':{'policy_path','gateway_policy_directory','bridge_directory','journal_directory'},
+    'native_gateway_close':{'dispatch_journal','journal_directory'},
     'proposal':{'policy_path','assignment_directory','evidence_directory','journal_directory'},
     'application_gate':{'policy_path','assignment_directory','reviews_directory','journal_directory'},
 }
@@ -51,7 +53,7 @@ def validate_dispatch_route(route):
             or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
         raise ValueError('campaign_route_exact_campaign')
     producing={'register_campaign','development','roster_freeze','harden_review','private_factory','private_session',
-        'private_start','private_runtime','lifecycle_review','semantic_discovery','proposal','application_gate','campaign_gate','promote'}
+        'private_start','private_runtime','lifecycle_review','semantic_discovery','native_gateway','native_gateway_close','proposal','application_gate','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
     if any(step.get('action')=='campaign_inspection' for step in route['steps']) and (
@@ -172,6 +174,18 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action'] in {'native_gateway','native_gateway_close'}:
+                from skillloop.runtime.proposal_dispatch import recover_model_bridge, close_model_bridge
+                if step['action']=='native_gateway':
+                    if not (Path(step['journal_directory'])/'ready.json').exists():return
+                    result=recover_model_bridge(journal_directory=step['journal_directory'],engine=self.engine)
+                else:
+                    if not (Path(step['journal_directory'])/'intent.json').exists():return
+                    result=close_model_bridge(dispatch_journal=step['dispatch_journal'],
+                        journal_directory=step['journal_directory'],engine=self.engine,expected_campaign=route['campaign_digest'])
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action']=='development':
                 # Only a completely committed original phase can close a lost
                 # response. A partial phase or task start remains unknown.
@@ -347,7 +361,7 @@ class CampaignDispatcher:
             # start from this route after the actual Proxy cancellation commit.
             if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze','harden_review',
                     'private_factory','private_session','private_start','private_runtime','lifecycle_review','semantic_discovery',
-                    'proposal','application_gate','campaign_gate','promote','static_scan'} or (
+                    'native_gateway','proposal','application_gate','campaign_gate','promote','static_scan'} or (
                     campaign is not None and step['action']=='role_command' and step['role']=='admin'):
                 from skillloop.proxy.qualification_authority import require_campaign_not_cancelled
                 require_campaign_not_cancelled('/authority-projection',epoch=self.controller.epoch,campaign=campaign)
@@ -443,6 +457,19 @@ class CampaignDispatcher:
                     result=finish_auxiliary(step,actual,result,self.engine.inspect(deployment.provision()['keeper']['Id']),self.engine)
                 except BaseException as error:
                     preserve_auxiliary_failure(step,self.engine,error);raise
+            elif step['action']=='native_gateway':
+                from skillloop.runtime.proposal_dispatch import dispatch_model_bridge
+                policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                if policy.get('campaign_digest')!=campaign:
+                    raise ValueError('campaign_native_gateway_original_scope')
+                result=dispatch_model_bridge(policy=policy,
+                    gateway_policy_directory=step['gateway_policy_directory'],bridge_directory=step['bridge_directory'],
+                    journal_directory=step['journal_directory'],whole_round_manifest_path=self.manifest_path,
+                    ledger=self.ledger,engine=self.engine)
+            elif step['action']=='native_gateway_close':
+                from skillloop.runtime.proposal_dispatch import close_model_bridge
+                result=close_model_bridge(dispatch_journal=step['dispatch_journal'],
+                    journal_directory=step['journal_directory'],engine=self.engine,expected_campaign=campaign)
             elif step['action']=='proposal':
                 from skillloop.runtime.proposal_dispatch import dispatch_proposal
                 result=dispatch_proposal(policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152),
