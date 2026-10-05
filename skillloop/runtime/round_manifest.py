@@ -1,10 +1,7 @@
 """Admin-owned whole-round admission; a phase digest alone is insufficient."""
-import os
-from pathlib import Path
 import re
-import stat
 
-from skillloop.protocol import decode_json, digest_jcs
+from skillloop.protocol import digest_jcs
 from skillloop.repair.budget import LIMITS
 
 
@@ -14,18 +11,8 @@ STAGES = {'approval_deployment', 'import_scan', 'development', 'repair_pairing',
 
 
 def read_round_manifest(path):
-    path = Path(path)
-    parent = path.parent.lstat()
-    if (not path.is_absolute() or path.parent.is_symlink() or parent.st_uid != 21010
-            or parent.st_gid != 21001 or stat.S_IMODE(parent.st_mode) != 0o750):
-        raise PermissionError('whole_round_admin_directory_required')
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, 'rb') as stream:
-        info = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 21010 or info.st_gid != 21001
-                or stat.S_IMODE(info.st_mode) != 0o640 or info.st_size > 8388608):
-            raise PermissionError('whole_round_admin_manifest_required')
-        value = decode_json(stream.read(8388609))
+    from skillloop.discovery.formal_task_gate import read_owned
+    value = read_owned(path, uid=21010, gid=21001, limit=8388608)
     validate_round_manifest(value)
     return value
 
