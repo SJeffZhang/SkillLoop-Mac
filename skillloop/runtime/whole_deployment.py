@@ -3,6 +3,7 @@
 Worker roles are launched on demand, not as idle placeholder services. Every
 role config comes from the same Admin manifest and actual Engine identity.
 """
+from copy import deepcopy
 from datetime import datetime,timezone
 import os,re
 from pathlib import Path,PurePosixPath
@@ -346,17 +347,55 @@ class WholeRoleDeployment:
             'keeper':keeper,'bootstrap':bootstrap,'role_uids':ROLES,
             'storage_backend':'local_persistent','campaign_capacity_verified':False,
             'runtime_acceptance_complete':False,'qualification_issued':False})
-    def role_config(self,role,module=None):
+    def role_config(self,role,module=None,delegation=None):
         if role not in ROLES:raise ValueError('whole_role_identity_required')
         template=self.plan['roles'][role]
-        if module is None or template['config']['Cmd']==['-m',module]:return template['config']
-        variant=template.get('entry_variants',{}).get(module)
-        if variant is None:raise ValueError('whole_role_entry_variant_not_frozen')
-        return variant['config']
+        if module is None or template['config']['Cmd']==['-m',module]:config=template['config']
+        else:
+            variant=template.get('entry_variants',{}).get(module)
+            if variant is None:raise ValueError('whole_role_entry_variant_not_frozen')
+            config=variant['config']
+        if delegation is None:return config
+        if (role not in {'admin','report'} or config['Cmd']!=['-m','skillloop.runtime.role_command_worker']
+                or type(delegation) is not dict or set(delegation)!={'assignment_directory','result_path'}):
+            raise PermissionError('whole_role_exact_command_delegation')
+        result=PurePosixPath(delegation['result_path'])
+        if result.name!='result.json':raise ValueError('whole_role_command_result_locator')
+        requested={'/assignment':delegation['assignment_directory'],'/result':str(result.parent)}
+        config=deepcopy(config);mounts=config['HostConfig']['Mounts']
+        if any(sum(m['Target']==target for m in mounts)!=1 for target in requested):
+            raise ValueError('whole_role_command_fixed_mount_targets')
+        controller=self.plan['roles']['controller']['config']['HostConfig']['Mounts']
+        directories={d['path']:d for d in self.plan['directories']}
+        for target,path in requested.items():
+            if (type(path) is not str or not PurePosixPath(path).is_absolute()
+                    or str(PurePosixPath(path))!=path or '..' in PurePosixPath(path).parts):
+                raise ValueError('whole_role_command_canonical_locator')
+            matches=[m for m in controller if PurePosixPath(path).is_relative_to(PurePosixPath(m['Target']))]
+            if not matches:raise PermissionError('whole_role_command_controller_mount_required')
+            alias=max(matches,key=lambda m:len(PurePosixPath(m['Target']).parts))
+            if alias.get('Type')!='volume' or alias.get('Source')!=self.plan['volume']:
+                raise PermissionError('whole_role_command_original_volume_only')
+            sub=str(PurePosixPath(alias['VolumeOptions']['Subpath'])/PurePosixPath(path).relative_to(alias['Target']))
+            declared=directories.get(sub);uid=ROLES[role]
+            expected=(21001,uid) if target=='/assignment' else (uid,21001)
+            if (declared is None or (declared['uid'],declared['gid'])!=expected or declared['mode']!=0o750
+                    or declared['privacy'] in {'protected','current_private'}):
+                raise PermissionError('whole_role_command_declared_custody')
+            mount=next(m for m in mounts if m['Target']==target)
+            mount.clear();mount.update(Type='volume',Source=self.plan['volume'],Target=target,
+                ReadOnly=target=='/assignment',VolumeOptions={'Subpath':sub})
+        # Validate every exposed descendant and all unchanged role privileges.
+        candidate=deepcopy(self.plan)
+        selected=candidate['roles'][role]
+        if selected['config']['Cmd']==config['Cmd']:selected['config']=config
+        else:selected['entry_variants'][config['Cmd'][1]]['config']=config
+        self.validate_roles_manifest(candidate)
+        return config
 
-    def create_role(self,role,operation_id,*,module=None):
+    def create_role(self,role,operation_id,*,module=None,delegation=None):
         if role not in ROLES or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',operation_id):raise ValueError('whole_role_operation')
-        config=self.role_config(role,module)
+        config=self.role_config(role,module,delegation)
         provisioned=self.provision();live=self.engine.inspect(provisioned['keeper']['Id'])
         if live['State']['Running'] is not True:raise RuntimeError('whole_role_keeper_expired')
         filename='role-'+digest_jcs({'role':role,'operation':operation_id})[7:]+'.json'
@@ -412,8 +451,8 @@ class WholeRoleDeployment:
         actual=self.engine.inspect(identifier);_verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
         return _save(self.root,filename+'.created',{'kind':'WholeRoleCreated','role':role,'id':identifier,'inspection':actual})
 
-    def start_role(self,role,operation_id,*,module=None):
-        created=self.create_role(role,operation_id,module=module);identifier=created['id']
+    def start_role(self,role,operation_id,*,module=None,delegation=None):
+        created=self.create_role(role,operation_id,module=module,delegation=delegation);identifier=created['id']
         token=digest_jcs({'role':role,'operation':operation_id})[7:]
         completed=self.root/('start-'+token+'.complete.json')
         intent=self.root/('start-'+token+'.intent.json')
@@ -440,8 +479,8 @@ class WholeRoleDeployment:
             # stopped worker again, even when its original response was lost.
         else:
             actual=self.engine.inspect(identifier)
-            _verify_role_process(actual,identifier,self.role_config(role,module),
-                self.role_config(role,module)['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
+            _verify_role_process(actual,identifier,self.role_config(role,module,delegation),
+                self.role_config(role,module,delegation)['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
             if (actual.get('State',{}).get('Running') is not False
                     or actual.get('State',{}).get('StartedAt') not in {None,'0001-01-01T00:00:00Z'}
                     or actual.get('State',{}).get('Status')!='created'):
@@ -451,7 +490,7 @@ class WholeRoleDeployment:
         return _save(self.root,completed.name,{'kind':'WholeRoleStartObserved','created_digest':created['digest'],
             'inspection':actual,'qualification_issued':False})
 
-    def preserve_failed_role(self,role,operation_id,*,module=None,closure_seconds):
+    def preserve_failed_role(self,role,operation_id,*,module=None,delegation=None,closure_seconds):
         """Contain a failed original role start, including a lost create ID.
 
         This performs only inspection and stopping. It does not call create_role
@@ -464,7 +503,7 @@ class WholeRoleDeployment:
         from skillloop.runtime.docker_api import DockerEngineError
         filename='role-'+digest_jcs({'role':role,'operation':operation_id})[7:]+'.json'
         intent=_controller_record(self.root/filename)
-        cost=_controller_record(self.root/(filename+'.cost'));config=self.role_config(role,module)
+        cost=_controller_record(self.root/(filename+'.cost'));config=self.role_config(role,module,delegation)
         name='skillloop-'+role+'-'+digest_jcs(operation_id)[7:31]
         if (intent.get('kind')!='WholeRoleCreateIntent' or intent.get('role')!=role
                 or intent.get('operation')!=operation_id or intent.get('configuration')!=config

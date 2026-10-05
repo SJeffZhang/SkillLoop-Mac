@@ -23,12 +23,17 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
         raise TimeoutError('role_dispatch_original_terminal_budget')
     journal=_directory(step['journal_directory'],21001,21001,0o700)
     assignment=_directory(step['assignment_directory'],21001,uid,0o750)
+    _directory(Path(step['result_path']).parent,uid,21001,0o750)
     if any(journal.iterdir()) or any(assignment.iterdir()) or os.path.lexists(step['result_path']):
         raise RuntimeError('role_dispatch_original_operation_requires_recovery')
     job={'kind':'DelegatedRoleCommand','command':step['role_command'],'operation_id':operation_id,'params':step['rpc_params']}
     job['digest']=digest_jcs(job)
+    process_operation='role-command-'+digest_jcs({'operation':operation_id,'job':job['digest'],
+        'step':digest_jcs(step)})[7:]
+    delegation={key:step[key] for key in ('assignment_directory','result_path')}
+    config=deployment.role_config(step['role'],'skillloop.runtime.role_command_worker',delegation)
     _save(journal,'intent.json',{'kind':'ControllerRoleCommandIntent','step_digest':digest_jcs(step),
-        'job_digest':job['digest'],'role_uid':uid,'result_path':step['result_path'],
+        'job_digest':job['digest'],'process_operation':process_operation,'configuration':config,'role_uid':uid,'result_path':step['result_path'],
         'started_at':datetime.now(timezone.utc).isoformat(),'deadline':deadline.isoformat(),
         'reserved_seconds':reserved,'maximum_evidence_bytes':step['maximum_evidence_bytes']})
     stage='private_factory_lifecycle' if step['role_command'] in {'import-lifecycle','produce-private-policy'} else ('gate_qualification_report' if uid==21009 else (
@@ -38,9 +43,10 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
         disk_bytes=step['maximum_evidence_bytes'])
     _save(journal,'spending.json',{'kind':'ControllerRoleCommandSpending','spending':spending})
     _publish(assignment/'job.json',job,uid)
-    config=deployment.plan['roles'][step['role']]['config'];identifier=None
+    identifier=None
     try:
-        observed=deployment.start_role(step['role'],operation_id+'-'+step['role'])
+        observed=deployment.start_role(step['role'],process_operation,
+            module='skillloop.runtime.role_command_worker',delegation=delegation)
         identifier=observed['inspection']['Id']
         _save(journal,'created.json',{'kind':'ControllerRoleCommandCreated','id':identifier,'inspection':observed['inspection']})
         waited=engine.wait(identifier,min(step['timeout_seconds'],max(1,(deadline-datetime.now(timezone.utc)).total_seconds())))
@@ -63,8 +69,8 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
         retirement_error=None;stopped=None
         if identifier is None:
             try:
-                receipt=deployment.preserve_failed_role(step['role'],operation_id+'-'+step['role'],
-                    closure_seconds=step['closure_seconds'])
+                receipt=deployment.preserve_failed_role(step['role'],process_operation,
+                    module='skillloop.runtime.role_command_worker',delegation=delegation,closure_seconds=step['closure_seconds'])
                 stopped=receipt['original_process_stopped']
             except BaseException as cleanup_error:
                 retirement_error=type(cleanup_error).__name__
@@ -112,6 +118,15 @@ def recover_role_command_retirement(*,step,engine):
         raise ValueError('role_retirement_original_charged_budget')
     removing=_controller_record(journal/'removing.json')
     original=reviewed['inspection'];identifier=original['Id']
+    config=intent['configuration']
+    _verify_role_process(original,identifier,config,config['HostConfig']['Mounts'])
+    job=read_owned(Path(step['assignment_directory'])/'job.json',uid=21001,gid=intent['role_uid'],limit=262144)
+    if job['digest']!=intent['job_digest']:
+        raise ValueError('role_retirement_original_job_changed')
+    expected_operation='role-command-'+digest_jcs({'operation':job['operation_id'],
+        'job':intent['job_digest'],'step':digest_jcs(step)})[7:]
+    if intent['process_operation']!=expected_operation:
+        raise ValueError('role_retirement_original_delegation_identity')
     if (intent.get('kind')!='ControllerRoleCommandIntent' or reviewed.get('kind')!='ControllerRoleCommandReviewed'
             or removing.get('kind')!='ControllerRoleCommandRemovalIntent'
             or intent['step_digest']!=digest_jcs(step) or reviewed['step_digest']!=digest_jcs(step)

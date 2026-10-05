@@ -643,3 +643,9 @@ Proxy实际runtime inference reserve事务在读取原run和授权后，同时�
 source-authority导出在原同一SQLite事务中读取完整Runtime dev及Generator/Patcher reservation表，保存原reservation/request、响应摘要、完成时间和未响应unknown；不读入保护请求或业务资源字节。原128×16×三campaign上界及proposal128上界超出即拒绝，独立Gate核对身份、封装摘要、逐run连续round、response pins及unknown计数，最后campaign Gate将已观测unknown加入incomplete原因。
 
 此库存只证明权威推理预留范围，尚未覆盖全部scanner/semantic/Controller辅助尝试及失败前未取得Proxy预留的操作；all_development_attempt_history_complete仍false，不用库存或0unknown直接签资格。原导出partial/预算/一致事务和immutable保存不变。仅156份AST和源码接口审查，无SQLite或模型实测。
+
+### Admin/Reporter连续委托的原进程身份与实际挂载
+
+正式role-command进程身份改为原operation、job和冻结step的摘要，避免同一evaluate中的多次Admin命令共用同一个已退出进程。assignment/result只可由Controller实际最具体挂载映射到原部署卷中预先声明的目录；严格核对双方UID/GID、0750、只读assignment及单角色可写result，并重新校验全部角色权限和暴露子树。其余image、epoch、环境、权限、资源和入口不变，无通用config覆盖或新公共RPC。
+
+创建、启动、未知创建保全都使用同一原委托身份和配置。收尾核对原job摘要、实际进程配置及原结果；没有新进程重跑或失败证据删除。完成156份Python AST与diff空白检查，未启动任何角色、数据库或组件实验，整链仍未完成。
