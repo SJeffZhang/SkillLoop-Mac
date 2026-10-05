@@ -91,9 +91,9 @@ class CampaignDispatcher:
         # Read only the already published original role result. No campaign
         # step, Engine start, model inference or private delivery is called.
         result=read_owned(route['result_path'],uid=route['result_uid'],gid=21001,limit=2097152)
-        binding=read_owned(route['result_binding_path'],uid=route['result_uid'],gid=21001,limit=262144)
+        binding=read_owned(route['result_binding_path'],uid=21001,gid=21001,limit=262144)
         if (binding.get('kind')!='OperatorFinalResultBinding' or binding.get('request_digest')!=request['digest']
-                or binding.get('route_digest')!=route['digest'] or binding.get('result_digest')!=result['digest']
+                or binding.get('route_digest')!=route['digest'] or binding.get('result_digest')!=result['digest'] or binding.get('result_producer_uid')!=route['result_uid']
                 or type(binding.get('stage_receipts')) is not list or not binding['stage_receipts']
                 or result['kind']!=route['result_kind']
                 or result['kind'] in {'CIResult','HardenResult'} and route['result_uid']!=21005):
@@ -359,22 +359,31 @@ class CampaignDispatcher:
             try:validate_control(result)
             except ValueError:validate_envelope(result)
             from skillloop.protection.current_task import _directory,_publish
-            for target in (route['result_path'],route['result_binding_path']):
-                _directory(Path(target).parent,21001,21001,0o750)
-            binding={'kind':'OperatorFinalResultBinding','request_digest':request['digest'],
-                'route_digest':route['digest'],'result_digest':result['digest'],'stage_receipts':stage_receipts}
-            binding['digest']=digest_jcs(binding)
+            _directory(Path(route['result_path']).parent,21001,21001,0o750)
             _publish(Path(route['result_path']),result,21001)
-            _publish(Path(route['result_binding_path']),binding,21001)
         # Only the role-owned final projection may become a public CLI result.
         # A process completion, helper result or historical Check cannot replace it.
         result=read_owned(route['result_path'],uid=route['result_uid'],gid=21001,limit=2097152)
         try:validate_control(result)
         except ValueError:validate_envelope(result)
-        binding=read_owned(route['result_binding_path'],uid=route['result_uid'],gid=21001,limit=262144)
+        if result['kind']!=route['result_kind']:
+            raise ValueError('campaign_final_projection_kind')
+        if route['result_kind'] in {'CIResult','HardenResult'} and route['result_uid']!=21005:
+            raise PermissionError('campaign_actual_gate_result_required')
+        # The Controller authenticates a role-owned result and binds its own
+        # completed orchestration history. Gate and Reporter have no authority
+        # or mount to read all Controller route journals.
+        binding={'kind':'OperatorFinalResultBinding','request_digest':request['digest'],
+            'route_digest':route['digest'],'result_digest':result['digest'],
+            'stage_receipts':stage_receipts,'result_producer_uid':route['result_uid']}
+        binding['digest']=digest_jcs(binding)
+        _directory(Path(route['result_binding_path']).parent,21001,21001,0o750)
+        _publish(Path(route['result_binding_path']),binding,21001)
+        binding=read_owned(route['result_binding_path'],uid=21001,gid=21001,limit=262144)
         if (binding.get('kind')!='OperatorFinalResultBinding'
                 or binding.get('request_digest')!=request['digest'] or binding.get('route_digest')!=route['digest']
-                or binding.get('result_digest')!=result['digest'] or binding.get('stage_receipts')!=stage_receipts):
+                or binding.get('result_digest')!=result['digest'] or binding.get('stage_receipts')!=stage_receipts
+                or binding.get('result_producer_uid')!=route['result_uid']):
             raise ValueError('campaign_current_complete_route_result_binding')
         if result['kind']!=route['result_kind']:raise ValueError('campaign_final_projection_kind')
         if route['result_kind'] in {'CIResult','HardenResult'} and route['result_uid']!=21005:
