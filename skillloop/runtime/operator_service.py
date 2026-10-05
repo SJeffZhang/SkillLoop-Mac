@@ -45,7 +45,11 @@ class OperatorService:
     def recover_original_operations(self):
         for ref,request,route in self.store.running():
             try:self.store.complete(ref,self.dispatcher.recover_final(request,route))
-            except Exception:self.store.fail(ref,'unknown_requires_recovery')
+            except Exception:
+                try:
+                    proof=self.dispatcher.recover_unstarted_tail(request,route)
+                    self.store.requeue_unstarted_tail(ref,proof)
+                except Exception:self.store.fail(ref,'unknown_requires_recovery')
 
     def stop_admission(self):
         # Signal handlers only fence admission. The original worker owns its

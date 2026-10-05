@@ -148,3 +148,9 @@ Registry 的名单冻结和原 campaign 绑定入口也核对已提交的 archiv
 Durable task 复制、AES-GCM 输出及惰性历史恢复在写入内容前，对即将保存真实证据的原 inode 执行 posix_fallocate；核对实际 blocks/size、所有权、2GiB free floor，并 fsync。加密输出另外核对写入位置等于预计算的完整封装长度。没有支持的实际分配能力或空间不足时拒绝写入完成，部分文件保留；不创建无关占位文件、不降级稀疏文件。
 
 这是这些实际输出文件的提前分配，尚不等同于完整 campaign 所有角色共享的 2GiB 预留、并发容量或紧急空间链。正式资源验收仍未闭合。未进行组件实验或整轮运行。
+
+### 原操作的已提交前缀恢复
+
+OperatorService 重启时先恢复原最终结果；若没有最终结果，则由 Controller 核对原 route/request 身份、连续的 started/completed 成对记录和完整结果摘要。只有剩余步骤全部没有 started 记录、没有提前或部分最终投影，才保存恢复证明并将同一个操作恢复为 accepted。原 worker 跳过已完成步骤，claim 仍检查原截止时间；不替换 ticket、任务、预算或时钟，也不在启动恢复中同步等待数小时执行。
+
+任一步已有 started 却没有 completed、缺失前缀、变更摘要或部分最终投影，仍保留 unknown_requires_recovery，不能重新派发。此变更只通过源码及语法检查，崩溃/响应丢失场景仍待完整轮次验证。

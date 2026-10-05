@@ -75,6 +75,24 @@ class OperatorOperationStore:
     def running(self):
         with self.connect() as db:
             return [(ref,decode_json(request),decode_json(route)) for ref,request,route in db.execute("SELECT ref,request,route FROM operations WHERE state='running'")]
+    def requeue_unstarted_tail(self,ref,proof):
+        if (os.geteuid()!=21001 or proof.get('kind')!='ControllerUnstartedTailRecovery'
+                or proof.get('reexecute_started_stage') is not False
+                or proof.get('digest')!=digest_jcs({k:v for k,v in proof.items() if k!='digest'})):
+            raise PermissionError('operator_original_recovery_proof_required')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT request,route,state FROM operations WHERE ref=?',(ref,)).fetchone()
+            if row is None or row[2]!='running':raise ValueError('operator_original_running_required')
+            request,route=decode_json(row[0]),decode_json(row[1])
+            receipts=proof.get('completed_stage_receipts')
+            if (proof.get('request_digest')!=request['digest'] or proof.get('route_digest')!=route['digest']
+                    or type(receipts) is not list or type(proof.get('next_stage_index')) is not int
+                    or proof['next_stage_index']!=len(receipts) or len(receipts)>=len(route['steps'])):
+                raise ValueError('operator_recovery_original_unstarted_tail')
+            # claim() rechecks the original deadline before any dispatch. No
+            # replacement ticket, route, task, slot or clock is constructed.
+            db.execute("UPDATE operations SET state='accepted',error=NULL WHERE ref=?",(ref,));db.commit()
     def fail(self,ref,reason='unavailable'):
         if reason not in {'unavailable','unknown_requires_recovery'}:raise ValueError('operator_stable_failure_code')
         with self.connect() as db:

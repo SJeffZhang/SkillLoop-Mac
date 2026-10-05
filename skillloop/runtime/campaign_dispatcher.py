@@ -88,6 +88,48 @@ class CampaignDispatcher:
         self.manifest_path=whole_round_manifest_path
         self.phase=FormalPhaseExecutor(controller=controller,ledger=ledger,tokenizer=tokenizer,
             journal_directory=phase_journal,whole_round_manifest_path=whole_round_manifest_path)
+    def recover_unstarted_tail(self,request,route):
+        """Prove a committed prefix before requeueing the original operation.
+
+        This never calls a provider. An unmatched started marker, missing
+        prefix record, partial final projection or changed identity is unknown.
+        """
+        if os.geteuid()!=21001:raise PermissionError('campaign_recovery_controller')
+        validate_dispatch_route(route)
+        from skillloop.protection.current_task import _directory
+        from skillloop.runtime.proposal_dispatch import _save
+        journal=_directory(route['journal_directory'],21001,21001,0o700)
+        identity=_controller_record(journal/'identity.json')
+        if (identity.get('kind')!='CampaignRouteIdentity'
+                or identity.get('request_digest')!=request['digest']
+                or identity.get('route_digest')!=route['digest']):
+            raise ValueError('campaign_recovery_original_journal_identity')
+        stages=[];tail=False
+        for index,step in enumerate(route['steps']):
+            token=str(index).zfill(4)
+            started=journal/(token+'.started.json');completed=journal/(token+'.completed.json')
+            if not os.path.lexists(completed):
+                if os.path.lexists(started):raise RuntimeError('campaign_started_stage_unknown_no_reexecution')
+                tail=True;continue
+            if tail:raise ValueError('campaign_recovery_noncontiguous_original_prefix')
+            begin=_controller_record(started);saved=_controller_record(completed)
+            for value,kind in ((begin,'CampaignStageStarted'),(saved,'CampaignStageCompleted')):
+                if (value.get('kind')!=kind or value.get('step_digest')!=digest_jcs(step)
+                        or value.get('request_digest')!=request['digest']):
+                    raise ValueError('campaign_recovery_original_stage_pair_required')
+            stages.append(digest_jcs(saved['result']))
+        if not tail or any(os.path.lexists(route[k]) for k in ('result_path','result_binding_path')):
+            raise RuntimeError('campaign_recovery_final_projection_requires_original_result')
+        proof={'kind':'ControllerUnstartedTailRecovery','request_digest':request['digest'],
+            'route_digest':route['digest'],'completed_stage_receipts':stages,
+            'next_stage_index':len(stages),'reexecute_started_stage':False}
+        name='recovery-prefix-'+str(len(stages)).zfill(4)+'.json'
+        if os.path.lexists(journal/name):
+            existing=_controller_record(journal/name)
+            if {k:v for k,v in existing.items() if k!='digest'}!=proof:
+                raise ValueError('campaign_recovery_original_proof_changed')
+            return existing
+        return _save(journal,name,proof)
     def recover_final(self,request,route):
         # Read only the already published original role result. No campaign
         # step, Engine start, model inference or private delivery is called.
