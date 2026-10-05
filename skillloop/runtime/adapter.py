@@ -280,7 +280,10 @@ class AgentAdapter:
                     trace.append({"type": "gateway_error_response", "response": exc.response,
                                   "error_code": reason})
                 except TraceLimit:
-                    reason = "trace_limit"
+                    # Losing the diagnostic bytes must not erase the original
+                    # model timeout/unknown cause from the terminal capture.
+                    if 'trace_limit' not in incomplete:
+                        incomplete.append('trace_limit')
             incomplete.append(reason)
             infra_status = "timeout" if reason in {"provider_timeout", "run_deadline"} else "config_error"
             terminal_reason = "infra_timeout" if infra_status == "timeout" else "runtime_error"

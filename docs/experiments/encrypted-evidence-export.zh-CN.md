@@ -383,3 +383,7 @@ Supervisor的多次身份查询共享原startup截止，而不是每个GET另获
 桥接器的超量、身份、tokenizer和不完整终止错误，不再只返回丢失上游信息的HTTP错误页：向当前已认证UDS调用者返回实际状态、已观察字节数/摘要、有界原响应前缀、截断及不完整标识。它不写入公共日志或扩大Controller读取权限。原Runtime Gateway保存精确错误响应字节；不完整上游继续归为provider_timeout，沿原未知/私有session保全路径收尾，不自动重投。
 
 诊断前缀上限128KiB，完整观察摘要不替代缺失字节；超量/丢失仍是失败或不完整，不能标完整原始响应或通过资格。语义Observer另保留其原授权raw。role/run/privacy实际绑定及正式raw全覆盖仍须继续连接。仅源码检查，无新实验。
+
+### trace 容量不足保留原模型超时原因
+
+Runtime在保存Gateway原错误字节时若达到冻结trace上限，另记录trace_limit，但不再覆盖原provider_timeout/run_deadline原因。最终capture保留原未知原因与证据缺失两项；不能因为诊断写入失败把原模型超时伪装成另一种已知错误，也不扩trace预算或重发。仍按不完整证据收尾，源码检查未替代实测。
