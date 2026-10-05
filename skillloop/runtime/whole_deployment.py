@@ -35,10 +35,11 @@ class WholeRoleDeployment:
         self.root=_directory(journal_directory,21001,21001,0o700)
         p=self.plan
         if (set(p)!={'kind','campaign_digest','whole_round_manifest_digest','deployment_epoch','deadline','image','source_digest','bootstrap_mount','volume',
-            'storage_backend','provisioning_bytes','operator_uids','directories','documents','external_volumes','roles','bootstrap_seconds','digest'} or p['kind']!='FrozenWholeRoleDeployment'
+            'storage_backend','provisioning_bytes','engine_socket_gid','operator_uids','directories','documents','external_volumes','roles','bootstrap_seconds','digest'} or p['kind']!='FrozenWholeRoleDeployment'
                 or set(p['roles'])!=set(ROLES) or not re.fullmatch(r'sha256:[0-9a-f]{64}',p['image'])
                 or not re.fullmatch(r'sha256:[0-9a-f]{64}',p['source_digest'])
                 or p['storage_backend']!='local_persistent'
+                or type(p['engine_socket_gid']) is not int or not 0<=p['engine_socket_gid']<=4294967294
                 or type(p['provisioning_bytes']) is not int or not 1048576<=p['provisioning_bytes']<=16777216
                 or type(p['bootstrap_seconds']) is not int or not 1<=p['bootstrap_seconds']<=120):
             raise ValueError('whole_deployment_complete_frozen_roles')
@@ -51,9 +52,13 @@ class WholeRoleDeployment:
             raise ValueError('whole_deployment_original_source_clock_budget')
         self.validate_roles()
     def validate_roles(self):
+        return self.validate_roles_manifest(self.plan)
+
+    @staticmethod
+    def validate_roles_manifest(plan):
         from skillloop.runtime.deployment_bootstrap import validate_directory_manifest
-        validate_directory_manifest(self.plan)
-        directories={d['path']:d for d in self.plan['directories']}
+        validate_directory_manifest(plan)
+        directories={d['path']:d for d in plan['directories']}
         if any(d['privacy'] not in {'configuration','public','development','opaque','protected','current_private','control'} for d in directories.values()):
             raise ValueError('whole_deployment_declared_privacy')
         for d in directories.values():
@@ -61,9 +66,9 @@ class WholeRoleDeployment:
                 raise PermissionError('whole_deployment_private_custodian_required')
             if d['privacy']=='current_private' and d['uid'] not in {21002,21004,21005}:
                 raise PermissionError('whole_deployment_current_task_custody')
-        if len(directories)!=len(self.plan['directories']):raise ValueError('whole_deployment_duplicate_directory')
+        if len(directories)!=len(plan['directories']):raise ValueError('whole_deployment_duplicate_directory')
         for role,uid in ROLES.items():
-            template=self.plan['roles'][role];config=template['config']
+            template=plan['roles'][role];config=template['config']
             if set(template)!={'config','private_read_scope'}:raise ValueError('whole_role_template_shape')
             hc=config['HostConfig'];cmd=config['Cmd']
             groups=hc.get('GroupAdd',[])
@@ -71,7 +76,13 @@ class WholeRoleDeployment:
                     or len(groups)!=len(set(groups))):
                 raise ValueError('whole_role_supplementary_groups')
             permitted={str(uid),'21001'}
-            for declared in self.plan['directories']:
+            if role=='controller':
+                if type(plan.get('engine_socket_gid')) is not int or not 0<=plan['engine_socket_gid']<=4294967294:
+                    raise ValueError('whole_controller_engine_socket_gid')
+                permitted.add(str(plan['engine_socket_gid']))
+                if str(plan['engine_socket_gid']) not in groups:
+                    raise PermissionError('whole_controller_engine_socket_group_required')
+            for declared in plan['directories']:
                 if (declared['privacy'] not in {'protected','current_private'}
                         or role in {'protected_evaluator','gate'}
                         or declared['privacy']=='current_private' and role=='runtime'):
@@ -88,8 +99,8 @@ class WholeRoleDeployment:
             if role=='scanner':valid_entry=cmd==['/opt/skillloop-scanner/offline_osv.py','scan','/subject/SKILL.md','--no-llm','--format','json','--output','/report/report.json']
             if (not valid_entry or config.get('Entrypoint')!=['python'] or config.get('User')!=str(uid)+':'+str(uid)
                     or not re.fullmatch(r'sha256:[0-9a-f]{64}',config.get('Image',''))
-                    or role!='scanner' and config.get('Image')!=self.plan['image']
-                    or config.get('Labels',{}).get('skillloop.deployment_epoch')!=self.plan['deployment_epoch']
+                    or role!='scanner' and config.get('Image')!=plan['image']
+                    or config.get('Labels',{}).get('skillloop.deployment_epoch')!=plan['deployment_epoch']
                     or hc.get('ReadonlyRootfs') is not True or hc.get('CapDrop')!=['ALL']
                     or 'no-new-privileges' not in hc.get('SecurityOpt',[])
                     or hc.get('NetworkMode')!=('bridge' if role=='model_gateway' else 'none')
@@ -111,14 +122,16 @@ class WholeRoleDeployment:
                         or type(m.get('ReadOnly')) is not bool for m in mounts)
                     or len({m['Target'] for m in mounts})!=len(mounts)):
                 raise ValueError('whole_role_unique_canonical_mount_targets')
+            if role=='controller' and not any(m.get('Type')=='bind' and m.get('Target')=='/engine.sock' for m in mounts):
+                raise PermissionError('whole_controller_actual_engine_mount_required')
             for mount in mounts:
                 if mount['Type']=='bind':
                     if role!='controller' or mount.get('Source')!='/var/run/docker.sock' or mount.get('Target')!='/engine.sock' or mount.get('ReadOnly') is not False:
                         raise PermissionError('whole_role_host_mount_forbidden')
                     continue
                 if mount['Type']!='volume':raise PermissionError('whole_role_only_pinned_volumes')
-                if mount['Source']!=self.plan['volume']:
-                    external=self.plan['external_volumes'].get(mount['Source'])
+                if mount['Source']!=plan['volume']:
+                    external=plan['external_volumes'].get(mount['Source'])
                     if (not mount.get('ReadOnly') or external is None or role not in external['allowed_roles']
                             or external['privacy'] not in {'configuration','public','model'}):
                         raise PermissionError('whole_role_external_volume_provenance')

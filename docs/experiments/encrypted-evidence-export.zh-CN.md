@@ -176,3 +176,9 @@ Admin 通用 role_command 不再发送尚无业务实现的 Proxy export/archive
 Docker 客户端保存实际 HTTP 状态，传输超时与明确 404 分开处理。保护辅助进程、原 Runtime/Keeper/任务卷以及加密归档角色清理保存逐资源删除意图；仅在原意图存在且身份一致时，以真实 inspect 404 核实删除。资源仍存在时重读原 image、配置、挂载和停止状态，再继续同一清理；不重新派发任务、不强制删除运行进程，也不让容器删除隐式带走证据卷。
 
 Operator 重启可接续已开始的 archive_close 原清理意图，然后核对已提交前缀再排队原未开始的尾部。归档清理恢复保留原 started_at、deadline 和预算，过期仍输出 inconclusive_expired_budget_closure。保护业务投递未知继续阻断；这不是任意 started 阶段重试。上述代码只经源码、语法和 diff 检查，仍待整轮真实故障验证。
+
+### 统一11角色配置的 Admin 生产路径
+
+新增 whole_deployment_producer，经既有 Admin role_command 的 produce-deployment 内部委托，按一份冻结声明产生全部11角色的实际 Engine 配置。入口、UID、权限、网络、CPU、PID、FD、日志和只读根由生产代码统一设置；挂载、source/image、私有范围、目录和配置文档在写 manifest 前经过同一部署校验。该生产者只创建配置，不制造批准、私有任务或生命周期证据；Controller 继续用 WholeRoleDeployment 消费产出的 manifest。
+
+Controller 的 Docker socket 增加显式 engine_socket_gid 绑定；只有 Controller 可获得该组和精确 /engine.sock 挂载。正式 Controller 入口检查实际 socket 类型、组、组读写权限和无其他用户权限，拒绝靠偶然继承权限启动。配置中的 ControllerCampaignDeployment 必须与统一声明绑定一致。旧冻结 manifest 不修改。完整 route/任务材料与真实物理容量仍需接通，未启动实验。

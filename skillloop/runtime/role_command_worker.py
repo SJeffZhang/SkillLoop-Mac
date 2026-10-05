@@ -26,6 +26,10 @@ def main():
         validate_control(result)
         if result['kind']!='PublicReport' or result['body']['campaign_public_ref']!=campaign:
             raise ValueError('reporter_actual_gate_public_projection')
+    elif job['command']=='produce-deployment':
+        from skillloop.runtime.whole_deployment_producer import produce_deployment
+        if set(job['params'])!={'assignment_path'}:raise ValueError('deployment_production_delegation')
+        result=produce_deployment(job['params']['assignment_path'])
     elif job['command']=='produce-candidate':
         from skillloop.repair.candidate_source import produce_candidate
         if set(job['params'])!={'assignment_path'}:raise ValueError('candidate_production_delegation')
