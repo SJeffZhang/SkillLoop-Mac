@@ -27,7 +27,7 @@ def produce_formal_phase(assignment_path):
     job=read_owned(assignment_path,uid=21001,gid=21010,limit=8388608)
     fields={'kind','campaign_id','config','compiled','plan','source_grant_paths','unit_templates',
         'campaign_started_at','campaign_deadline','whole_round_manifest_path','output_directory','digest'}
-    if set(job)!=fields or job['kind']!='FrozenFormalDevelopmentPhaseProduction':
+    if set(job) not in (fields,fields|{'parent_phase_path'}) or job['kind']!='FrozenFormalDevelopmentPhaseProduction':
         raise ValueError('phase_producer_original_assignment')
     whole=read_round_manifest(job['whole_round_manifest_path'])
     from scripts.dgx_m6_repair import source_index
@@ -51,9 +51,16 @@ def produce_formal_phase(assignment_path):
             or not job['campaign_started_at']<=datetime.now(timezone.utc).timestamp()<deadline.timestamp()):
         raise ValueError('phase_producer_original_whole_identity_and_clock')
     required=[i for i in plan['body']['items'] if i['requirement']=='required']
+    from skillloop.discovery.phase_chain import development_parent
+    parent=development_parent({'phase':'dev','plan':plan,'suite':compiled['suite'],
+        'whole_round_manifest_digest':whole['digest'],'campaign_started_at':job['campaign_started_at'],
+        'campaign_deadline':job['campaign_deadline'],'parent_phase_path':job.get('parent_phase_path')})
+    previous={i['item_id'] for i in parent['plan']['body']['items'] if i['requirement']=='required'} if parent else set()
+    fresh=[i for i in required if i['item_id'] not in previous]
     if (not required or len(required)>campaign['reserved_victim_attempts']
+            or not fresh
             or type(job['unit_templates']) is not dict
-            or set(job['unit_templates'])!={i['item_id'] for i in required}
+            or set(job['unit_templates'])!={i['item_id'] for i in fresh}
             or any(i['phase']!='dev' or i['attempts_reserved']!=1
                 or i['timeout_ms']!=campaign['victim_seconds']*1000 for i in required)):
         raise ValueError('phase_producer_full_required_rows')
@@ -79,7 +86,7 @@ def produce_formal_phase(assignment_path):
         fixtures[digest_bytes(manifest.read_bytes())]=inputs
     cases={case['digest']:(name,case) for name,case in compiled['cases'].items()}
     entries=[];cost=120;locators=set();aux=campaign['stages']['development']
-    for item in required:
+    for item in fresh:
         name,case=cases[item['case_digest']]
         inputs=fixtures.get(case['body']['fixture_digest'])
         if inputs is None:raise ValueError('phase_producer_frozen_public_fixture_required')
@@ -156,6 +163,7 @@ def produce_formal_phase(assignment_path):
         'plan':plan,'suite':compiled['suite'],'entries':entries,'campaign_started_at':job['campaign_started_at'],
         'campaign_deadline':job['campaign_deadline'],'reserved_phase_seconds':campaign['phase_reservations']['dev'],
         'terminal_seconds':120}
+    if parent is not None:phase['parent_phase_path']=job['parent_phase_path']
     phase['digest']=digest_jcs(phase)
     if len(canonical_json_line(phase))>8388608:raise ValueError('phase_producer_complete_document_capacity')
     output=_directory(job['output_directory'],21010,21001,0o750);target=output/'phase.json'
@@ -164,6 +172,7 @@ def produce_formal_phase(assignment_path):
             raise ValueError('phase_producer_original_output_conflict')
     else:_publish(target,phase,21001)
     result={'kind':'AdminFormalPhaseProduced','assignment_digest':job['digest'],'phase_digest':phase['digest'],
-        'required_items':len(entries),'complete_cost_seconds':cost,'proxy_admission_verified':False,
+        'required_items':len(required),'new_items':len(entries),'carried_items':len(previous),
+        'complete_cost_seconds':cost,'proxy_admission_verified':False,
         'runtime_executed':False,'qualification_issued':False}
     result['digest']=digest_jcs(result);return result

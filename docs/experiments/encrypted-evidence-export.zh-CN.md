@@ -341,3 +341,11 @@ Operator的生产dispatcher失败现在先在原Controller专属恢复目录保�
 Admin内部produce-phase接入统一role command调度，生产Controller实际development步骤读取的FrozenFormalPhase。它从当前完整ExecutionPlan逐required行推导subject/case/repetition及新entry身份，重新绑定实际Admin source grants和包指令字节，读取当前冻结public fixture并核对业务projection；不使用私有工厂、不自行抽题，也不允许少给template筛掉计划行。独立Evaluator/Gate/Archive配置从无entry摘要的冻结模板生成，核对共同挂载、tokenizer、当前epoch/image/deadline、原Lease窗口及完整阶段辅助预算，再输出Admin所有的phase.json。角色结果只返回生成摘要，不冒称Proxy准入或任务已经运行。
 
 初始/新整轮完整phase可以由此真实生产路径构造，不再由私有脚本逐条组装entry。追加计划中原先已投递任务的同campaign原证据承接仍需单独接通；当前不得将包含旧spent行的完整phase再次派发。正式全成本配置生产、共享物理资源和其余调用链仍未全部完成。仅源码/AST检查，未执行生产者、角色、SQLite或模型实验。
+
+### 同一 campaign 追加计划承接原完整 phase
+
+Admin生产者现在可引用同一whole manifest、原campaign时钟和原配置的直接父phase。当前计划必须精确追加父计划全部原行，保留所有旧case语义，且revision/parent摘要连续；template只提供新增行，原行不能重组为新entry投递。新phase仍携带完整新计划。
+
+Controller在任何新投递前递归核对父phase的真实完整summary、原任务准备/Lease/调用记录、独立评估/Task Gate/Archive Gate和预算内资源收尾。只有完整原链才能承接；部分、失败、未知、缺文件、不同整轮或不同时钟均拒绝。新增phase只消费新增任务槽，完整coverage与summary保留全部原结果；原资源reservation随Proxy已授权plan CAS更新，不重置campaign预算。原链最多32代，恢复同样重新检查实际承接记录。
+
+这只解决当前campaign内部有界Skill修补追加义务，与代码修复后的新整轮从头运行不同：新source/manifest/epoch不能引用旧轮成果。未运行任务或旧raw复算；物理资源及配置冻结仍待完成。

@@ -60,10 +60,11 @@ class FormalPhaseExecutor:
             ledger=self.ledger,engine=engine,whole_round_manifest_path=self._manifest_path,
             journal_directory=journal_directory)
 
-    def recover_completed(self, phase):
+    def recover_completed(self, phase, _depth=0):
         """Recover a lost summary response, never call a task producer again."""
         from skillloop.runtime.protected_flow import _controller_record
         from skillloop.discovery.formal_task_gate import read_owned
+        if _depth>32:raise ValueError('formal_phase_original_parent_chain_capacity')
         if (phase.get('kind')!='FrozenFormalPhase' or phase.get('phase')!='dev'
                 or phase.get('digest')!=digest_jcs({k:v for k,v in phase.items() if k!='digest'})):
             raise ValueError('formal_phase_recovery_original_phase')
@@ -79,7 +80,15 @@ class FormalPhaseExecutor:
                 or summary.get('complete') is not True or summary.get('problems')!=[]
                 or summary.get('unexecuted_entry_digests')!=[]):
             raise RuntimeError('formal_phase_original_complete_summary_required')
-        rebuilt=[]
+        from skillloop.discovery.phase_chain import development_parent
+        parent=development_parent(phase)
+        rebuilt=(list(self.recover_completed(parent,_depth+1)['completed']) if parent is not None else [])
+        if (admission.get('carried_phase_digest')!=(parent['digest'] if parent is not None else None)
+                or admission.get('carried_completed_entries')!=rebuilt
+                or set(admission.get('required_item_ids',[]))!={i['item_id'] for i in phase['plan']['body']['items']
+                    if i['requirement']=='required'}
+                or len(admission.get('required_item_ids',[]))!=len(set(admission.get('required_item_ids',[])))):
+            raise ValueError('formal_phase_original_complete_admission_and_parent')
         for unit in phase['entries']:
             token=digest_jcs(unit['entry']['entry_id'])[7:]
             prepared=_controller_record(root/('task-'+token+'.prepared.json'))
@@ -146,7 +155,16 @@ class FormalPhaseExecutor:
         if deadline.tzinfo is None or deadline.timestamp()!=original+28800:
             raise ValueError('formal_phase_original_eight_hour_clock')
         required=[i for i in plan['body']['items'] if i['requirement']=='required' and i['phase']==phase['phase']]
-        matched=[];cost=phase['terminal_seconds'];keys=set()
+        from skillloop.discovery.phase_chain import development_parent
+        parent=development_parent(phase)
+        carried=[];matched=[]
+        if parent is not None:
+            # This is read-only verification of the original same-round tasks,
+            # not substitution of historical experiments or new inference.
+            prior=self.recover_completed(parent)
+            carried=list(prior['completed'])
+            matched=[i['item_id'] for i in parent['plan']['body']['items'] if i['requirement']=='required']
+        cost=phase['terminal_seconds'];keys=set()
         if type(cost) is not int or cost<120:raise ValueError('formal_phase_terminal_reserve')
         # Preflight the ENTIRE phase before staging its first task or Lease.
         for unit in entries:
@@ -282,11 +300,13 @@ class FormalPhaseExecutor:
         self._save(phase_root/'admission.json',{'kind':'FormalPhaseAdmission',
             'phase_digest':phase['digest'],'whole_round_manifest_digest':phase['whole_round_manifest_digest'],
             'original_started_at':original,'reserved_phase_seconds':phase['reserved_phase_seconds'],
-            'complete_cost_seconds':cost,'required_item_ids':matched})
+            'complete_cost_seconds':cost,'required_item_ids':matched,
+            'carried_phase_digest':parent['digest'] if parent is not None else None,
+            'carried_completed_entries':carried})
         reservation=self.controller.reserve_campaign(plan['body']['campaign_id'],plan['digest'])
         self._save(phase_root/'storage-admission.json', {'kind':'FormalPhaseStorageAdmission',
             'phase_digest':phase['digest'],'reservation':reservation})
-        completed=[];problems=[]
+        completed=list(carried);problems=[]
         for unit in entries:
             entry=unit['entry'];key=entry['entry_id'];capture=None
             try:
