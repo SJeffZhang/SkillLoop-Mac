@@ -39,6 +39,7 @@ def review_semantic(directory,*,snapshot,profile,whole,raw_sink=None):
             tokens=tokenizer.count(body['messages'],[],enable_thinking=False)
             if (request.get('scope_digest')!=job['digest'] or response.get('scope_digest')!=job['digest']
                     or request['slot']!=slot or response['slot']!=slot or response['http_status']!=200
+                    or response.get('body_read_complete') is not True
                     or response['request_digest']!=digest_bytes(raw) or body.get('tools') or body.get('think') is not False
                     or body.get('options')!={'temperature':policy['temperature'],'top_p':policy['top_p'],'num_ctx':16384,'num_predict':policy['max_output_tokens']}
                     or body.get('stream') is not False or body.get('model')!=policy['model_id'] or actual.get('model')!=policy['model_id']

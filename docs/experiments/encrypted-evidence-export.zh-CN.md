@@ -349,3 +349,9 @@ Admin生产者现在可引用同一whole manifest、原campaign时钟和原配�
 Controller在任何新投递前递归核对父phase的真实完整summary、原任务准备/Lease/调用记录、独立评估/Task Gate/Archive Gate和预算内资源收尾。只有完整原链才能承接；部分、失败、未知、缺文件、不同整轮或不同时钟均拒绝。新增phase只消费新增任务槽，完整coverage与summary保留全部原结果；原资源reservation随Proxy已授权plan CAS更新，不重置campaign预算。原链最多32代，恢复同样重新检查实际承接记录。
 
 这只解决当前campaign内部有界Skill修补追加义务，与代码修复后的新整轮从头运行不同：新source/manifest/epoch不能引用旧轮成果。未运行任务或旧raw复算；物理资源及配置冻结仍待完成。
+
+### 模型请求整次传输截止与不完整原始响应保全
+
+生产SGLang/Ollama Gateway与宿主HostModelBridge共同使用单次本地HTTP传输：连接、发送、读取期间由独立截止计时器shutdown原socket，防止持续分片延长每次read等待而突破原剩余预算；不重发、不切换地址。UDS仍由Gateway核对实际SO_PEERCRED。TCP名称解析发生在模型投递前，解析后扣除其耗时；系统解析本身尚无可中断机制，不把它算作已证明的有界操作。HTTP不使用环境代理或重定向。
+
+读取保留有界原字节、实际HTTP状态和不完整标识，长度不符、超时及连接中断不能当完整成功。语义Observer先保存畸形/不完整/超量响应，且不能解除原unknown禁止重投；独立semantic Gate只接受完整响应记录。这个更改未执行HTTP、模型、扫描或组件实验；实际角色/run/privacy授权与完整宿主部署生产连接仍须继续修复。

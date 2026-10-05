@@ -12,8 +12,6 @@ import select
 import subprocess
 import threading
 import time
-import urllib.error
-import urllib.request
 import uuid
 import stat
 import re
@@ -22,6 +20,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from skillloop.protocol import decode_json
+from skillloop.runtime.model_http import ModelHTTPIncomplete, request_model
 
 
 MODEL_ID = "Qwen/Qwen3.8-27B-FP8"
@@ -325,14 +324,25 @@ class SGLangGateway:
         if not self.enable_thinking:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         body = json.dumps(payload, ensure_ascii=False).encode()
-        request = urllib.request.Request(self.endpoint + "/v1/chat/completions", data=body,
-                                         headers={"Content-Type": "application/json"})
         started = time.monotonic()
         try:
-            with urllib.request.urlopen(request, timeout=min(self.timeout_seconds, remaining_seconds)) as response:
-                parsed = decode_json(response.read(4_194_305))
-        except (TimeoutError, urllib.error.URLError) as exc:
+            status, raw = request_model(self.endpoint, '/v1/chat/completions', body,
+                timeout=min(self.timeout_seconds, remaining_seconds))
+        except ModelHTTPIncomplete as exc:
+            raise GatewayError('provider_timeout', response={'http_status': exc.status,
+                'body_read_incomplete': True,
+                'raw_response_b64': base64.b64encode(exc.partial[:4194304]).decode('ascii'),
+                'raw_response_truncated': len(exc.partial) > 4194304}) from exc
+        except (OSError, http.client.HTTPException) as exc:
             raise GatewayError("provider_timeout") from exc
+        if status != 200 or len(raw) > 4194304:
+            raise GatewayError('provider_response_invalid', response={
+                'http_status': status, 'raw_response_b64': base64.b64encode(raw[:4194304]).decode('ascii'),
+                'raw_response_truncated': len(raw) > 4194304})
+        try:
+            parsed = decode_json(raw)
+        except (ValueError, UnicodeError) as exc:
+            raise GatewayError('provider_response_not_json') from exc
         if type(parsed) is not dict or parsed.get("model") not in {MODEL_ID, "/model"}:
             raise GatewayError("model_identity_mismatch")
         usage = parsed.get("usage") or {}
@@ -424,8 +434,6 @@ class OllamaGateway:
                                "num_ctx": self.max_context_tokens,
                                "num_predict": self.max_output_tokens}}
         body = json.dumps(payload, ensure_ascii=False).encode()
-        request = urllib.request.Request(self.endpoint + "/api/chat", data=body,
-                                         headers={"Content-Type": "application/json"})
         model_started = time.monotonic()
         def parse_native(raw,status):
             diagnostic={'http_status':status,
@@ -436,42 +444,24 @@ class OllamaGateway:
             try:return decode_json(raw)
             except (ValueError,UnicodeError) as error:
                 raise GatewayError('provider_response_not_json',response=diagnostic) from error
+        def validate_peer(sock):
+            if self.expected_server_uid is not None:
+                if not hasattr(socket, 'SO_PEERCRED'):
+                    raise GatewayError('native_gateway_kernel_peer_unavailable')
+                peer = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
+                if struct.unpack('3i', peer)[1] != self.expected_server_uid:
+                    raise GatewayError('native_gateway_peer_denied')
         try:
-            timeout = min(self.timeout_seconds, remaining_seconds)
-            if self.unix_socket_path is not None:
-                connection = http.client.HTTPConnection("localhost", timeout=timeout)
-                connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                try:
-                    connection.sock.settimeout(timeout)
-                    connection.sock.connect(self.unix_socket_path)
-                    if self.expected_server_uid is not None:
-                        if not hasattr(socket,'SO_PEERCRED'):raise GatewayError('native_gateway_kernel_peer_unavailable')
-                        peer=connection.sock.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,struct.calcsize('3i'))
-                        if struct.unpack('3i',peer)[1]!=self.expected_server_uid:
-                            raise GatewayError('native_gateway_peer_denied')
-                    connection.request("POST", "/api/chat", body=body,
-                                       headers={"Content-Type": "application/json"})
-                    response = connection.getresponse()
-                    raw = response.read(4_194_305)
-                    parsed = parse_native(raw,response.status)
-                finally:
-                    connection.close()
-            else:
-                with urllib.request.urlopen(request, timeout=timeout) as response:
-                    parsed = parse_native(response.read(4_194_305),response.status)
-        except urllib.error.HTTPError as exc:
-            try:diagnostic=exc.read(4194305)
-            except (OSError,http.client.HTTPException) as error:
-                raise GatewayError('provider_timeout',response={'http_status':exc.code,
-                    'body_read_incomplete':True}) from error
-            finally:exc.close()
-            parse_native(diagnostic,exc.code)
-        except http.client.IncompleteRead as exc:
-            partial=exc.partial if type(exc.partial) is bytes else b''
-            raise GatewayError('provider_timeout',response={'body_read_incomplete':True,
-                'raw_response_b64':base64.b64encode(partial[:4194304]).decode('ascii'),
-                'raw_response_truncated':len(partial)>4194304}) from exc
-        except (OSError, http.client.HTTPException, urllib.error.URLError) as exc:
+            status, raw = request_model(self.endpoint, '/api/chat', body,
+                timeout=min(self.timeout_seconds, remaining_seconds),
+                unix_socket_path=self.unix_socket_path, peer_validator=validate_peer)
+            parsed = parse_native(raw, status)
+        except ModelHTTPIncomplete as exc:
+            raise GatewayError('provider_timeout', response={'http_status': exc.status,
+                'body_read_incomplete': True,
+                'raw_response_b64': base64.b64encode(exc.partial[:4194304]).decode('ascii'),
+                'raw_response_truncated': len(exc.partial) > 4194304}) from exc
+        except (OSError, http.client.HTTPException) as exc:
             raise GatewayError("provider_timeout") from exc
         if type(parsed) is not dict or parsed.get("model") != self.model:
             raise GatewayError("model_identity_mismatch", response=parsed)

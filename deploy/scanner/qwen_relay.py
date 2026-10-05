@@ -126,20 +126,26 @@ class HostModelBridge:
                 pass
 
             def _forward(self, method: str, body: bytes | None = None, expected_prompt_tokens=None):
-                upstream = http.client.HTTPConnection(bridge.model_host, bridge.model_port,
-                                                      timeout=bridge.request_timeout_seconds)
+                from skillloop.runtime.model_http import ModelHTTPIncomplete, request_model
                 parsed = None
                 try:
-                    upstream.request(method, "/api/chat" if bridge.semantic_scope_digest is not None and method=="POST" else self.path, body=body,
-                                     headers={"Content-Type": "application/json"})
-                    response = upstream.getresponse()
-                    payload = response.read(8_388_609)
+                    timeout = bridge.request_timeout_seconds
+                    if bridge.deadline is not None:
+                        timeout = min(timeout, (bridge.deadline - datetime.now(timezone.utc)).total_seconds())
+                    if timeout <= 0:
+                        raise TimeoutError('model_bridge_deadline')
+                    status, payload = request_model(
+                        f'http://{bridge.model_host}:{bridge.model_port}',
+                        "/api/chat" if bridge.semantic_scope_digest is not None and method == "POST" else self.path,
+                        body, timeout=timeout, method=method, maximum_bytes=8388608)
                     if len(payload) > 8_388_608:
+                        if method == 'POST' and bridge.evidence_observer is not None:
+                            bridge.evidence_observer('response_oversized', body, payload, status)
                         self.send_error(502, "model_response_too_large")
                         return
                     if method == "POST":
                         if bridge.evidence_observer is not None:
-                            bridge.evidence_observer("response",body,payload,response.status)
+                            bridge.evidence_observer("response",body,payload,status)
                         try:
                             parsed = json.loads(payload)
                             if bridge.backend == "ollama" and parsed.get("model") != bridge.model_id:
@@ -152,13 +158,13 @@ class HostModelBridge:
                             with bridge._lock:
                                 bridge.usage_records.append({"usage": usage, "preflight_prompt_tokens": expected_prompt_tokens,
                                     "request_digest": "sha256:" + hashlib.sha256(body or b"").hexdigest(), "thinking": False,
-                                    "http_status": response.status, "token_mismatch": token_mismatch})
+                                    "http_status": status, "token_mismatch": token_mismatch})
                             if token_mismatch:
                                 self.send_error(502, "model_tokenizer_mismatch")
                                 return
                         except (ValueError, AttributeError):
                             pass
-                    if bridge.semantic_scope_digest is not None and method=='POST' and response.status==200:
+                    if bridge.semantic_scope_digest is not None and method=='POST' and status==200:
                         if (not isinstance(parsed,dict) or parsed.get('done') is not True or parsed.get('done_reason')!='stop'
                                 or parsed.get('message',{}).get('thinking') or parsed.get('message',{}).get('tool_calls')
                                 or type(parsed.get('eval_count')) is not int or not 0<=parsed['eval_count']<=bridge.max_output_tokens):
@@ -167,15 +173,17 @@ class HostModelBridge:
                             'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':parsed['message']['content']}}],
                             'usage':{'prompt_tokens':parsed['prompt_eval_count'],'completion_tokens':parsed['eval_count'],
                                      'total_tokens':parsed['prompt_eval_count']+parsed['eval_count']}}).encode()
-                    self.send_response(response.status)
-                    self.send_header("Content-Type", response.getheader("Content-Type", "application/json"))
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers()
                     self.wfile.write(payload)
+                except ModelHTTPIncomplete as error:
+                    if method == 'POST' and bridge.evidence_observer is not None:
+                        bridge.evidence_observer('response_incomplete', body, error.partial, error.status)
+                    self.send_error(502, "local_model_unavailable")
                 except (OSError, TimeoutError, http.client.HTTPException, KeyError, TypeError, ValueError):
                     self.send_error(502, "local_model_unavailable")
-                finally:
-                    upstream.close()
 
             def do_GET(self):
                 if bridge.allowed_client_uid is not None:

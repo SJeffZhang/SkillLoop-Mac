@@ -73,10 +73,14 @@ def main():
             if not requests or requests[-1]!=key:raise ValueError('semantic_original_response_identity')
             slot=len(requests)-1
             from skillloop.protocol import decode_json
-            parsed=decode_json(response)
-            if status==200 and parsed.get('done') is True and parsed.get('done_reason')=='stop':responded.add(slot)
+            try:parsed=decode_json(response)
+            except (ValueError,UnicodeError):parsed=None
+            if (kind=='response' and status==200 and type(parsed) is dict
+                    and parsed.get('done') is True and parsed.get('done_reason')=='stop'):
+                responded.add(slot)
             value={'kind':'SemanticModelResponse','scope_digest':job['digest'],'slot':slot,
-                'request_digest':key,'http_status':status,'raw_b64':base64.b64encode(response).decode()}
+                'request_digest':key,'http_status':status,'raw_b64':base64.b64encode(response).decode(),
+                'body_read_complete':kind=='response'}
         value['digest']=digest_jcs(value);_publish(evidence/(kind+'-'+str(slot)+'.json'),value,21001)
     try:
         identity=backend_identity(policy)
