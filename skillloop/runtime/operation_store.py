@@ -60,21 +60,32 @@ class OperatorOperationStore:
             deadline=datetime.fromisoformat(route['deadline'].replace('Z','+00:00'))
             if deadline.tzinfo is None or datetime.now(timezone.utc)>=deadline:
                 raise TimeoutError('operator_original_admission_deadline')
-            if db.execute("SELECT count(*) FROM operations WHERE state IN ('accepted','running')").fetchone()[0]>=16:
-                raise TimeoutError('operator_queue_full')
+            controls={'admin cancel','admin revoke'}
+            waiting=db.execute("SELECT request FROM operations WHERE state IN ('accepted','running') LIMIT 18").fetchall()
+            lane=request['command'] in controls
+            if sum((decode_json(raw)['command'] in controls)==lane for (raw,) in waiting)>=(1 if lane else 16):
+                raise TimeoutError('operator_control_busy' if lane else 'operator_queue_full')
+            # One bounded cancellation/revocation metadata slot is independent
+            # of the 16 normal operations. It cannot start a campaign or model.
             db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?,?,NULL,NULL)',
                 (ref,owner,params,canonical_json_line(request),canonical_json_line(route),canonical_json_line(ticket),'accepted'))
             self._transition(db,ref,'accepted','original_admission');db.commit()
         return ticket
-    def claim(self):
+    def claim(self,*,control_only=False):
+        if type(control_only) is not bool:raise ValueError('operator_explicit_execution_lane')
+        controls={'admin cancel','admin revoke'}
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute("SELECT 1 FROM operations WHERE state='running'").fetchone():return None
-            row=db.execute("SELECT ref,request,route FROM operations WHERE state='accepted' ORDER BY rowid LIMIT 1").fetchone()
+            active=db.execute("SELECT request FROM operations WHERE state='running'").fetchall()
+            if any((decode_json(raw)['command'] in controls)==control_only for (raw,) in active):return None
+            pending=db.execute("SELECT ref,request,route FROM operations WHERE state='accepted' ORDER BY rowid LIMIT 18").fetchall()
+            if len(pending)>17:raise ValueError('operator_original_queue_capacity')
+            row=next((item for item in pending if (decode_json(item[1])['command'] in controls)==control_only),None)
             if row is None:return None
             route=decode_json(row[2]);deadline=datetime.fromisoformat(route['deadline'].replace('Z','+00:00'))
             if deadline.tzinfo is None or datetime.now(timezone.utc)>=deadline:
-                db.execute("UPDATE operations SET state='failed',error='deadline_exceeded' WHERE ref=?",(row[0],));self._transition(db,row[0],'failed','deadline_exceeded');db.commit();return None
+                db.execute("UPDATE operations SET state='failed',error='deadline_exceeded' WHERE ref=?",(row[0],))
+                self._transition(db,row[0],'failed','deadline_exceeded');db.commit();return None
             db.execute("UPDATE operations SET state='running' WHERE ref=?",(row[0],))
             self._transition(db,row[0],'running','original_claim');db.commit()
             return row[0],decode_json(row[1]),route

@@ -37,6 +37,10 @@ class OperatorService:
                 raise ValueError('operator_frozen_cli_result_contract')
             from skillloop.runtime.campaign_dispatcher import validate_dispatch_route
             validate_dispatch_route(route)
+            if route['command'] in {'admin cancel','admin revoke'} and (len(route['steps'])!=1
+                    or route['steps'][0]['action']!='proxy_controller'
+                    or route['steps'][0]['method']!={'admin cancel':'cancel_run','admin revoke':'revoke_approval'}[route['command']]):
+                raise PermissionError('operator_control_lane_frozen_rpc_only')
             key=(route['command'],route['parameters_digest'])
             if key in self.routes or route.get('kind')!='FrozenOperatorCampaignRoute':raise ValueError('operator_duplicate_route')
             if datetime.fromisoformat(route['deadline'].replace('Z','+00:00'))>datetime.fromisoformat(cfg['deadline'].replace('Z','+00:00')):
@@ -73,11 +77,11 @@ class OperatorService:
         with self.admission_lock:
             if self.stop.is_set():raise TimeoutError('operator_admission_stopping')
             return self.store.accept(uid,value,route)
-    def worker(self):
+    def worker(self,*,control_only=False):
         while not self.stop.is_set():
             with self.admission_lock:
                 if self.stop.is_set():break
-                item=self.store.claim()
+                item=self.store.claim(control_only=control_only)
             if item is None:self.stop.wait(0.25);continue
             ref,request,route=item
             try:self.store.complete(ref,self.dispatcher.execute(request,route))
@@ -120,7 +124,13 @@ class OperatorService:
                     raise RuntimeError('operator_socket_changed_during_recovery')
                 endpoint.unlink()
             self._serve_locked(fd)
-        finally:os.close(fd)
+        finally:
+            if self.inflight_preserved:
+                # Keep the ownership fence until the process and its original
+                # non-daemon worker exit. Closing it here would permit a second
+                # service while the original Runtime still has custody.
+                self._custody_lock_fd=fd
+            else:os.close(fd)
 
     def _serve_locked(self,lock_fd):
         endpoint=Path(self.config['socket']);parent=endpoint.parent.lstat()
@@ -138,7 +148,9 @@ class OperatorService:
             finally:os.close(directory)
             server.listen(16);server.settimeout(0.5)
             self.recover_original_operations()
-            worker=threading.Thread(target=self.worker,daemon=False);worker.start()
+            workers=[threading.Thread(target=self.worker,kwargs={'control_only':lane},daemon=False)
+                for lane in (False,True)]
+            for worker in workers:worker.start()
             try:
                 while not self.stop.is_set() and datetime.now(timezone.utc)<datetime.fromisoformat(self.config['deadline'].replace('Z','+00:00')):
                     try:connection,_=server.accept()
@@ -156,10 +168,11 @@ class OperatorService:
                         try:connection.sendall(canonical_json_line(reply))
                         except OSError:pass  # Accepted original operation remains queryable after response loss.
             finally:
-                self.stop.set();worker.join(timeout=30)
+                self.stop.set()
+                for worker in workers:worker.join(timeout=15)
                 # A live worker keeps its process/evidence; do not unlink and
                 # replace the endpoint as if this service drained successfully.
-                if worker.is_alive():
+                if any(worker.is_alive() for worker in workers):
                     self.inflight_preserved=True
                     raise RuntimeError('operator_inflight_custody_preserved')
                 current=endpoint.lstat()

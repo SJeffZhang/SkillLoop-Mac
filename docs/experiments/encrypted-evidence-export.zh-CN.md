@@ -194,3 +194,9 @@ Controller 的 Docker socket 增加显式 engine_socket_gid 绑定；只有 Cont
 开发任务通过独立 Task Gate 和 Archive Gate 后，retirement 保存原 Runtime、Keeper、Evaluator、Gate、Archive Gate 及任务卷的完整身份。再次进入只重开原归档审查和清理意图，逐资源核对停止状态、配置、image、挂载及删除记录；明确 404 只在原删除意图之后用于确认删除，不重新生成归档或运行模型。
 
 正式 execute_admitted 对已保存清理意图后的连接丢失/超时保存原失败类型，并接续同一清理一次。清理结果记录原开始 UTC、截止时间、120秒原预留及实际耗时；超时收尾即便删除完成也保留 inconclusive，不能作为完整开发任务成功。其他未知投递或缺少完整独立审查仍阻断。只检查了源码、语法和 diff，尚未运行真实故障实验。
+
+### 长实验期间的取消/撤销通道
+
+Operator 将普通串行执行与取消/撤销控制分开。控制 route 在服务准入时必须只有一条 proxy_controller 步骤，并严格匹配冻结 cancel_run/revoke_approval；只有实际 Admin 可以提交。控制通道最多一个待处理/运行操作，不占用16个普通操作的队列，不能派发模型或 campaign。两个通道的 claim 和状态历史仍用同一个权威 SQLite 事务，普通实验仍只有一个 running。
+
+关闭服务后若原 worker 未完成，保留 service lock fd 到进程退出，防止 endpoint 关闭后新服务误以为已清理而并行接管原 Runtime。tokenizer 和原证据继续保留。上述源代码检查不等同于并发/满队列/取消实测，完整物理紧急容量仍需整链接通。
