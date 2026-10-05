@@ -335,3 +335,9 @@ Operator的生产dispatcher失败现在先在原Controller专属恢复目录保�
 开发归档支持冻结原Controller创建operation、名称和私有journal位置，避免配置必须提前包含尚不存在的Docker随机ID。归档时只能读取这个原意图与created receipt，再GET原实际ID；要求名称、完整配置、真实挂载、image、UID、epoch和运行状态一致，不创建新容器或接受调用者自报ID。原显式ID和保护action绑定路径保持各自规则。
 
 新Task Gate将冻结归档policy摘要与image/epoch绑定到实际评估receipt；独立Archive Gate再校验新创建链和实际挂载记录，以及与原policy和完整已审查字节的关系。统一部署生产者在输出前检查这种引用形状。未把旧归档raw改成新证据，也未执行容器/归档实验；完整配置生产及物理租约仍待连续连接。
+
+### 正式完整开发 phase 的 Admin 生产入口
+
+Admin内部produce-phase接入统一role command调度，生产Controller实际development步骤读取的FrozenFormalPhase。它从当前完整ExecutionPlan逐required行推导subject/case/repetition及新entry身份，重新绑定实际Admin source grants和包指令字节，读取当前冻结public fixture并核对业务projection；不使用私有工厂、不自行抽题，也不允许少给template筛掉计划行。独立Evaluator/Gate/Archive配置从无entry摘要的冻结模板生成，核对共同挂载、tokenizer、当前epoch/image/deadline、原Lease窗口及完整阶段辅助预算，再输出Admin所有的phase.json。角色结果只返回生成摘要，不冒称Proxy准入或任务已经运行。
+
+初始/新整轮完整phase可以由此真实生产路径构造，不再由私有脚本逐条组装entry。追加计划中原先已投递任务的同campaign原证据承接仍需单独接通；当前不得将包含旧spent行的完整phase再次派发。正式全成本配置生产、共享物理资源和其余调用链仍未全部完成。仅源码/AST检查，未执行生产者、角色、SQLite或模型实验。
