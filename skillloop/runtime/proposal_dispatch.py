@@ -42,6 +42,7 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     """
     if os.geteuid()!=21001 or type(engine) is not DockerEngine or type(ledger) is not SpendingLedger:
         raise PermissionError('native_gateway_dispatch_controller')
+    dispatch_started=datetime.now(timezone.utc)
     required={'kind','campaign_digest','gateway_policy_digest','image','whole_round_manifest_digest',
               'campaign_deadline','startup_seconds','closure_seconds','maximum_evidence_bytes','mounts','digest'}
     if (type(policy) is not dict or set(policy)!=required or policy['kind']!='FrozenNativeGatewayDispatch'
@@ -118,7 +119,8 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     _save(directory,'dispatch-intent.json',{'kind':'FormalNativeGatewayDispatchIntent',
         'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest'],'configuration':config,
         'campaign_digest':policy['campaign_digest'],'campaign_deadline':policy['campaign_deadline'],
-        'closure_seconds':policy['closure_seconds'],'protected':protected})
+        'closure_seconds':policy['closure_seconds'],'protected':protected,
+        'started_at':dispatch_started.isoformat(),'startup_seconds':policy['startup_seconds']})
     spending=ledger.consume_auxiliary(manifest=whole,campaign=policy['campaign_digest'],stage='private_factory_lifecycle' if protected else 'import_scan',
         operation_key='gateway-'+policy['digest'][7:],seconds=policy['startup_seconds']+policy['closure_seconds'],
         input_tokens=0,output_tokens=0,disk_bytes=policy['maximum_evidence_bytes'])
@@ -168,9 +170,12 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
                 or not stat.S_ISSOCK(socket_info.st_mode) or socket_info.st_uid!=21011
                 or socket_info.st_gid!=uid or stat.S_IMODE(socket_info.st_mode)!=0o660):
             raise ValueError('native_gateway_actual_backend_or_socket_changed')
+        elapsed=(datetime.now(timezone.utc)-dispatch_started).total_seconds()
+        if not 0<=elapsed<=policy['startup_seconds'] or datetime.now(timezone.utc)>=deadline:
+            raise TimeoutError('native_gateway_original_startup_budget_expired')
         return _save(directory,'ready.json',{'kind':'FormalNativeGatewayReady','container_id':identifier,
             'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest'],
-            'backend_identity_digest':backend['digest'],'inspection':observed,
+            'backend_identity_digest':backend['digest'],'inspection':observed,'startup_elapsed_seconds':elapsed,
             'fresh_backend_lifecycle_verified':protected,'evidence_released':False})
     except BaseException as error:
         try:
@@ -203,6 +208,8 @@ def _original_model_bridge(journal_directory):
             or any(value['gateway_policy_digest']!=intent['gateway_policy_digest'] for value in (created,ready))
             or ready['fresh_backend_lifecycle_verified'] is not intent['protected']
             or ready['evidence_released'] is not False
+            or type(ready.get('startup_elapsed_seconds')) not in (int,float)
+            or not 0<=ready['startup_elapsed_seconds']<=intent['startup_seconds']
             or spending['spending']['operation_key']!='gateway-'+intent['dispatch_digest'][7:]
             or spending['spending']['stage']!=('private_factory_lifecycle' if intent['protected'] else 'import_scan')
             or (intent['protected'] and ready['inspection']['HostConfig'].get('LogConfig',{}).get('Type')!='none')):
@@ -289,7 +296,7 @@ def close_model_bridge(*,dispatch_journal,journal_directory,engine,expected_camp
     if actual['State']['Running'] is not False:
         raise RuntimeError('native_gateway_stop_unconfirmed')
     now=datetime.now(timezone.utc);elapsed=(now-started).total_seconds()
-    within=now<deadline and 0<=elapsed<=dispatch['closure_seconds']+60
+    within=now<deadline and 0<=elapsed<=dispatch['closure_seconds']
     result=_save(root,'completion.json',{'kind':'FormalNativeGatewayClosed',
         'intent_digest':intent['digest'],'container_id':identifier,'inspection':actual,
         'elapsed_seconds':elapsed,'evidence_released':False,'archive_review_required':True,
