@@ -1,6 +1,6 @@
 """Authenticated internal operator transport; public RPC enums stay unchanged."""
 from datetime import datetime,timedelta,timezone
-import os,socket,struct,time,uuid
+import os,socket,time,uuid
 from pathlib import Path
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs,validate_envelope
@@ -22,12 +22,13 @@ def operator_request(command,parameters,operation_id=None,*,wait=True):
     def exchange(value):
         raw_request=canonical_json_line(value)
         if len(raw_request)>262144:raise ValueError('operator_control_request_capacity')
-        with socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET) as connection:
-            connection.settimeout(10);connection.connect(cfg['socket'])
-            peer=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
-            if peer[1]!=21001:raise PermissionError('formal_operator_controller_peer')
-            connection.sendall(raw_request);raw,_,flags,_=connection.recvmsg(262145)
-        if not raw or len(raw)>262144 or flags&socket.MSG_TRUNC:raise OSError('operator_response_bound')
+        from skillloop.runtime.local_packet import exchange_packet
+        allowance=10
+        if value['kind']=='InternalOperatorQuery':
+            allowance=min(allowance,(deadline-datetime.now(timezone.utc)).total_seconds())
+            if allowance<=0:raise TimeoutError('operator_original_deadline')
+        raw=exchange_packet(cfg['socket'],raw_request,timeout=allowance,
+            expected_server_uid=21001,maximum_bytes=262144)
         reply=decode_json(raw)
         if type(reply) is not dict or set(reply)!={'ok','result','error_code'} or type(reply['ok']) is not bool:
             raise OSError('operator_response_shape')

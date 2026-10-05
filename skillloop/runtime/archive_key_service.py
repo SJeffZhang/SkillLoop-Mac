@@ -131,13 +131,9 @@ class ArchiveKeyService:
 
 def unwrap_for_gate(header,socket_path):
     if os.geteuid()!=21005:raise PermissionError('archive_unwrap_actual_gate')
-    with socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET) as connection:
-        connection.settimeout(5);connection.connect(str(socket_path))
-        if struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[1]!=21010:
-            raise PermissionError('archive_unwrap_actual_admin_peer')
-        connection.sendall(canonical_json_line({'kind':'InternalArchiveKeyUnwrap','header':header}))
-        raw,_,flags,_=connection.recvmsg(4097)
-    if not raw or len(raw)>4096 or flags&socket.MSG_TRUNC:raise ValueError('archive_key_response_bound')
+    from skillloop.runtime.local_packet import exchange_packet
+    raw=exchange_packet(socket_path,canonical_json_line({'kind':'InternalArchiveKeyUnwrap','header':header}),
+        timeout=5,expected_server_uid=21010,maximum_bytes=4096)
     result=decode_json(raw)
     if type(result) is not dict or set(result)!={'ok','key_hex','error_code'} or result['ok'] is not True or result['error_code'] is not None:
         raise PermissionError('archive_key_unwrap_unavailable')

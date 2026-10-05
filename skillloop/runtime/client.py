@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import socket
-import struct
 import uuid
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +20,8 @@ class ProxyClient:
     def __init__(self, socket_dir: Path, *, timeout_seconds: float = 10, expected_server_uid: int | None = None):
         self.socket_dir = Path(socket_dir)
         self.timeout_seconds = timeout_seconds
+        if type(timeout_seconds) not in (int,float) or not math.isfinite(timeout_seconds) or not 0<timeout_seconds<=10:
+            raise ValueError('proxy_original_transport_timeout')
         if expected_server_uid is not None and (type(expected_server_uid) is not int or expected_server_uid < 0):
             raise ValueError('proxy_server_identity_configuration')
         self.expected_server_uid = expected_server_uid
@@ -32,24 +33,21 @@ class ProxyClient:
         if len(encoded) > 262_144:
             raise ProxyRPCError("proxy_request_too_large")
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
-                connection.settimeout(self.timeout_seconds)
-                connection.connect(str(self.socket_dir / name))
-                if self.expected_server_uid is not None:
-                    if not hasattr(socket, 'SO_PEERCRED'):
-                        raise ProxyRPCError('proxy_kernel_identity_unavailable')
-                    peer = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-                    if peer[1] != self.expected_server_uid:
-                        # Reject before sending any tools, private IDs or control request.
-                        raise ProxyRPCError('proxy_server_identity_mismatch')
-                connection.sendall(encoded)
-                raw, _ancillary, flags, _address = connection.recvmsg(262_145)
+            from skillloop.runtime.local_packet import exchange_packet
+            allowance=self.timeout_seconds
+            if payload.get('kind')=='ControlRequest':
+                original=datetime.fromisoformat(payload['body']['deadline'].replace('Z','+00:00'))
+                if original.tzinfo is None:raise ProxyRPCError('proxy_request_deadline')
+                allowance=min(allowance,(original-datetime.now(timezone.utc)).total_seconds())
+                if allowance<=0:raise ProxyRPCError('expired')
+            raw=exchange_packet(self.socket_dir/name,encoded,timeout=allowance,
+                expected_server_uid=self.expected_server_uid,maximum_bytes=262144)
+        except PermissionError as exc:
+            raise ProxyRPCError('proxy_server_identity_mismatch') from exc
         except OSError as exc:
             # A lost response cannot establish whether a durable effect committed.
             # Preserve the spent attempt; authoritative recovery precedes any retry.
             raise ProxyRPCError("proxy_transport_unknown") from exc
-        if not raw or len(raw) > 262_144 or flags & socket.MSG_TRUNC:
-            raise ProxyRPCError("invalid_proxy_response_size")
         try:
             value = decode_json(raw)
         except ValueError as exc:

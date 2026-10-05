@@ -399,3 +399,9 @@ Runtime在保存Gateway原错误字节时若达到冻结trace上限，另记录t
 private_read_scope改为已声明目录路径的排序唯一列表，并与每个角色实际volume子树中暴露的protected/current_private目录精确比较。RO挂载不能隐去目录，也不能用自报范围作为权限凭据；基础入口和每个冻结entry variant都执行同一检查。
 
 Runtime、Generator、Patcher、Scanner和Gateway禁止挂载其他角色拥有的control目录，包括只读挂载；受控socket和当前材料必须通过各自授权的独立交接目录配置。该修复约束正式部署生产者和消费者，不扩大角色或RPC权限。仍需接齐每次推理的权威run/fence/当前任务授权、完整容量所有权和恢复部署。仅源码检查，未启动角色或隔离实验。
+
+### 正式本地请求共享整次截止
+
+正式CLI→Controller、Controller/Admin/Runtime→Proxy和Gate→Admin密钥服务均接入一次性SEQPACKET传输。连接、实际内核peer校验、发送、读取共享原10秒/5秒窗口；Proxy进一步取原ControlRequest UTC截止与该窗口的最小值，Operator查询保留原ticket截止。计时器shutdown原socket，不重新连接或重发；只在验证peer后发送私有绑定或密钥请求。
+
+响应为空、超量、MSG_TRUNC或超过原截止均失败，响应丢失不能当未提交。原请求/operation恢复路径保留，schema和角色方法权限未扩大。该连接被三个实际生产调用者使用；仅源码/AST检查，无RPC或组件实验。服务事务自身的截止和推理run/fence当前授权仍须逐调用链核对。
