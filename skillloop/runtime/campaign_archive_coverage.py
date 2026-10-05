@@ -139,6 +139,49 @@ def review_campaign_inventory(*,policy,inventory,budget):
             or not any(row['uid']==21003 and row['gid']==21005 for row,_ in
                 resolve(source_history['digest'],'ProxyCampaignSourceAuthoritySnapshot'))):
         raise ValueError('campaign_archive_original_proxy_source_projection_required')
+    issuer_candidates=[(row,value) for candidates in objects.values() for row,value in candidates
+        if value.get('kind')=='GateWithdrawnQualificationSnapshot'
+        and value.get('campaign')==policy['campaign']]
+    if len(issuer_candidates)!=1:
+        raise ValueError('campaign_archive_actual_withdrawn_issuer_snapshot_required')
+    issuer_row,issuer_snapshot=issuer_candidates[0]
+    if (issuer_row['uid']!=21005 or issuer_row['gid']!=21005
+            or issuer_snapshot.get('bindings')!=evidence['bindings']
+            or issuer_snapshot.get('deployment_epoch')!=policy['deployment_epoch']
+            or issuer_snapshot.get('qualification_revoked') is not True
+            or type(issuer_snapshot.get('files')) is not list or len(issuer_snapshot['files'])!=2):
+        raise ValueError('campaign_archive_issuer_original_binding')
+    import sqlite3
+    from contextlib import closing
+    versions=set()
+    for pin in issuer_snapshot['files']:
+        budget()
+        if (set(pin)!={'name','bytes','digest','user_version'} or pin['user_version'] not in (2,3)
+                or Path(pin['name']).name!=pin['name'] or pin['user_version'] in versions):
+            raise ValueError('campaign_archive_issuer_snapshot_inventory')
+        versions.add(pin['user_version'])
+        locator=str(PurePosixPath(issuer_row['path']).parent/pin['name']);row=rows.get(locator)
+        if (row is None or row['uid']!=21005 or row['gid']!=21005 or row['mode']!=0o600
+                or row['digest']!=pin['digest'] or row['bytes']!=pin['bytes']):
+            raise ValueError('campaign_archive_issuer_database_original_missing')
+        load(row,limit=268435456,decode=False)
+        alias,relative=locator.split('/',1);database=roots[alias]/relative
+        with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
+            db.set_progress_handler(lambda:(budget() or 0),1000)
+            if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('PRAGMA user_version').fetchone()!=(pin['user_version'],):
+                raise ValueError('campaign_archive_issuer_database_integrity')
+            if pin['user_version']==2:
+                issued=db.execute('SELECT bindings_digest,proof,revoked FROM issued_campaigns WHERE campaign=?',(policy['campaign'],)).fetchone()
+                if issued is None or issued[0]!=digest_jcs(evidence['bindings']) or issued[2]!=1:
+                    raise ValueError('campaign_archive_actual_issuer_not_revoked')
+            else:
+                issued=db.execute('SELECT bindings_digest,proof FROM private_campaign_proofs WHERE campaign=?',(policy['campaign'],)).fetchone()
+                if issued is None or issued[0]!=digest_jcs(evidence['bindings']):
+                    raise ValueError('campaign_archive_original_private_qualification_missing')
+            proof=decode_json(issued[1])
+            if proof.get('digest')!=digest_jcs({k:v for k,v in proof.items() if k!='digest'}):
+                raise ValueError('campaign_archive_issuer_original_proof_seal')
+        load(row,limit=268435456,decode=False)
     covered=[];protected={}
     for task in tasks:
         budget()
@@ -232,6 +275,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'reviewed_discovery_raw_digests':raw_covered,'reviewed_discovery_bytes_present':True,
         'original_gate_fact_digests':evidence['archive_fact_digests'],
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
+        'withdrawn_issuer_databases_verified':True,'issuer_snapshot_digest':issuer_snapshot['digest'],
         'missing_categories':list(UNBOUND_CATEGORIES),'campaign_coverage_complete':False,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)

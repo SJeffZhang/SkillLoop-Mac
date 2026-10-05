@@ -306,11 +306,10 @@ class CampaignDispatcher:
                     # Actual role creation is charged before taking this ledger
                     # snapshot; starting this same created container adds no slot.
                     deployment.create_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'))
-                    if not withdrawing:
-                        spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
-                        spending['digest']=digest_jcs(spending)
-                        directory=_directory(step['assignment_directory'],21001,21005,0o750)
-                        _publish(directory/'spending.json',spending,21005)
+                    spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
+                    spending['digest']=digest_jcs(spending)
+                    directory=_directory(step['assignment_directory'],21001,21005,0o750)
+                    _publish(directory/'spending.json',spending,21005)
                     observed=deployment.start_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'))
                     identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
                     actual=self.engine.inspect(identifier)

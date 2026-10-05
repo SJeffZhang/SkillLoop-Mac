@@ -25,8 +25,20 @@ def withdraw():
         deployment_epoch=bindings['deployment_epoch'],config_digest=bindings['config_digest'],
         authority_directory='/authority-projection',private_path='/private-result/proofs.sqlite')
     receipt=issuer.revoke(bindings['campaign'],expected_generation=bindings['generation'],expected_bindings=bindings)
+    spending=read_owned('/assignment/spending.json',uid=21001,gid=21005,limit=8388608)
+    if spending.get('kind')!='CampaignGateSpendingSnapshot' or spending.get('assignment_digest')!=job['digest']:
+        raise ValueError('qualification_withdrawal_original_spending')
+    costs=[c for c in spending['state']['auxiliary_executions']
+        if c['operation_key']=='qualification-withdraw-'+job['digest'][7:]
+        and c['stage']=='resource_archive_restore']
+    if len(costs)!=1:raise ValueError('qualification_withdrawal_original_cost_missing')
+    cost=costs[0]['requested_cost']
+    from skillloop.ci.qualification_archive import preserve_withdrawn_issuer
+    snapshot=preserve_withdrawn_issuer(issuer,receipt,assignment_digest=job['digest'],
+        deadline=job['deadline'],maximum_bytes=cost['disk_bytes'],
+        timeout_seconds=min(120,max(1,cost['seconds']-60)))
     result={'kind':'FormalQualificationWithdrawalCompletion','assignment_digest':job['digest'],
-        'withdrawal':receipt,'qualification_revoked':True,'deletion_authorized':False}
+        'withdrawal':receipt,'issuer_snapshot_digest':snapshot['digest'],'qualification_revoked':True,'deletion_authorized':False}
     result['digest']=digest_jcs(result)
     output=_directory('/public-result',21005,21001,0o750)
     target=output/'withdrawal.json'
