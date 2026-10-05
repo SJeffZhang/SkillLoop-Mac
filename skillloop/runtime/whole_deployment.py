@@ -163,13 +163,21 @@ class WholeRoleDeployment:
                     continue
                 sub=mount.get('VolumeOptions',{}).get('Subpath');directory=directories.get(sub)
                 if directory is None:raise ValueError('whole_role_declared_subpath_required')
-                privacy=directory['privacy']
-                if privacy=='protected' and role not in {'protected_evaluator','gate'}:
-                    raise PermissionError('whole_role_full_private_mount_forbidden')
-                if privacy=='current_private' and role not in {'protected_evaluator','gate','runtime'}:
-                    raise PermissionError('whole_role_current_private_mount_forbidden')
-                if role=='report' and privacy not in {'public','configuration'}:raise PermissionError('report_only_public_mount')
-                if not mount['ReadOnly'] and directory['uid']!=uid:raise PermissionError('whole_role_cross_owner_write')
+                # A volume subpath exposes its entire subtree, regardless of
+                # the label on its root or a read-only flag. Never rely on DAC
+                # alone to conceal private descendants inside a public parent.
+                exposed=[d for path,d in directories.items()
+                    if PurePosixPath(path).is_relative_to(PurePosixPath(sub))]
+                for actual_directory in exposed:
+                    privacy=actual_directory['privacy']
+                    if privacy=='protected' and role not in {'protected_evaluator','gate'}:
+                        raise PermissionError('whole_role_full_private_mount_forbidden')
+                    if privacy=='current_private' and role not in {'protected_evaluator','gate','runtime'}:
+                        raise PermissionError('whole_role_current_private_mount_forbidden')
+                    if role=='report' and privacy not in {'public','configuration'}:
+                        raise PermissionError('report_only_public_mount')
+                    if not mount['ReadOnly'] and actual_directory['uid']!=uid:
+                        raise PermissionError('whole_role_cross_owner_write')
     def provision(self):
         p=self.plan
         if (self.root/'provisioned.json').exists():
