@@ -214,3 +214,11 @@ Proxy 的只读 live authority 投影携带实际取消记录。私有 Factory/s
 增加 lifecycle_review 调度步骤，使用统一11角色部署中的真实 Gate 入口 review_lifecycle。Controller 只读 Admin 的调度政策和 Gate 的 OpaqueNativeLifecycleReviewCompletion；Admin 的原宿主 start/stop/log、Evaluator 私有 Factory 库、完整生命周期 review 与 Gateway grant 均不跨入 Controller。Gate 必须先独立完成原进程、真实 UTC、空缓存、完整日志及开发停止→保护全新启动核验，才发布不透明完成状态。
 
 生命周期 Gate 的原创建、预算、进程和 reviewed/removing 记录进入 Controller 私有 journal。成功后只删除已经停止的 Gate 容器，明确保留共享持久证据卷和 Keeper；删除响应丢失只能凭原 removing 与完整 reviewed 身份继续清理，不能再次审查或启动模型。原开始时间、截止和预留不重置，超时仍 inconclusive。失败只停止精确原 Gate 并保全私有诊断。此连接还需要正式 Admin 宿主生命周期生产/导入及完整部署包配置，不能以其源码存在宣布整链就绪。未启动 Gate、模型或实验。
+
+### 原操作数据库的实际容量和紧急记录空间
+
+新部署 OperatorOperationStore 版本3在实际 SQLite 文件中分配可复用的16MiB页空间，以实际 page_count/freelist_count 留出2MiB紧急余量。普通准入不能占用该余量；取消/撤销请求另限制8KiB，且继续保留末端结果记录空间。所有历史仍追加保留。版本2及旧冻结库拒绝迁移，不改旧证据。初始化实际FS要求2GiB free floor与数据库/rollback临时峰值，检查真实磁盘块分配；没有另建占位 reserve 文件。
+
+OperatorService 在原 whole-round ledger 中先消费60秒、32MiB初始化/峰值槽，再初始化操作库；重启只核对原消费记录、时钟和政策，不补槽。正式部署生产者要求同一 campaign/epoch/deadline/storage policy。操作库快照和独立 archive Gate 都验证实际版本3与物理政策。控制消息统一262144字节上限，正式结果为响应包装预留空间，避免已提交大结果永远无法返回。
+
+此修改只解决实际操作数据库的预留和压力收尾源码路径；不代表每 campaign 2GiB证据写入链、整轮完整容量或磁盘满验收已经完成。没有创建SQLite、运行压力测试或启动实验。

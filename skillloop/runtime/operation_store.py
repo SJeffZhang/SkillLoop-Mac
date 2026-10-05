@@ -1,10 +1,14 @@
 """Controller-owned durable acceptance, ownership and unknown operation state."""
 from contextlib import closing
 from datetime import datetime,timezone
-import os,sqlite3,stat
+import os,sqlite3,stat,time
 from pathlib import Path
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs,validate_envelope
 from skillloop.proxy.wire import make_control,validate_control
+
+
+STORAGE_POLICY={'database_bytes':16777216,'emergency_bytes':2097152,'free_floor_bytes':2147483648,'initialization_seconds':60}
+WIRE_LIMIT=262144
 
 
 class OperatorOperationStore:
@@ -17,24 +21,61 @@ class OperatorOperationStore:
             info=self.path.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid!=21001 or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600:
                 raise PermissionError('operator_store_private_file')
+        started=time.monotonic()
         old=os.umask(0o077)
         try:
             with self.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
                 db.execute('CREATE TABLE IF NOT EXISTS identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL,epoch TEXT NOT NULL)')
                 row=db.execute('SELECT version,epoch FROM identity').fetchone()
-                if row is not None and row!=(2,epoch):raise ValueError('operator_store_new_epoch_required')
-                db.execute('INSERT OR IGNORE INTO identity VALUES(1,2,?)',(epoch,))
+                if row is not None and row!=(3,epoch):raise ValueError('operator_store_new_epoch_required')
+                db.execute('INSERT OR IGNORE INTO identity VALUES(1,3,?)',(epoch,))
                 db.execute('CREATE TABLE IF NOT EXISTS operations(ref TEXT PRIMARY KEY,owner INTEGER NOT NULL,parameters TEXT NOT NULL,request BLOB NOT NULL,route BLOB NOT NULL,ticket BLOB NOT NULL,state TEXT NOT NULL,result BLOB,error TEXT)')
                 db.execute('CREATE TABLE IF NOT EXISTS operation_transitions(sequence INTEGER PRIMARY KEY AUTOINCREMENT,ref TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,record BLOB NOT NULL)')
                 db.execute("CREATE TRIGGER IF NOT EXISTS operation_transitions_no_update BEFORE UPDATE ON operation_transitions BEGIN SELECT RAISE(ABORT,'operation_history_immutable'); END")
                 db.execute("CREATE TRIGGER IF NOT EXISTS operation_transitions_no_delete BEFORE DELETE ON operation_transitions BEGIN SELECT RAISE(ABORT,'operation_history_immutable'); END")
+                page=db.execute('PRAGMA page_size').fetchone()[0]
+                if (page!=4096 or db.execute('PRAGMA auto_vacuum').fetchone()[0]!=0
+                        or db.execute('PRAGMA journal_mode').fetchone()[0]!='delete'):
+                    raise ValueError('operator_actual_database_page_policy')
+                db.execute('CREATE TABLE IF NOT EXISTS physical_storage(singleton INTEGER PRIMARY KEY CHECK(singleton=1),policy TEXT NOT NULL,page_limit INTEGER NOT NULL,normal_pages INTEGER NOT NULL)')
+                pinned=db.execute('SELECT policy,page_limit,normal_pages FROM physical_storage').fetchone()
+                expected=(digest_jcs(STORAGE_POLICY),4096,3584)
+                if pinned is not None and pinned!=expected:raise ValueError('operator_actual_storage_identity_changed')
+                if pinned is None:
+                    space=os.statvfs(self.path.parent)
+                    if space.f_bavail*space.f_frsize<STORAGE_POLICY['free_floor_bytes']+2*STORAGE_POLICY['database_bytes']:
+                        raise OSError('operator_actual_initialization_free_floor')
+                    # Allocate reusable pages in the actual operation DB. These
+                    # pages hold requests/results/history; no placeholder file.
+                    db.execute('CREATE TABLE operation_preallocation(bytes BLOB NOT NULL)')
+                    while db.execute('PRAGMA page_count').fetchone()[0]<3968:
+                        if time.monotonic()-started>=STORAGE_POLICY['initialization_seconds']:
+                            raise TimeoutError('operator_original_initialization_budget')
+                        db.execute('INSERT INTO operation_preallocation VALUES(zeroblob(524288))')
+                    db.execute('DELETE FROM operation_preallocation')
+                    db.execute('INSERT INTO physical_storage VALUES(1,?,?,?)',expected)
                 db.commit()
+                info=self.path.lstat()
+                if (info.st_size>STORAGE_POLICY['database_bytes'] or info.st_blocks*512<info.st_size
+                        or not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=21001
+                        or stat.S_IMODE(info.st_mode)!=0o600):
+                    raise PermissionError('operator_actual_allocated_database_required')
+                if db.execute('PRAGMA page_count').fetchone()[0]<3968:
+                    raise ValueError('operator_physical_database_reservation_missing')
         finally:os.umask(old)
     def connect(self):
         # closing plus explicit commits prevents leaked connections on recovery.
         db=sqlite3.connect(self.path,timeout=2);db.execute('PRAGMA synchronous=FULL');db.execute('PRAGMA max_page_count=4096')
         return closing(db)
+    @staticmethod
+    def _normal_capacity(db):
+        # Actual used pages, including all immutable history, must leave the
+        # pinned emergency pages for a late result, cancellation and failure.
+        used=db.execute('PRAGMA page_count').fetchone()[0]-db.execute('PRAGMA freelist_count').fetchone()[0]
+        pin=db.execute('SELECT normal_pages FROM physical_storage WHERE singleton=1').fetchone()
+        if pin is None or used>pin[0]:raise OSError('operator_emergency_actual_pages_reserved')
+
     def _transition(self,db,ref,state,reason=None):
         previous=db.execute('SELECT record FROM operation_transitions WHERE ref=? ORDER BY sequence DESC LIMIT 1',(ref,)).fetchone()
         current=db.execute('SELECT state,result,error FROM operations WHERE ref=?',(ref,)).fetchone()
@@ -48,6 +89,8 @@ class OperatorOperationStore:
             (ref,state,reason,canonical_json_line(value)))
 
     def accept(self,owner,request,route):
+        if len(canonical_json_line(request))>WIRE_LIMIT or len(canonical_json_line(route))>WIRE_LIMIT:
+            raise ValueError('operator_original_control_object_capacity')
         ref='op-'+digest_jcs({'epoch':self.epoch,'owner':owner,'operation':request['operation_id']})[7:]
         params=digest_jcs({'command':request['command'],'parameters':request['parameters']})
         ticket=make_control('OperationTicket',{'operation_ref':ref,'owner_role':'admin' if owner==21010 else 'controller' if owner==21001 else 'operator',
@@ -63,13 +106,20 @@ class OperatorOperationStore:
             controls={'admin cancel','admin revoke'}
             waiting=db.execute("SELECT request FROM operations WHERE state IN ('accepted','running') LIMIT 18").fetchall()
             lane=request['command'] in controls
+            if lane and (len(canonical_json_line(request))>8192 or len(canonical_json_line(route))>8192):
+                raise ValueError('operator_control_emergency_record_bound')
             if sum((decode_json(raw)['command'] in controls)==lane for (raw,) in waiting)>=(1 if lane else 16):
                 raise TimeoutError('operator_control_busy' if lane else 'operator_queue_full')
             # One bounded cancellation/revocation metadata slot is independent
             # of the 16 normal operations. It cannot start a campaign or model.
             db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?,?,NULL,NULL)',
                 (ref,owner,params,canonical_json_line(request),canonical_json_line(route),canonical_json_line(ticket),'accepted'))
-            self._transition(db,ref,'accepted','original_admission');db.commit()
+            self._transition(db,ref,'accepted','original_admission')
+            if not lane:self._normal_capacity(db)
+            else:
+                used=db.execute('PRAGMA page_count').fetchone()[0]-db.execute('PRAGMA freelist_count').fetchone()[0]
+                if used>3968:raise OSError('operator_terminal_result_pages_reserved')
+            db.commit()
         return ticket
     def claim(self,*,control_only=False):
         if type(control_only) is not bool:raise ValueError('operator_explicit_execution_lane')
@@ -92,7 +142,7 @@ class OperatorOperationStore:
     def complete(self,ref,result):
         try:validate_control(result)
         except ValueError:validate_envelope(result)
-        if len(canonical_json_line(result))>2097152:raise ValueError('operator_result_capacity')
+        if len(canonical_json_line(result))>WIRE_LIMIT-1024:raise ValueError('operator_result_capacity')
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE');row=db.execute('SELECT ticket FROM operations WHERE ref=?',(ref,)).fetchone()
             if row is None or decode_json(row[0])['body']['expected_result_kind']!=result['kind']:
@@ -139,6 +189,10 @@ class OperatorOperationStore:
 
 def verify_operation_transitions(db,epoch,*,budget):
     """Rebuild immutable state history from an actual consistent snapshot."""
+    if db.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,epoch)]:
+        raise ValueError('operator_archive_original_storage_version')
+    if db.execute('SELECT policy,page_limit,normal_pages FROM physical_storage').fetchall()!=[(digest_jcs(STORAGE_POLICY),4096,3584)]:
+        raise ValueError('operator_archive_original_physical_storage_policy')
     heads={};clock={};count=0
     columns={'kind','deployment_epoch','operation_ref','state','reason','recorded_at','previous_digest','result_digest','digest'}
     for ref,state,reason,raw in db.execute('SELECT ref,state,reason,record FROM operation_transitions ORDER BY sequence'):

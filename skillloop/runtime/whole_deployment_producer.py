@@ -66,6 +66,14 @@ def produce_deployment(policy_path):
     if len(controller_documents)!=1 or (controller_documents[0].get('engine_socket'),
             controller_documents[0].get('engine_socket_gid'))!=('/engine.sock',value['engine_socket_gid']):
         raise ValueError('whole_controller_production_socket_binding')
+    operator_documents=[d['value'] for d in value['documents']
+        if d['value'].get('kind')=='OperatorServiceDeployment']
+    from skillloop.runtime.operation_store import STORAGE_POLICY
+    if (len(operator_documents)!=1 or operator_documents[0].get('storage_policy')!=STORAGE_POLICY
+            or operator_documents[0].get('campaign_digest')!=value['campaign_digest']
+            or operator_documents[0].get('deployment_epoch')!=value['deployment_epoch']
+            or operator_documents[0].get('deadline')!=value['deadline']):
+        raise ValueError('whole_operator_original_physical_storage_and_clock')
     output=_directory(policy['output_directory'],21010,21001,0o750)
     path=output/'deployment.json'
     if os.path.lexists(path):

@@ -243,7 +243,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
     alias,relative=locator.split('/',1);database=roots[alias]/relative
     with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
         db.set_progress_handler(lambda:(budget() or 0),1000)
-        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('SELECT version,epoch FROM identity').fetchall()!=[(2,policy['deployment_epoch'])]:
+        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,policy['deployment_epoch'])]:
             raise ValueError('campaign_archive_actual_operation_store_integrity')
         from skillloop.runtime.operation_store import verify_operation_transitions
         operation_history=verify_operation_transitions(db,policy['deployment_epoch'],budget=budget)

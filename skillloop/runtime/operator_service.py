@@ -8,7 +8,7 @@ import errno,fcntl,os,signal,socket,stat,struct,threading
 from pathlib import Path
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
-from skillloop.runtime.operation_store import OperatorOperationStore
+from skillloop.runtime.operation_store import OperatorOperationStore,STORAGE_POLICY,WIRE_LIMIT
 
 
 class OperatorService:
@@ -16,17 +16,33 @@ class OperatorService:
         if os.geteuid()!=21001:raise PermissionError('operator_service_actual_controller')
         self.config=read_owned(deployment_path,uid=21010,gid=21001,limit=2097152)
         cfg=self.config
-        if (set(cfg)!={'kind','deployment_epoch','socket','socket_gid','operator_uids','store','deadline','routes','digest'}
+        if (set(cfg)!={'kind','deployment_epoch','campaign_digest','storage_policy','socket','socket_gid','operator_uids','store','deadline','routes','digest'}
                 or cfg['kind']!='OperatorServiceDeployment' or type(cfg['operator_uids']) is not list
                 or any(type(uid) is not int or uid<1 or uid in set(range(21002,21010))|{21011} for uid in cfg['operator_uids'])):
             raise ValueError('operator_service_frozen_deployment')
         self.dispatcher=dispatcher;self.stop=threading.Event();self.inflight_preserved=False
         self.admission_lock=threading.Lock()
+        whole=self.dispatcher.phase.round_manifest
+        if (cfg['storage_policy']!=STORAGE_POLICY or cfg['deployment_epoch']!=whole['deployment_epoch']
+                or cfg['campaign_digest'] not in {c['campaign_digest'] for c in whole['campaigns']}):
+            raise ValueError('operator_actual_storage_whole_round_binding')
+        key='operator-storage-'+cfg['digest'][7:]
+        ledger=self.dispatcher.ledger;state=ledger.read()
+        prior=[e for e in state.get('auxiliary_executions',[]) if e['operation_key']==key]
+        requested={'seconds':60,'input_tokens':0,'output_tokens':0,'disk_bytes':33554432}
+        if prior:
+            if (len(prior)!=1 or prior[0]['stage']!='approval_deployment' or prior[0]['requested_cost']!=requested
+                    or state.get('whole_round_binding')!={'manifest_digest':whole['digest'],'campaign':cfg['campaign_digest']}
+                    or state.get('campaign_started_at')!=ledger.campaign_started_at):
+                raise ValueError('operator_storage_original_spending_required')
+        else:
+            ledger.consume_auxiliary(manifest=whole,campaign=cfg['campaign_digest'],stage='approval_deployment',
+                operation_key=key,**requested)
         self.store=OperatorOperationStore(cfg['store'],cfg['deployment_epoch'])
         self.dispatcher.operation_store=self.store
         self.routes={}
         for path in cfg['routes']:
-            route=read_owned(path,uid=21010,gid=21001,limit=2097152)
+            route=read_owned(path,uid=21010,gid=21001,limit=WIRE_LIMIT)
             expected={'kind','campaign_digest','command','parameters_digest','result_kind','deadline','steps','result_path','result_binding_path','result_uid','journal_directory','digest'}
             if set(route)!=expected or type(route['steps']) is not list or not route['steps']:
                 raise ValueError('operator_complete_route_shape')
@@ -159,12 +175,14 @@ class OperatorService:
                         connection.settimeout(9)
                         uid=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[1]
                         try:
-                            raw,_,flags,_=connection.recvmsg(2097153)
-                            if not raw or len(raw)>2097152 or flags&socket.MSG_TRUNC:raise ValueError('operator_message_bound')
+                            raw,_,flags,_=connection.recvmsg(WIRE_LIMIT+1)
+                            if not raw or len(raw)>WIRE_LIMIT or flags&socket.MSG_TRUNC:raise ValueError('operator_message_bound')
                             result=self.request(uid,decode_json(raw));reply={'ok':True,'result':result,'error_code':None}
                         except PermissionError:reply={'ok':False,'result':None,'error_code':'permission_denied'}
                         except ValueError:reply={'ok':False,'result':None,'error_code':'invalid_args'}
                         except Exception:reply={'ok':False,'result':None,'error_code':'unavailable'}
+                        if len(canonical_json_line(reply))>WIRE_LIMIT:
+                            reply={'ok':False,'result':None,'error_code':'unavailable'}
                         try:connection.sendall(canonical_json_line(reply))
                         except OSError:pass  # Accepted original operation remains queryable after response loss.
             finally:

@@ -20,12 +20,14 @@ def operator_request(command,parameters,operation_id=None,*,wait=True):
     request={'kind':'InternalOperatorRequest','command':command,'parameters':parameters,'operation_id':original}
     request['digest']=digest_jcs(request)
     def exchange(value):
+        raw_request=canonical_json_line(value)
+        if len(raw_request)>262144:raise ValueError('operator_control_request_capacity')
         with socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET) as connection:
             connection.settimeout(10);connection.connect(cfg['socket'])
             peer=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
             if peer[1]!=21001:raise PermissionError('formal_operator_controller_peer')
-            connection.sendall(canonical_json_line(value));raw,_,flags,_=connection.recvmsg(2097153)
-        if not raw or len(raw)>2097152 or flags&socket.MSG_TRUNC:raise OSError('operator_response_bound')
+            connection.sendall(raw_request);raw,_,flags,_=connection.recvmsg(262145)
+        if not raw or len(raw)>262144 or flags&socket.MSG_TRUNC:raise OSError('operator_response_bound')
         reply=decode_json(raw)
         if type(reply) is not dict or set(reply)!={'ok','result','error_code'} or type(reply['ok']) is not bool:
             raise OSError('operator_response_shape')

@@ -63,7 +63,7 @@ def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whol
             with closing(sqlite3.connect(store.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as source:
                 source.backup(destination,pages=64,progress=progress,sleep=0.01)
             destination.set_progress_handler(lambda:int(time.monotonic()-started>=policy['timeout_seconds']),1000)
-            if destination.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or destination.execute('SELECT version,epoch FROM identity').fetchall()!=[(2,policy['deployment_epoch'])]:
+            if destination.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or destination.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,policy['deployment_epoch'])]:
                 raise ValueError('operation_archive_actual_store_integrity')
             verify_operation_transitions(destination,policy['deployment_epoch'],budget=budget)
         return target
