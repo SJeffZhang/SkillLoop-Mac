@@ -199,6 +199,10 @@ def review_campaign():
         charged+=bound['seconds']
     if charged!=spending['charged_wall_seconds'] or datetime.now(timezone.utc).timestamp()-spending['campaign_started_at']+_remaining_whole_seconds(spending,reservation)>28800:
         raise ValueError('campaign_gate_original_full_budget_exhausted')
+    from skillloop.ci.development_attempts import review_attempts
+    attempt_audit=review_attempts(root='/operation-history',campaign=campaign,
+        epoch=record['deployment_epoch'],config_digest=record['config_digest'],
+        deadline=job['deadline'],spending=spending)
     source_history=read_owned('/source-history/source-authority.json',uid=21003,gid=21005,limit=16777216)
     if source_history.get('protected_plan_digest')!=plan['digest']:
         raise ValueError('campaign_gate_source_history_private_plan_fence')
@@ -234,13 +238,12 @@ def review_campaign():
             high=sum(f['body']['severity'].lower() in {'high','critical'} for f in scan['findings'])
             # Facts below have each been independently derived from real
             # role-owned records, current authority and full original spending.
-            # A successful-input projection cannot establish the full failed /
-            # unknown discovery and candidate attempt history. Keep coverage
-            # and qualification completeness distinct until the original
-            # authoritative attempt catalog has actually been reviewed.
+            # The roster's successful-input projection cannot establish failed
+            # or unknown attempts. Use the independently reviewed original
+            # operation DB and route journals for that separate fact.
             incomplete=[]
-            if development.get('all_attempt_history_complete') is not True:
-                incomplete.append('development_attempt_history_incomplete')
+            if attempt_audit['all_attempt_history_complete'] is not True:
+                incomplete.extend(attempt_audit['incomplete_reasons'])
             if inference['unknown_count']:
                 incomplete.append('development_inference_unknown')
             if inference_run_gap:
@@ -280,7 +283,7 @@ def review_campaign():
     facts={'whole-round':whole,'development-assignment':devjob,
         'development-evidence':development,'roster-freeze':freeze,
         'authority-snapshot':authority.snapshot,'model-lifecycle':lifecycle,'spending':snapshot,
-        'source-history':source_history}
+        'source-history':source_history,'development-attempt-audit':attempt_audit}
     # Preserve the actual facts reviewed by this Gate inside its own vault.
     # This copies objects, not live database permissions or Controller access.
     for name,value in facts.items():_publish(vault/('archive-fact-'+name+'.json'),value,21005)
@@ -293,7 +296,7 @@ def review_campaign():
     # Private case reductions and proof references are never written to the
     # Controller-readable completion or report.
     _publish(vault/'campaign-evidence.json',evidence,21005)
-    issuable=development.get('all_attempt_history_complete') is True and all(chain['gate']['body']['verdict'] in {'pass','fail'} and not chain['gate']['body']['incomplete_reasons']
+    issuable=attempt_audit['all_attempt_history_complete'] is True and not inference_run_gap and inference['unknown_count']==0 and all(chain['gate']['body']['verdict'] in {'pass','fail'} and not chain['gate']['body']['incomplete_reasons']
         and not chain['context']['body']['unresolved_high_findings'] for chain in chains.values())
     if issuable:
         issuer=QualificationIssuer('/eligibility/qualification.sqlite',deployment_epoch=record['deployment_epoch'],

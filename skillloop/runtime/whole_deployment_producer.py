@@ -152,6 +152,41 @@ def produce_deployment(policy_path):
         routes.append(route)
     from skillloop.runtime.operator_routes import validate_operator_routes
     validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
+    evaluation=next(route for route in routes if route['command']=='evaluate')
+    archive_step=next(step for step in evaluation['steps'] if step['action']=='operation_archive')
+    archive_policy=documents.get(archive_step['policy_path'])
+    if (type(archive_policy) is not dict or archive_policy.get('kind')!='FrozenControllerOperationArchive'
+            or archive_policy.get('campaign')!=value['campaign_digest']
+            or archive_policy.get('deployment_epoch')!=value['deployment_epoch']
+            or archive_policy.get('deadline')!=value['deadline']):
+        raise ValueError('whole_development_attempt_original_archive_policy')
+    roots=[Path(source['path']) for source in archive_policy['sources'] if source.get('uid')==21001]
+    if (not roots or any(left.is_relative_to(right) or right.is_relative_to(left)
+            for i,left in enumerate(roots) for right in roots[i+1:])):
+        raise ValueError('whole_development_attempt_disjoint_controller_roots')
+    if any(not any(Path(route['journal_directory']).is_relative_to(root) for root in roots) for route in routes):
+        raise ValueError('whole_development_attempt_all_route_journals_required')
+    archive_output=PurePosixPath(archive_policy['output_directory'])
+    controller_mounts=value['roles']['controller']['config']['HostConfig']['Mounts']
+    matching=[mount for mount in controller_mounts if mount.get('Type')=='volume'
+        and mount.get('Source')==value['volume']
+        and archive_output.is_relative_to(PurePosixPath(mount['Target']))]
+    if not matching:raise ValueError('whole_development_attempt_controller_output_mount')
+    source=max(matching,key=lambda mount:len(PurePosixPath(mount['Target']).parts))
+    archive_subpath=str(PurePosixPath(source['VolumeOptions']['Subpath'])/
+        archive_output.relative_to(PurePosixPath(source['Target'])))
+    archive_directory=directories.get(archive_subpath)
+    gate=value['roles']['gate'];module='skillloop.ci.campaign_gate'
+    gate_config=gate['config'] if gate['config']['Cmd']==['-m',module] else gate.get('entry_variants',{}).get(module,{}).get('config')
+    if gate_config is None:raise ValueError('whole_development_attempt_gate_entry')
+    audit_mounts=[mount for mount in gate_config['HostConfig']['Mounts'] if mount['Target']=='/operation-history']
+    if (len(audit_mounts)!=1 or audit_mounts[0].get('Type')!='volume'
+            or audit_mounts[0].get('Source')!=value['volume']
+            or audit_mounts[0].get('ReadOnly') is not True
+            or audit_mounts[0].get('VolumeOptions',{}).get('Subpath')!=archive_subpath
+            or archive_directory is None
+            or (archive_directory['uid'],archive_directory['gid'],archive_directory['mode'])!=(21001,21005,0o750)):
+        raise ValueError('whole_development_attempt_gate_actual_archive_mount')
     for route in routes:
         for step in route['steps']:
             if step.get('action')=='discovery_suite':

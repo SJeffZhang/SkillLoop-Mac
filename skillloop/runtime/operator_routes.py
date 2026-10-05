@@ -100,7 +100,7 @@ def _validate_evaluation_sequence(route):
     being admitted as the formal full evaluation route.
     """
     actions=[step['action'] for step in route['steps']]
-    once=('register_campaign','roster_freeze','private_factory','lifecycle_review','campaign_gate_assignment','campaign_gate')
+    once=('register_campaign','roster_freeze','operation_archive','private_factory','lifecycle_review','campaign_gate_assignment','campaign_gate')
     if (route['campaign_digest'] is None or route['result_uid']!=21005
             or any(actions.count(action)!=1 for action in once)
             or any(action not in actions for action in ('semantic_discovery','discovery_suite','development','private_session'))
@@ -108,13 +108,14 @@ def _validate_evaluation_sequence(route):
                 'registry_withdraw','archive_close','promote'))):
         raise PermissionError('operator_complete_evaluation_callers_required')
     registered=actions.index('register_campaign');frozen=actions.index('roster_freeze')
+    attempt_audit=actions.index('operation_archive')
     factory=actions.index('private_factory');lifecycle=actions.index('lifecycle_review')
     gate=actions.index('campaign_gate');assignment=actions.index('campaign_gate_assignment')
     if not max(factory,lifecycle)<assignment<gate:
         raise ValueError('operator_evaluation_current_gate_assignment_order')
     if route['steps'][assignment]['assignment_directory']!=route['steps'][gate]['assignment_directory']:
         raise ValueError('operator_evaluation_same_produced_gate_assignment')
-    if not registered<frozen<factory<gate or not frozen<lifecycle<gate:
+    if not registered<frozen<attempt_audit<factory<gate or not frozen<lifecycle<gate:
         raise ValueError('operator_evaluation_original_phase_order')
     private_policy=[index for index,step in enumerate(route['steps']) if step['action']=='role_command'
         and step.get('role')=='admin' and step.get('role_command')=='produce-private-policy']

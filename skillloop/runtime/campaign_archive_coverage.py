@@ -113,7 +113,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
     fact_kinds={'whole-round':'FrozenWholeRound','development-assignment':'FormalDevelopmentRosterAssignment',
         'development-evidence':'FormalDevelopmentRosterEvidence','roster-freeze':'FrozenCampaignSubjectRoster',
         'authority-snapshot':'EvaluatorGateAuthoritySnapshot','model-lifecycle':'GatePrivateModelLifecycleReview',
-        'spending':'CampaignGateSpendingSnapshot','source-history':'ProxyCampaignSourceAuthoritySnapshot'}
+        'spending':'CampaignGateSpendingSnapshot','source-history':'ProxyCampaignSourceAuthoritySnapshot',
+        'development-attempt-audit':'GateDevelopmentAttemptAudit'}
     if set(evidence.get('archive_fact_digests',{}))!=set(fact_kinds):
         raise ValueError('campaign_archive_original_fact_bindings_required')
     facts={name:resolve(evidence['archive_fact_digests'][name],kind)[0][1]
@@ -126,6 +127,12 @@ def review_campaign_inventory(*,policy,inventory,budget):
             or facts['authority-snapshot']['digest']!=evidence['authority_snapshot_digest']
             or facts['model-lifecycle']['digest']!=evidence['lifecycle_digest']):
         raise ValueError('campaign_archive_original_fact_chain')
+    attempt_audit=facts['development-attempt-audit']
+    if (attempt_audit.get('campaign')!=policy['campaign']
+            or attempt_audit.get('deployment_epoch')!=policy['deployment_epoch']
+            or attempt_audit.get('config_digest')!=evidence['bindings']['config_digest']
+            or type(attempt_audit.get('all_attempt_history_complete')) is not bool):
+        raise ValueError('campaign_archive_original_development_attempt_audit')
     raw_pins=facts['development-evidence'].get('reviewed_raw_inputs')
     if type(raw_pins) is not list or not 1<=len(raw_pins)<=512:
         raise ValueError('campaign_archive_discovery_original_inputs_required')
