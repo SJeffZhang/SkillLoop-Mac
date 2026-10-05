@@ -88,7 +88,7 @@ class OperatorOperationStore:
             receipts=proof.get('completed_stage_receipts')
             if (proof.get('request_digest')!=request['digest'] or proof.get('route_digest')!=route['digest']
                     or type(receipts) is not list or type(proof.get('next_stage_index')) is not int
-                    or proof['next_stage_index']!=len(receipts) or len(receipts)>=len(route['steps'])):
+                    or proof['next_stage_index']!=len(receipts) or len(receipts)>len(route['steps'])):
                 raise ValueError('operator_recovery_original_unstarted_tail')
             # claim() rechecks the original deadline before any dispatch. No
             # replacement ticket, route, task, slot or clock is constructed.

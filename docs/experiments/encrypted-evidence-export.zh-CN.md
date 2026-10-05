@@ -154,3 +154,5 @@ Durable task 复制、AES-GCM 输出及惰性历史恢复在写入内容前，�
 OperatorService 重启时先恢复原最终结果；若没有最终结果，则由 Controller 核对原 route/request 身份、连续的 started/completed 成对记录和完整结果摘要。只有剩余步骤全部没有 started 记录、没有提前或部分最终投影，才保存恢复证明并将同一个操作恢复为 accepted。原 worker 跳过已完成步骤，claim 仍检查原截止时间；不替换 ticket、任务、预算或时钟，也不在启动恢复中同步等待数小时执行。
 
 任一步已有 started 却没有 completed、缺失前缀、变更摘要或部分最终投影，仍保留 unknown_requires_recovery，不能重新派发。此变更只通过源码及语法检查，崩溃/响应丢失场景仍待完整轮次验证。
+
+全部步骤已有连续成对提交记录、但最终绑定尚未完成时，也可恢复同一操作的收尾。已有 Controller 结果或绑定只在逐字节对象一致时复用，不覆盖；实际角色结果仍从原 producer 读取。修正 Gate/Reporter 结果分支未导入发布函数的问题，Controller 只发布自己的完整步骤绑定，不生成 Gate 结论。部分最终投影且尚有未执行业务步骤的情况继续保持 unknown。未运行实验。

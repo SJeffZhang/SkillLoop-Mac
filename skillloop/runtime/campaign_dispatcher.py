@@ -118,7 +118,7 @@ class CampaignDispatcher:
                         or value.get('request_digest')!=request['digest']):
                     raise ValueError('campaign_recovery_original_stage_pair_required')
             stages.append(digest_jcs(saved['result']))
-        if not tail or any(os.path.lexists(route[k]) for k in ('result_path','result_binding_path')):
+        if tail and any(os.path.lexists(route[k]) for k in ('result_path','result_binding_path')):
             raise RuntimeError('campaign_recovery_final_projection_requires_original_result')
         proof={'kind':'ControllerUnstartedTailRecovery','request_digest':request['digest'],
             'route_digest':route['digest'],'completed_stage_receipts':stages,
@@ -164,7 +164,7 @@ class CampaignDispatcher:
         validate_dispatch_route(route)
         # These are original production callers, never shell commands, arbitrary
         # scripts or local result fixtures. Missing stage providers stay blocked.
-        from skillloop.protection.current_task import _directory
+        from skillloop.protection.current_task import _directory,_publish
         from skillloop.runtime.proposal_dispatch import _save
         journal=_directory(route['journal_directory'],21001,21001,0o700)
         identity={'kind':'CampaignRouteIdentity','request_digest':request['digest'],'route_digest':route['digest']}
@@ -405,9 +405,11 @@ class CampaignDispatcher:
                 raise ValueError('operator_actual_production_result_required')
             try:validate_control(result)
             except ValueError:validate_envelope(result)
-            from skillloop.protection.current_task import _directory,_publish
             _directory(Path(route['result_path']).parent,21001,21001,0o750)
-            _publish(Path(route['result_path']),result,21001)
+            if os.path.lexists(route['result_path']):
+                if read_owned(route['result_path'],uid=21001,gid=21001,limit=2097152)!=result:
+                    raise ValueError('campaign_original_final_result_changed')
+            else:_publish(Path(route['result_path']),result,21001)
         # Only the role-owned final projection may become a public CLI result.
         # A process completion, helper result or historical Check cannot replace it.
         result=read_owned(route['result_path'],uid=route['result_uid'],gid=21001,limit=2097152)
@@ -425,7 +427,10 @@ class CampaignDispatcher:
             'stage_receipts':stage_receipts,'result_producer_uid':route['result_uid']}
         binding['digest']=digest_jcs(binding)
         _directory(Path(route['result_binding_path']).parent,21001,21001,0o750)
-        _publish(Path(route['result_binding_path']),binding,21001)
+        if os.path.lexists(route['result_binding_path']):
+            if read_owned(route['result_binding_path'],uid=21001,gid=21001,limit=262144)!=binding:
+                raise ValueError('campaign_original_final_binding_changed')
+        else:_publish(Path(route['result_binding_path']),binding,21001)
         binding=read_owned(route['result_binding_path'],uid=21001,gid=21001,limit=262144)
         if (binding.get('kind')!='OperatorFinalResultBinding'
                 or binding.get('request_digest')!=request['digest'] or binding.get('route_digest')!=route['digest']
