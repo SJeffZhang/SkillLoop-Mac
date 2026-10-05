@@ -8,15 +8,14 @@ import os
 import hashlib
 from pathlib import Path,PurePosixPath
 import stat
-from skillloop.protocol import decode_json,digest_jcs
+from skillloop.protocol import canonical_json_line,decode_json,digest_bytes,digest_jcs
 from scripts.spec_v22_core import execution_record
 from skillloop.runtime.archive_files import open_original,require_unchanged
 
 
 # These categories need producers bound to actual owner snapshots, rather than
 # caller-declared booleans or arbitrary collections of files.
-UNBOUND_CATEGORIES=('discovery_and_candidate_raw_history',
-    'qualification_and_registry_snapshots',
+UNBOUND_CATEGORIES=('qualification_and_registry_snapshots',
     'operation_recovery_and_resource_ownership','archive_and_restore_lifecycle')
 
 
@@ -138,13 +137,17 @@ def review_campaign_inventory(*,policy,inventory,budget):
     raw_pins=facts['development-evidence'].get('reviewed_raw_inputs')
     if type(raw_pins) is not list or not 1<=len(raw_pins)<=512:
         raise ValueError('campaign_archive_discovery_original_inputs_required')
-    raw_covered=[]
+    raw_covered=[];raw_index={}
     for pin in raw_pins:
         if (type(pin) is not dict or type(pin.get('name')) is not str
                 or type(pin.get('bytes_digest')) is not str
                 or pin['name']!='reviewed-raw-'+pin['bytes_digest'][7:]+'.bin'
                 or type(pin.get('size_bytes')) is not int
-                or not 0<=pin['size_bytes']<=33554432):
+                or not 0<=pin['size_bytes']<=33554432
+                or type(pin.get('original_name')) is not str
+                or Path(pin['original_name']).name!=pin['original_name']
+                or pin.get('original_uid') not in {21001,21005,21007,21011}
+                or pin.get('original_gid')!=21001):
             raise ValueError('campaign_archive_discovery_original_input_pin')
         copies=[r for r in rows.values() if PurePosixPath(r['path']).name==pin['name']
             and r['uid']==21005 and r['gid']==21005 and r['mode']==0o600]
@@ -154,6 +157,76 @@ def review_campaign_inventory(*,policy,inventory,budget):
                 raise ValueError('campaign_archive_discovery_original_copy_mismatch')
             load(row,limit=33554432,decode=False)
         raw_covered.append(pin['bytes_digest'])
+        raw_index.setdefault((pin['original_name'],pin['bytes_digest']),[]).extend(copies)
+    development=facts['development-evidence'];assignment=facts['development-assignment']
+    def reviewed_original(name,value,kind):
+        if value.get('kind')!=kind:
+            raise ValueError('campaign_archive_original_discovery_object_kind')
+        checksum=digest_bytes(canonical_json_line(value))
+        copies=raw_index.get((name,checksum),[])
+        if not copies:
+            raise ValueError('campaign_archive_missing_reviewed_discovery_object')
+        if any(load(row,limit=16777216)!=value for row in copies):
+            raise ValueError('campaign_archive_changed_reviewed_discovery_object')
+    reviewed_original('job.json',assignment,'FormalDevelopmentRosterAssignment')
+    applications=development.get('applications');scans=development.get('scans')
+    if (type(applications) is not list or len(applications)>2
+            or type(scans) is not dict or set(scans)!=set(development['subjects'].values())
+            or facts['roster-freeze']['repair_rounds_used']!=len(applications)):
+        raise ValueError('campaign_archive_original_discovery_candidate_roster')
+    parent=evidence['bindings']['subjects']['submitted']
+    for number,application in enumerate(applications,1):
+        budget()
+        if (application.get('repair_round')!=number
+                or application.get('parent_subject_digest')!=parent
+                or application.get('campaign_id')!=policy['campaign']
+                or application.get('deployment_epoch')!=policy['deployment_epoch']
+                or application.get('application_verified') is not True):
+            raise ValueError('campaign_archive_original_candidate_parent_chain')
+        reviewed_original(application['assignment_digest'][7:]+'.json',application,
+            'GateBoundedCandidateApplication')
+        if any((pin['original_name'],pin['bytes_digest']) not in raw_index
+                for pin in application['reviewed_raw_inputs']):
+            raise ValueError('campaign_archive_candidate_original_model_inputs_missing')
+        parent=application['candidate_bundle_digest']
+    semantic_digests=set();scan_reviews={}
+    required_reviews={scan['review_digest'] for scan in scans.values()}
+    for pin in raw_pins:
+        if pin['original_uid']!=21005 or not pin['original_name'].endswith('.json'):
+            continue
+        copies=raw_index[(pin['original_name'],pin['bytes_digest'])]
+        if copies[0]['bytes']>262144:continue
+        value=load(copies[0],limit=262144)
+        if value.get('kind')!='ScanEvidenceReview':continue
+        if (value.get('digest') not in required_reviews
+                or value.get('evidence_complete') is not True
+                or ('raw-report.json',value.get('raw_report_digest')) not in raw_index
+                or any(load(row,limit=262144)!=value for row in copies)):
+            raise ValueError('campaign_archive_original_scan_review_and_report')
+        scan_reviews[value['digest']]=value
+    if set(scan_reviews)!=required_reviews:
+        raise ValueError('campaign_archive_missing_original_scan_review')
+    for subject,scan in scans.items():
+        budget()
+        if (subject not in development['subjects'].values()
+                or scan['scanner_report']['body']['status']!='complete'
+                or type(scan.get('semantic_evidence_digest')) is not str):
+            raise ValueError('campaign_archive_complete_semantic_discovery_required')
+        semantic_digests.add(scan['semantic_evidence_digest'])
+    if len(semantic_digests)!=len(scans):
+        raise ValueError('campaign_archive_distinct_semantic_source_evidence')
+    observed_semantic=set()
+    for pin in raw_pins:
+        if pin['original_name']!='discovery.json':continue
+        copies=raw_index[(pin['original_name'],pin['bytes_digest'])]
+        value=load(copies[0],limit=16777216)
+        if (value.get('kind')!='GatewaySemanticDiscoveryEvidence'
+                or value.get('digest') not in semantic_digests
+                or any(load(row,limit=16777216)!=value for row in copies)):
+            raise ValueError('campaign_archive_original_semantic_model_evidence')
+        observed_semantic.add(value['digest'])
+    if observed_semantic!=semantic_digests:
+        raise ValueError('campaign_archive_missing_semantic_model_evidence')
     source_history=facts['source-history']
     from skillloop.proxy.archive_projection import verify_source_history
     source_map=verify_source_history(source_history,campaign=policy['campaign'],epoch=policy['deployment_epoch'],
@@ -368,6 +441,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'archive_obligations_digest':obligations['digest'],'source_inventory_digest':inventory['digest'],
         'reviewed_tasks':covered,'all_reviewed_task_bytes_present':True,
         'reviewed_discovery_raw_digests':raw_covered,'reviewed_discovery_bytes_present':True,
+        'discovery_candidate_history_verified':True,
         'original_gate_fact_digests':evidence['archive_fact_digests'],
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
         'withdrawn_issuer_databases_verified':True,'issuer_snapshot_digest':issuer_snapshot['digest'],
