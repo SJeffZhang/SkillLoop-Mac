@@ -8,6 +8,7 @@ from skillloop.runtime.protected_flow import _controller_record
 
 
 ACTION_FIELDS={
+    'campaign_inspection':{'qualification_path','authority_directory','report_path'},
     'import_source':{'approved_repository'},
     'archive_role':{'policy_path','journal_directory'},
     'archive_close':{'policy_path','dispatch_journal','review_path','journal_directory'},
@@ -52,6 +53,9 @@ def validate_dispatch_route(route):
         'private_start','private_runtime','lifecycle_review','semantic_discovery','proposal','application_gate','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
+    if any(step.get('action')=='campaign_inspection' for step in route['steps']) and (
+            route.get('command')!='inspect' or campaign is None):
+        raise PermissionError('campaign_inspection_read_only_command_required')
     journals={route['journal_directory']}
     for step in route['steps']:
         if type(step) is not dict:raise ValueError('campaign_step_shape')
@@ -543,6 +547,12 @@ class CampaignDispatcher:
                 from skillloop.runtime.archive_dispatch import close_archive_role
                 result=close_archive_role(policy_path=step['policy_path'],dispatch_journal=step['dispatch_journal'],
                     review_path=step['review_path'],journal_directory=step['journal_directory'],engine=self.engine)
+            elif step['action']=='campaign_inspection':
+                if request['command']!='inspect' or request['parameters']!={'campaign':campaign}:
+                    raise PermissionError('inspection_exact_operator_request')
+                result=self.registry.inspect_campaign(campaign=campaign,
+                    qualification_path=step['qualification_path'],authority_directory=step['authority_directory'],
+                    report_path=step['report_path'])
             elif step['action']=='promote':
                 p=request['parameters']
                 result=self.registry.promote(qualification_path=step['qualification_path'],

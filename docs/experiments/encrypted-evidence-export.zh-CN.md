@@ -435,3 +435,9 @@ Gate从原Patcher intent/response独立核对15360输入、1024输出和原reque
 语义/Gate辅助进程及Admin/Reporter委托命令失败后，Controller核对原step和实际配置，停止后再次核验原容器身份及Running状态。停止、inspect或取证失败不再被吞掉：另存原container/step绑定的收尾错误，并在原异常上记录收尾未确认；failure摘要保留停止是否确认，未知不能标关闭或释放。成功或失败输出、Keeper与原资源均不因这些记录被删除或重跑。
 
 该修复由正式campaign及角色命令错误路径实际调用；仅AST/源码检查，未运行容器。全容量所有权和完整新部署恢复仍须接齐。
+
+### 正式inspect当前状态与只读命令调用边界
+
+inspect新增Controller生产调用：读取当前Registry generation、名单冻结及原archive撤销记录，结合Gate实际资格当前消费和Gate公共report输出冻结CampaignInspection。只有submitted当前有效资格能标eligible；promoted还需原active_campaigns及RegistryEntry身份一致。缺资格返回none，真实到期、撤销、取消或代际变化返回对应状态，未知/损坏不吞成成功。公开输出不包含私有计划、逐题结果或证明字节；它是状态观察，不能替代promote的重新消费/CAS。
+
+正式route准入约束import、scan、inspect各自唯一生产动作，report仅Reporter公共投影，禁止只读命令夹带Admin或其它写步骤。Controller正式campaign dispatcher已调用inspect，冻结CLI/RPC/API4枚举未变；实际整轮配置生产者仍需生产对应route。仅AST/源码检查，尚未执行CLI或Registry运行验收。

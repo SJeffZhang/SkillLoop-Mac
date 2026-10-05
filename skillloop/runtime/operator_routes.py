@@ -44,6 +44,20 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
         if route_end.tzinfo is None or route_end > end:
             raise ValueError('operator_route_original_deployment_deadline')
         validate_dispatch_route(route)
+        # A sealed Admin declaration cannot expand a read-only CLI command
+        # into a privileged campaign operation. Validate the actual callers,
+        # rather than accepting a final public result after arbitrary writes.
+        read_actions={'import':'import_source','scan':'static_scan','inspect':'campaign_inspection'}
+        if route['command'] in read_actions and (
+                len(route['steps'])!=1 or route['steps'][0]['action']!=read_actions[route['command']]):
+            raise PermissionError('operator_frozen_read_command_provider')
+        if route['command']=='inspect' and route['result_uid']!=21001:
+            raise PermissionError('operator_actual_registry_inspection_provider')
+        if route['command']=='report' and (
+                len(route['steps'])!=1 or route['steps'][0]['action']!='role_command'
+                or route['steps'][0]['role']!='report' or route['steps'][0]['role_command']!='report'
+                or route['result_uid']!=21009):
+            raise PermissionError('operator_reporter_public_projection_only')
         if route['command'] in {'admin cancel','admin revoke'} and (
                 len(route['steps']) != 1 or route['steps'][0]['action'] != 'proxy_controller'
                 or route['steps'][0]['method'] != {

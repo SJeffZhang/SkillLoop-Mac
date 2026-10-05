@@ -295,6 +295,85 @@ class CampaignRegistry:
                 raise ValueError('formal_campaign_immutable')
             db.execute('INSERT OR IGNORE INTO formal_campaigns VALUES(?,?,?,?,?)', (bindings['campaign'], *values));db.commit()
 
+    def inspect_campaign(self, *, campaign, qualification_path, authority_directory, report_path):
+        """Read current public status from actual stores without issuing a proof.
+
+        This is an observation, not a credential for promotion. Promotion still
+        performs its own current authority and generation checks under CAS.
+        """
+        if os.geteuid()!=21001:raise PermissionError('controller_registry_uid_required')
+        if type(campaign) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',campaign):
+            raise ValueError('inspection_exact_campaign_required')
+        from skillloop.discovery.formal_task_gate import read_owned
+        from skillloop.proxy.wire import make_control,validate_control
+        for locator in (qualification_path,report_path):
+            path=Path(locator)
+            parent=path.parent.lstat()
+            if (not path.is_absolute() or path.parent.is_symlink()
+                    or not stat.S_ISDIR(parent.st_mode) or parent.st_uid!=21005
+                    or parent.st_gid!=21001 or stat.S_IMODE(parent.st_mode)!=0o750):
+                raise PermissionError('inspection_actual_gate_projection_directory')
+        report_digest=None
+        try:report=read_owned(report_path,uid=21005,gid=21001,limit=2097152)
+        except FileNotFoundError:pass
+        else:
+            validate_control(report)
+            if report['kind']!='PublicReport' or report['body']['campaign_public_ref']!=campaign:
+                raise ValueError('inspection_actual_public_report_binding')
+            report_digest=report['digest']
+        with closing(sqlite3.connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
+            db.execute('BEGIN')
+            row=db.execute('SELECT project,profile,source,bindings FROM formal_campaigns WHERE campaign=?',
+                           (campaign,)).fetchone()
+            if row is None:raise ValueError('formal_campaign_not_registered')
+            project,profile=row[:2];source=decode_json(row[2]);bindings=decode_json(row[3])
+            current=db.execute('SELECT generation,head,config FROM projects WHERE project=?',(project,)).fetchone()
+            state='roster_frozen' if db.execute('SELECT 1 FROM campaign_roster_freezes WHERE campaign=?',(campaign,)).fetchone() else 'registered'
+            qualification='none'
+            try:self._archive_fence(db,campaign)
+            except ValueError as error:
+                if str(error)!='campaign_closed_by_archive_withdrawal':raise
+                state='archived';qualification='revoked'
+            else:
+                if current!=(bindings['generation'],source['body']['source_commit_sha'],bindings['config_digest']):
+                    state='superseded';qualification='stale'
+                else:
+                    try:
+                        with current_qualification(qualification_path,campaign=campaign,
+                                expected_bindings=bindings,subject_role='submitted',
+                                authority_directory=authority_directory):
+                            qualification='eligible'
+                    except FileNotFoundError:
+                        # Missing live authority underneath an existing proof
+                        # is evidence loss, not a never-issued qualification.
+                        if os.path.lexists(qualification_path):raise
+                    except ValueError as error:
+                        # Only actual known lifecycle outcomes can be projected.
+                        # Corrupt or ambiguous evidence remains an error.
+                        mapping={'qualification_missing':'none','consumption_not_pass':'none',
+                            'qualification_revoked':'revoked','consumption_expired':'expired',
+                            'qualification_authority_changed':'stale',
+                            'qualification_campaign_cancelled':'cancelled',
+                            'qualification_approval_revoked':'revoked'}
+                        if str(error) not in mapping:raise
+                        qualification=mapping[str(error)]
+                    active=db.execute('SELECT result FROM active_subjects WHERE project=? AND profile=?',
+                                      (project,profile)).fetchone()
+                    if active and qualification=='eligible':
+                        value=decode_json(active[0]);validate_envelope(value)
+                        if value['kind']!='RegistryEntry':raise ValueError('inspection_active_registry_kind')
+                        link=db.execute('SELECT campaign FROM active_campaigns WHERE project=? AND profile=?',
+                                        (project,profile)).fetchone()
+                        if link==(campaign,):
+                            if (value['body']['subject_digest']!=bindings['subjects']['submitted']
+                                    or value['body']['generation']!=bindings['generation']
+                                    or value['body']['source_commit_sha']!=source['body']['source_commit_sha']
+                                    or value['body']['eligibility']!='eligible'):
+                                raise ValueError('inspection_actual_active_binding')
+                            qualification='promoted'
+            return make_control('CampaignInspection',{'campaign_public_ref':campaign,'state':state,
+                'generation':bindings['generation'],'qualification':qualification,'report_digest':report_digest})
+
     def promote(self, *, qualification_path, authority_directory, campaign, subject, expected_active_revision, operation_id=None):
         if os.geteuid() != 21001:
             raise PermissionError('controller_registry_uid_required')
