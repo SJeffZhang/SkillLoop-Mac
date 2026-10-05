@@ -250,3 +250,10 @@ restart只能在原 removing 已存在时继续同一辅助进程的退休；实
 11角色UID和权限保持固定。统一生产者可以为同一角色一次性冻结 entry_variants：每项具有明确允许的生产模块、完整OCI配置、只读/写挂载和配置环境。所有变体逐项应用原完整身份、cap、网络和私有卷边界审查；未知模块或改变角色UID均拒绝。生命周期 Gate、最终 campaign Gate、资格撤销和语义发现已改为选择精确已冻结入口。未冻结所需入口时阻断，不重写原部署或目录。
 
 同一 role/operation 已有创建记录时，要求原 create intent 的完整配置与当前精确入口一致，再核验实际 OCI；不能把旧入口容器冒充另一个入口。原 provision completion 必须匹配同一 manifest，原 Keeper实际身份及存活状态也要一致。各入口仍独立消费原创建/worker/收尾槽，没有增加模型并发或替换未知投递。此连接只做跨调用与AST检查，完整配置包及实际部署验收仍未开始。
+
+
+### 语义发现与最终 Gate 的原辅助任务收尾
+
+正式 semantic_discovery、campaign_gate、qualification_withdraw 已连续调用原辅助进程收尾。启动前提交原 step/config/UTC/完整预留；worker 成功后核验实际完整 OCI、原结果、原 Keeper，再提交 reviewed/removing。只删除精确停止成功的原容器，保留所有证据和共享卷。失败停止精确已观察进程并保存失败类型；创建未知不补发。restart仅恢复原删除意图后的收尾，不重复语义模型或签发资格。
+
+内部 route 冻结 closure_seconds、maximum_evidence_bytes 和独立 journal；语义发现逐请求 raw 的上界与完整阶段成本核对，最终 Gate 的原 spending snapshot包括角色创建和原worker/closure成本。生命周期 Gate 同时补计独立 role-create 的60秒总收尾窗口。所有这些是生产代码路径修复，不是实际生命周期/资格/容量通过；尚未启动整轮或组件实验。

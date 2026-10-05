@@ -28,7 +28,7 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
             or policy['deployment_epoch']!=whole['deployment_epoch'] or policy['campaign']!=plan['campaign_digest']
             or deadline.tzinfo is None or ledger.campaign_started_at is None
             or deadline.timestamp()!=ledger.campaign_started_at+28800
-            or (deadline-datetime.now(timezone.utc)).total_seconds()<=policy['timeout_seconds']+policy['closure_seconds']):
+            or (deadline-datetime.now(timezone.utc)).total_seconds()<=policy['timeout_seconds']+policy['closure_seconds']+60):
         raise ValueError('lifecycle_dispatch_source_epoch_original_clock')
     config=deployment.role_config('gate','skillloop.protection.model_lifecycle_gate')
     if config['Cmd']!=['-m','skillloop.protection.model_lifecycle_gate']:
@@ -49,7 +49,7 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
     if any(journal.iterdir()):raise RuntimeError('lifecycle_dispatch_started_gate_no_reexecution')
     _save(journal,'intent.json',{'kind':'ControllerNativeLifecycleGateIntent','policy_digest':policy['digest'],
         'deployment_digest':plan['digest'],'started_at':datetime.now(timezone.utc).isoformat(),
-        'deadline':policy['deadline'],'reserved_seconds':policy['timeout_seconds']+policy['closure_seconds'],
+        'deadline':policy['deadline'],'reserved_seconds':policy['timeout_seconds']+policy['closure_seconds']+60,
         'automatic_reexecution_allowed':False})
     spending=ledger.consume_auxiliary(manifest=whole,campaign=policy['campaign'],stage='private_factory_lifecycle',
         operation_key='lifecycle-gate-'+policy['digest'][7:],

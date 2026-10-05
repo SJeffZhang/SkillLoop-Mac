@@ -27,10 +27,10 @@ ACTION_FIELDS={
     'private_runtime':{'policy_path','reference_path','started_path','journal_directory'},
     'protected_close':{'plan_path','journal_directory'},
     'static_scan':{'deployment_path'},
-    'qualification_withdraw':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','maximum_evidence_bytes'},
-    'campaign_gate':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','maximum_evidence_bytes'},
+    'qualification_withdraw':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
+    'campaign_gate':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'promote':{'qualification_path','authority_directory'},
-    'semantic_discovery':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds'},
+    'semantic_discovery':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'proposal':{'policy_path','assignment_directory','evidence_directory','journal_directory'},
     'application_gate':{'policy_path','assignment_directory','reviews_directory','journal_directory'},
 }
@@ -83,10 +83,13 @@ def validate_dispatch_route(route):
                 raise ValueError('campaign_actual_role_command_provider_required')
         if action in {'campaign_gate','qualification_withdraw'} and (type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120 or type(step['maximum_evidence_bytes']) is not int
-                or not 1<=step['maximum_evidence_bytes']<=268435456):
+                or not 1<=step['maximum_evidence_bytes']<=268435456
+                or type(step['closure_seconds']) is not int or not 30<=step['closure_seconds']<=120):
             raise ValueError('campaign_final_gate_full_cost_bound')
         if action=='semantic_discovery' and (type(step['timeout_seconds']) is not int
-                or not 1<=step['timeout_seconds']<=1200):
+                or not 1<=step['timeout_seconds']<=1200
+                or type(step['closure_seconds']) is not int or not 30<=step['closure_seconds']<=120
+                or type(step['maximum_evidence_bytes']) is not int or not 67108864<=step['maximum_evidence_bytes']<=268435456):
             raise ValueError('campaign_semantic_original_worker_bound')
         if action=='private_start' and (type(step['minimum_remaining_seconds']) is not int
                 or not 1<=step['minimum_remaining_seconds']<=300):
@@ -135,6 +138,13 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action'] in {'semantic_discovery','campaign_gate','qualification_withdraw'}:
+                if not (Path(step['journal_directory'])/'removing.json').exists():return
+                from skillloop.runtime.campaign_auxiliary import recover_auxiliary_retirement
+                result=recover_auxiliary_retirement(step,self.engine)
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action']=='role_command':
                 if not (Path(step['journal_directory'])/'removing.json').exists():return
                 from skillloop.runtime.role_command_dispatch import recover_role_command_retirement
@@ -340,19 +350,31 @@ class CampaignDispatcher:
                     engine=self.engine,ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
                 if deployment.role_config('model_gateway','skillloop.discovery.semantic_worker')['Cmd']!=['-m','skillloop.discovery.semantic_worker']:
                     raise ValueError('campaign_semantic_fixed_gateway_entry')
+                evidence_bytes=67108864+job['model_policy']['max_chat_requests']*14680064
+                if (job['campaign_digest']!=campaign or evidence_bytes>step['maximum_evidence_bytes']
+                        or job['whole_round_manifest_digest']!=deployment.whole['digest']):
+                    raise ValueError('campaign_semantic_original_full_cost_binding')
+                from skillloop.runtime.campaign_auxiliary import begin_auxiliary,observe_auxiliary,finish_auxiliary,preserve_auxiliary_failure
+                config=deployment.role_config('model_gateway','skillloop.discovery.semantic_worker')
+                begin_auxiliary(step,deployment.deadline,21011,config)
                 cost=self.ledger.consume_auxiliary(manifest=deployment.whole,campaign=job['campaign_digest'],
-                    stage='import_scan',operation_key='semantic-'+job['digest'][7:],seconds=job['worker_seconds']+60,
+                    stage='import_scan',operation_key='semantic-'+job['digest'][7:],seconds=job['worker_seconds']+step['closure_seconds'],
                     input_tokens=job['model_policy']['max_chat_requests']*16384,
                     output_tokens=job['model_policy']['max_chat_requests']*job['model_policy']['max_output_tokens'],
-                    disk_bytes=67108864+job['model_policy']['max_chat_requests']*14680064)
-                observed=deployment.start_role('model_gateway',request['operation_id']+'-semantic',module='skillloop.discovery.semantic_worker')
-                identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
-                actual=self.engine.inspect(identifier)
-                if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
-                    raise RuntimeError('campaign_semantic_original_process_incomplete')
-                result=read_owned(step['result_path'],uid=21011,gid=21001,limit=8388608)
-                if result.get('assignment_digest')!=job['digest'] or result['scanner_report']['body']['status']!='complete':
-                    raise ValueError('campaign_semantic_complete_coverage_required')
+                    disk_bytes=step['maximum_evidence_bytes'])
+                try:
+                    observed=deployment.start_role('model_gateway',request['operation_id']+'-semantic',module='skillloop.discovery.semantic_worker')
+                    observe_auxiliary(step,observed['inspection'])
+                    identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
+                    actual=self.engine.inspect(identifier)
+                    if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
+                        raise RuntimeError('campaign_semantic_original_process_incomplete')
+                    result=read_owned(step['result_path'],uid=21011,gid=21001,limit=8388608)
+                    if result.get('assignment_digest')!=job['digest'] or result['scanner_report']['body']['status']!='complete':
+                        raise ValueError('campaign_semantic_complete_coverage_required')
+                    result=finish_auxiliary(step,actual,result,self.engine.inspect(deployment.provision()['keeper']['Id']),self.engine)
+                except BaseException as error:
+                    preserve_auxiliary_failure(step,self.engine,error);raise
             elif step['action']=='proposal':
                 from skillloop.runtime.proposal_dispatch import dispatch_proposal
                 result=dispatch_proposal(policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152),
@@ -432,26 +454,36 @@ class CampaignDispatcher:
                             or job['deadline']!=state['gate_freeze']['deadline']
                             or job['whole_round_manifest_digest']!=deployment.whole['digest']):
                         raise ValueError('campaign_final_gate_live_original_roster')
+                    if state['bindings']['campaign']!=campaign:
+                        raise ValueError('campaign_final_gate_original_route_scope')
+                    from skillloop.runtime.campaign_auxiliary import begin_auxiliary,observe_auxiliary,finish_auxiliary,preserve_auxiliary_failure
+                    config=deployment.role_config('gate',module)
+                    begin_auxiliary(step,deployment.deadline,21005,config)
                     self.ledger.consume_auxiliary(manifest=deployment.whole,campaign=state['bindings']['campaign'],
                         stage='resource_archive_restore' if withdrawing else 'gate_qualification_report',
                         operation_key=('qualification-withdraw-' if withdrawing else 'campaign-gate-')+job['digest'][7:],
-                        seconds=step['timeout_seconds']+60,input_tokens=0,output_tokens=0,
+                        seconds=step['timeout_seconds']+step['closure_seconds'],input_tokens=0,output_tokens=0,
                         disk_bytes=step['maximum_evidence_bytes'])
                     # Actual role creation is charged before taking this ledger
                     # snapshot; starting this same created container adds no slot.
-                    deployment.create_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'),module=module)
-                    spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
-                    spending['digest']=digest_jcs(spending)
-                    directory=_directory(step['assignment_directory'],21001,21005,0o750)
-                    _publish(directory/'spending.json',spending,21005)
-                    observed=deployment.start_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'),module=module)
-                    identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
-                    actual=self.engine.inspect(identifier)
-                    if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
-                        raise RuntimeError('campaign_final_gate_original_failure_preserve_private_evidence')
-                    result=read_owned(step['result_path'],uid=21005,gid=21001,limit=262144)
-                    if result.get('kind')!=('FormalQualificationWithdrawalCompletion' if withdrawing else 'FormalCampaignGateCompletion') or result.get('assignment_digest')!=job['digest']:
-                        raise ValueError('campaign_final_gate_actual_aggregate_required')
+                    try:
+                        deployment.create_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'),module=module)
+                        spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
+                        spending['digest']=digest_jcs(spending)
+                        directory=_directory(step['assignment_directory'],21001,21005,0o750)
+                        _publish(directory/'spending.json',spending,21005)
+                        observed=deployment.start_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'),module=module)
+                        observe_auxiliary(step,observed['inspection'])
+                        identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
+                        actual=self.engine.inspect(identifier)
+                        if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
+                            raise RuntimeError('campaign_final_gate_original_failure_preserve_private_evidence')
+                        result=read_owned(step['result_path'],uid=21005,gid=21001,limit=262144)
+                        if result.get('kind')!=('FormalQualificationWithdrawalCompletion' if withdrawing else 'FormalCampaignGateCompletion') or result.get('assignment_digest')!=job['digest']:
+                            raise ValueError('campaign_final_gate_actual_aggregate_required')
+                        result=finish_auxiliary(step,actual,result,self.engine.inspect(deployment.provision()['keeper']['Id']),self.engine)
+                    except BaseException as error:
+                        preserve_auxiliary_failure(step,self.engine,error);raise
             elif step['action']=='registry_withdraw':
                 result=self.registry.withdraw_for_archive(withdrawal_path=step['withdrawal_path'],
                     qualification_path=step['qualification_path'],
