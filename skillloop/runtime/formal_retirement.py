@@ -1,5 +1,6 @@
 """Retire exact Runtime resources only after real Gate-owned raw reconstruction."""
 import os
+from datetime import datetime,timezone
 from pathlib import Path
 import stat
 
@@ -45,6 +46,9 @@ def retire_reviewed_task(*,entry,intent,capture,review_path,journal_directory,en
         fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:os.fsync(fd)
         finally:os.close(fd)
+    if (directory/'retirement-intent.json').exists():
+        return recover_reviewed_retirement(entry=entry,intent=intent,review=review,
+            archive_review_path=archive_review_path,journal_directory=directory,engine=engine)
     worker=engine.inspect(closure['stopped_container_id'])
     keeper=engine.inspect(closure['keeper_id'])
     volume=engine.inspect_volume(closure['run_volume'])
@@ -98,18 +102,116 @@ def retire_reviewed_task(*,entry,intent,capture,review_path,journal_directory,en
         'intent_digest':intent['digest'],'archive_receipt_digest':archive['digest'],
         'archive_review_digest':archive_review['digest'],'archive_gate_process':archive_process,
         'worker_id':worker['Id'],'keeper_id':keeper['Id'],
-        'volume':volume['Name'],'role_inspections':role_inspections,'worker_inspection':worker,'keeper_inspection':keeper,'volume_inspection':volume})
-    engine.request('POST','/containers/'+keeper['Id']+'/stop?t=1',timeout=5)
-    stopped=engine.inspect(keeper['Id'])
-    if stopped['State']['Running']:raise RuntimeError('formal_retirement_keeper_stop_unknown')
-    engine.remove(worker['Id']);engine.remove(keeper['Id']);engine.remove_volume(volume['Name'])
-    for actual in role_inspections.values():engine.remove(actual['Id'])
-    engine.remove(archive_process['Id'])
-    result={'role_containers_removed':{k:v['Id'] for k,v in role_inspections.items()},'kind':'FormalTaskRetirementCompletion','intent_digest':intent['digest'],
-        'review_digest':review['digest'],'worker_id':worker['Id'],'keeper_id':keeper['Id'],
-        'volume':volume['Name'],'stopped_keeper_inspection':stopped,'runtime_resources_released':True,
-        'durable_export_preserved':True,'archive_receipt_digest':archive['digest'],
-        'archive_review_digest':archive_review['digest'],'archive_gate_container_removed':archive_process['Id'],
-        'independent_archive_review_complete':True,'qualification_issued':False}
-    save('retirement-completion.json',result)
-    return result
+        'volume':volume['Name'],'started_at':datetime.now(timezone.utc).isoformat(),
+        'original_deadline':archive_gate_policy['campaign_deadline'],'reserved_retirement_seconds':120,
+        'role_inspections':role_inspections,'worker_inspection':worker,'keeper_inspection':keeper,'volume_inspection':volume})
+    return recover_reviewed_retirement(entry=entry,intent=intent,review=review,
+        archive_review_path=archive_review_path,journal_directory=directory,engine=engine)
+
+
+def recover_reviewed_retirement(*,entry,intent,review,archive_review_path,journal_directory,engine):
+    """Reconcile only the original, independently reviewed resource deletion."""
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.proposal_dispatch import _save
+    from skillloop.discovery.formal_task_gate import read_owned
+    from skillloop.runtime.docker_api import DockerEngineError
+    from skillloop.protection.current_task import _directory
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('formal_retirement_actual_controller')
+    root=_directory(journal_directory,21001,21001,0o700)
+    original=_controller_record(root/'retirement-intent.json')
+    archive=read_owned(archive_review_path,uid=21005,gid=21001,limit=262144)
+    if (original.get('kind')!='FormalTaskRetirementIntent' or original.get('intent_digest')!=intent['digest']
+            or original.get('review_digest')!=review['digest']
+            or review.get('entry_digest')!=entry['digest'] or review.get('evidence_complete') is not True
+            or archive.get('kind')!='FormalTaskArchiveReview' or archive.get('complete') is not True
+            or archive.get('intent_digest')!=intent['digest'] or archive.get('entry_digest')!=entry['digest']
+            or archive.get('task_review_digest')!=review['digest']
+            or archive.get('digest')!=original.get('archive_review_digest')
+            or archive.get('archive_receipt_digest')!=original.get('archive_receipt_digest')):
+        raise ValueError('formal_retirement_original_archive_authorization')
+    began=datetime.fromisoformat(original['started_at'])
+    deadline=datetime.fromisoformat(original['original_deadline'].replace('Z','+00:00'))
+    if (began.tzinfo is None or deadline.tzinfo is None or began>datetime.now(timezone.utc)
+            or original.get('reserved_retirement_seconds')!=120):
+        raise ValueError('formal_retirement_original_clock')
+    completed=root/'retirement-completion.json'
+    if completed.exists():
+        value=_controller_record(completed)
+        if (value.get('kind')!='FormalTaskRetirementCompletion' or value.get('intent_digest')!=intent['digest']
+                or value.get('review_digest')!=review['digest'] or value.get('runtime_resources_released') is not True
+                or value.get('archive_review_digest')!=archive['digest']):
+            raise ValueError('formal_retirement_original_completion')
+        return value
+    resources=[('keeper',original['keeper_inspection']),('worker',original['worker_inspection'])]
+    resources.extend((role,actual) for role,actual in sorted(original['role_inspections'].items()))
+    resources.append(('archive-gate',original['archive_gate_process']))
+    ids=[item['Id'] for _,item in resources]
+    if len(set(ids))!=len(ids):raise ValueError('formal_retirement_duplicate_original_resource')
+    stopped_keeper=None
+    for name,pin in resources:
+        begin=root/(name+'.removing.json');done=root/(name+'.removed.json')
+        if done.exists():
+            value=_controller_record(done)
+            if value.get('container_id')!=pin['Id'] or value.get('retirement_digest')!=original['digest']:
+                raise ValueError('formal_retirement_changed_resource_receipt')
+            if name=='keeper':stopped_keeper=value.get('stopped_inspection')
+            continue
+        removing=_controller_record(begin) if begin.exists() else None
+        if removing is not None and (removing.get('container_id')!=pin['Id']
+                or removing.get('retirement_digest')!=original['digest']):
+            raise ValueError('formal_retirement_changed_resource_intent')
+        try:actual=engine.inspect(pin['Id'])
+        except DockerEngineError as error:
+            if error.status!=404 or removing is None:raise
+            actual=None
+        if actual is not None:
+            if (actual.get('Id')!=pin['Id'] or actual.get('Image')!=pin.get('Image')
+                    or actual.get('Config')!=pin.get('Config') or actual.get('HostConfig')!=pin.get('HostConfig')
+                    or actual.get('Mounts')!=pin.get('Mounts')):
+                raise ValueError('formal_retirement_changed_actual_resource')
+            if name=='keeper' and actual['State']['Running']:
+                engine.request('POST','/containers/'+pin['Id']+'/stop?t=1',timeout=5)
+                actual=engine.inspect(pin['Id'])
+            if actual['State']['Running'] or name!='keeper' and actual['State']['ExitCode']!=pin['State']['ExitCode']:
+                raise RuntimeError('formal_retirement_original_stopped_resource_required')
+            if removing is None:
+                removing=_save(root,begin.name,{'kind':'FormalReviewedResourceRemoving','container_id':pin['Id'],
+                    'retirement_digest':original['digest'],'stopped_inspection':actual})
+            engine.request('DELETE','/containers/'+pin['Id']+'?force=false&v=false')
+        value=_save(root,done.name,{'kind':'FormalReviewedResourceRemoved','container_id':pin['Id'],
+            'retirement_digest':original['digest'],'stopped_inspection':removing['stopped_inspection'],
+            'reconciled_actual_404':actual is None})
+        if name=='keeper':stopped_keeper=value['stopped_inspection']
+    volume=original['volume_inspection'];begin=root/'volume.removing.json';done=root/'volume.removed.json'
+    if not done.exists():
+        removing=_controller_record(begin) if begin.exists() else None
+        if removing is not None and (removing.get('volume')!=volume['Name']
+                or removing.get('retirement_digest')!=original['digest']):
+            raise ValueError('formal_retirement_changed_volume_intent')
+        try:actual=engine.inspect_volume(volume['Name'])
+        except DockerEngineError as error:
+            if error.status!=404 or removing is None:raise
+            actual=None
+        if actual is not None:
+            if actual!=volume:raise ValueError('formal_retirement_changed_actual_volume')
+            if removing is None:_save(root,begin.name,{'kind':'FormalReviewedVolumeRemoving',
+                'volume':volume['Name'],'retirement_digest':original['digest']})
+            engine.remove_volume(volume['Name'])
+        _save(root,done.name,{'kind':'FormalReviewedVolumeRemoved','volume':volume['Name'],
+            'retirement_digest':original['digest'],'reconciled_actual_404':actual is None})
+    receipt=_controller_record(done)
+    if receipt.get('volume')!=volume['Name'] or receipt.get('retirement_digest')!=original['digest']:
+        raise ValueError('formal_retirement_changed_volume_receipt')
+    ended=datetime.now(timezone.utc);elapsed=(ended-began).total_seconds()
+    budget_closure=('within_original_budget' if ended<deadline and elapsed<=120
+        else 'inconclusive_expired_budget_closure')
+    return _save(root,completed.name,{'role_containers_removed':{k:v['Id'] for k,v in original['role_inspections'].items()},
+        'kind':'FormalTaskRetirementCompletion','intent_digest':intent['digest'],'review_digest':review['digest'],
+        'worker_id':original['worker_id'],'keeper_id':original['keeper_id'],'volume':volume['Name'],
+        'stopped_keeper_inspection':stopped_keeper,'runtime_resources_released':True,'durable_export_preserved':True,
+        'archive_receipt_digest':original['archive_receipt_digest'],'archive_review_digest':archive['digest'],
+        'archive_gate_container_removed':original['archive_gate_process']['Id'],
+        'independent_archive_review_complete':True,'qualification_issued':False,
+        'completed_at':ended.isoformat(),'elapsed_seconds':elapsed,
+        'original_deadline':original['original_deadline'],'budget_closure':budget_closure})

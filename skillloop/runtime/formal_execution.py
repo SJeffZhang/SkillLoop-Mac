@@ -38,8 +38,8 @@ def execute_admitted(entry, intent, started, output, *, resource_context, tokeni
             evaluator_assignment_directory=evaluator_assignment_directory,gate_policy=gate_policy,
             gate_journal_directory=gate_journal_directory,gate_review_path=gate_review_path,
             retirement_journal_directory=retirement_journal_directory,dispatch_state=dispatch_state,
-            archive_policy_path=archive_policy_path,archive_sources=archive_sources,
-            archive_gate_policy=archive_gate_policy,archive_gate_journal_directory=archive_gate_journal_directory,
+                archive_policy_path=archive_policy_path,archive_sources=archive_sources,
+                archive_gate_policy=archive_gate_policy,archive_gate_journal_directory=archive_gate_journal_directory,
             archive_review_path=archive_review_path,private_session_context=private_session_context)
     except BaseException as error:
         # No Runtime Engine request has been sent before this boundary.
@@ -247,12 +247,25 @@ def _execute_admitted(entry, intent, started, output, *, resource_context, token
         engine=DockerEngine(config.get('docker_engine_socket','/var/run/docker.sock'))
         gate_process=dispatch_task_gate(entry=entry,intent=intent,policy=gate_policy,
             journal_directory=gate_journal_directory,engine=engine)
-        retire_reviewed_task(entry=entry,intent=intent,capture=capture,review_path=gate_review_path,
-            journal_directory=retirement_journal_directory,engine=engine,
-            role_processes={'protected_evaluator':evaluation_process['inspection'],'gate':gate_process},
-            archive_policy_path=archive_policy_path,archive_sources=archive_sources,
-            archive_gate_policy=archive_gate_policy,archive_gate_journal_directory=archive_gate_journal_directory,
-            archive_review_path=archive_review_path)
+        def finish_resources():
+            return retire_reviewed_task(entry=entry,intent=intent,capture=capture,review_path=gate_review_path,
+                journal_directory=retirement_journal_directory,engine=engine,
+                role_processes={'protected_evaluator':evaluation_process['inspection'],'gate':gate_process},
+                archive_policy_path=archive_policy_path,archive_sources=archive_sources,
+                archive_gate_policy=archive_gate_policy,archive_gate_journal_directory=archive_gate_journal_directory,
+                archive_review_path=archive_review_path)
+        try:retirement=finish_resources()
+        except (ConnectionError,TimeoutError) as cleanup_error:
+            # Only cleanup's own durable, independently reviewed intent may be
+            # reconciled here. No inference, evaluation or export is repeated.
+            if not (Path(retirement_journal_directory)/'retirement-intent.json').exists():raise
+            from skillloop.runtime.proposal_dispatch import _save
+            _save(Path(retirement_journal_directory),'original-transport-failure.json',
+                {'kind':'FormalRetirementTransportFailure','intent_digest':intent['digest'],
+                 'error_type':type(cleanup_error).__name__,'automatic_model_reexecution_allowed':False})
+            retirement=finish_resources()
+        if retirement.get('budget_closure')!='within_original_budget':
+            raise TimeoutError('formal_retirement_original_budget_expired')
         return capture
     except BaseException as error:
         # Evaluator failures have their own dispatch journal. Once handed off,

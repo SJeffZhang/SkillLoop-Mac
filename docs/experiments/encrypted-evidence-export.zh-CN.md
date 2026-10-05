@@ -188,3 +188,9 @@ Controller 的 Docker socket 增加显式 engine_socket_gid 绑定；只有 Cont
 新部署 OperatorOperationStore 使用版本2，接收、claim、完成、失败、原未开始尾部恢复及到期拒绝均在更新当前状态的同一 SQLite 事务追加 sealed transition。每条记录绑定原 epoch、operation、前一摘要、实际 UTC 和真实结果摘要；UPDATE/DELETE trigger 禁止改写已追加历史。重放原 ticket 不追加伪事件。旧版本数据库拒绝作为新部署使用，旧冻结数据库不迁移。
 
 实际操作 backup 生产者和独立加密 archive Gate 都逐条重建允许的状态转换、摘要链、时间及当前行/结果一致性。失败和未知状态不能由当前状态快照替代或删除。此变更尚未证明完整物理容量、全尝试目录或运行恢复通过；只有源码与语法检查，整轮未启动。
+
+### 开发任务原收尾的连续恢复
+
+开发任务通过独立 Task Gate 和 Archive Gate 后，retirement 保存原 Runtime、Keeper、Evaluator、Gate、Archive Gate 及任务卷的完整身份。再次进入只重开原归档审查和清理意图，逐资源核对停止状态、配置、image、挂载及删除记录；明确 404 只在原删除意图之后用于确认删除，不重新生成归档或运行模型。
+
+正式 execute_admitted 对已保存清理意图后的连接丢失/超时保存原失败类型，并接续同一清理一次。清理结果记录原开始 UTC、截止时间、120秒原预留及实际耗时；超时收尾即便删除完成也保留 inconclusive，不能作为完整开发任务成功。其他未知投递或缺少完整独立审查仍阻断。只检查了源码、语法和 diff，尚未运行真实故障实验。
