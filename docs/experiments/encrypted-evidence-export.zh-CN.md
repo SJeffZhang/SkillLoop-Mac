@@ -317,3 +317,9 @@ Operator的生产dispatcher失败现在先在原Controller专属恢复目录保�
 统一部署在创建前固定完整配置、manifest、原名称与实际UTC，并先持久消费原创建槽。若响应丢失，只允许GET检查这个原名称；要求原cost receipt确实存在于同campaign/原时钟账本，实际OCI完整配置、名称和创建时间全部匹配，才持久原容器ID。404、缺cost、旧记录不完整或身份不符仍为unknown，绝不补发create。
 
 首次start前再次检查这个实际容器确实处于从未启动的created状态；已有start意图必须精确绑定原created receipt和ID。未知start只能检查原容器是否已开始，不重新start已运行或已退出的worker。此连接是实际生产恢复代码，未制造创建丢失实验或启动任何容器；当前整轮、部署、物理资源链仍未验收。
+
+### Docker 控制通信的完整期限与响应容量
+
+正式 Docker Engine 调用现在默认将普通 JSON 响应限制为2MiB；原始日志和归档必须声明实际上界。完整请求从连接开始计时，期限到达关闭原 socket 的读写方向，防止连续小块数据让单次 read timeout 无限续期。短读、超限、期限和网络失败保持 transport unknown，不作为 HTTP 拒绝或重发理由；所有原创建/start恢复仍只核对原身份。看门狗只操作本请求 socket，不停止任何服务或容器。
+
+这是生产通信代码修复，仅执行AST和调用点检查。实际完整成本、资源租约和整轮准备仍未完成，未运行Docker或组件实验。
