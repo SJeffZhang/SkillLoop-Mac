@@ -25,6 +25,7 @@ ACTION_FIELDS={
     'lifecycle_review':{'policy_path','manifest_path','deployment_journal','journal_directory','result_path'},
     'private_factory':{'policy_path','assignment_directory','projection_directory','gate_freeze_path','journal_directory'},
     'private_session':{'policy_path','journal_directory'},
+    'private_resources':{'policy_path','reference_path','journal_directory'},
     'private_start':{'reference_path','minimum_remaining_seconds','evaluator_directory'},
     'private_runtime':{'policy_path','reference_path','started_path','journal_directory'},
     'protected_close':{'plan_path','journal_directory'},
@@ -53,7 +54,7 @@ def validate_dispatch_route(route):
     if campaign is not None and (type(campaign) is not str or len(campaign)!=71
             or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
         raise ValueError('campaign_route_exact_campaign')
-    producing={'register_campaign','development','roster_freeze','harden_review','private_factory','private_session',
+    producing={'register_campaign','development','roster_freeze','harden_review','private_factory','private_session','private_resources',
         'private_start','private_runtime','lifecycle_review','semantic_discovery','native_gateway','native_gateway_close','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
@@ -175,12 +176,12 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
-            if step['action'] in {'private_runtime','private_session','protected_close'}:
+            if step['action'] in {'private_runtime','private_session','private_resources','protected_close'}:
                 campaign=route['campaign_digest']
                 if step['action']=='private_runtime':
-                    from skillloop.runtime.private_runtime_dispatch import recover_private_runtime_completion
+                    from skillloop.runtime.private_runtime_dispatch import recover_private_runtime_completion,resolve_private_runtime_policy
                     original=_controller_record(Path(step['journal_directory'])/'intent.json')
-                    policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=262144)
+                    policy=resolve_private_runtime_policy(step['policy_path'],reference_path=step['reference_path'])
                     reference=read_owned(step['reference_path'],uid=21004,gid=21001,limit=262144)
                     lease=read_owned(step['started_path'],uid=21001,gid=21004,limit=262144)
                     if (original.get('policy')!=policy or original.get('reference')!=reference
@@ -188,6 +189,12 @@ class CampaignDispatcher:
                         raise ValueError('campaign_private_recovery_original_dispatch')
                     result=recover_private_runtime_completion(journal_directory=step['journal_directory'],
                         engine=self.engine,expected_campaign=campaign)
+                elif step['action']=='private_resources':
+                    from skillloop.runtime.private_resources import prepare_private_resources
+                    if not (Path(step['journal_directory'])/'intent.json').exists():return
+                    result=prepare_private_resources(policy_path=step['policy_path'],reference_path=step['reference_path'],
+                        journal_directory=step['journal_directory'],whole_round_manifest_path=self.manifest_path,
+                        engine=self.engine,ledger=self.ledger,registry=self.registry)
                 elif step['action']=='private_session':
                     from skillloop.runtime.private_session_dispatch import recover_session_completion,resolve_session_policy
                     policy=resolve_session_policy(step['policy_path'])
@@ -408,7 +415,7 @@ class CampaignDispatcher:
             # No new model, task, candidate, qualification or promotion may
             # start from this route after the actual Proxy cancellation commit.
             if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze','harden_review',
-                    'private_factory','private_session','private_start','private_runtime','lifecycle_review','semantic_discovery',
+                    'private_factory','private_session','private_resources','private_start','private_runtime','lifecycle_review','semantic_discovery',
                     'native_gateway','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote','static_scan'} or (
                     campaign is not None and step['action']=='role_command' and step['role']=='admin'):
                 from skillloop.proxy.qualification_authority import require_campaign_not_cancelled
@@ -566,6 +573,11 @@ class CampaignDispatcher:
                 result=dispatch_session_action(policy=resolve_session_policy(step['policy_path']),
                     journal_directory=step['journal_directory'],engine=self.engine,ledger=self.ledger,registry=self.registry,
                     whole_round_manifest_path=self.manifest_path)
+            elif step['action']=='private_resources':
+                from skillloop.runtime.private_resources import prepare_private_resources
+                result=prepare_private_resources(policy_path=step['policy_path'],reference_path=step['reference_path'],
+                    journal_directory=step['journal_directory'],whole_round_manifest_path=self.manifest_path,
+                    engine=self.engine,ledger=self.ledger,registry=self.registry)
             elif step['action']=='private_start':
                 # Current materials and warm-up are prepared by the preceding
                 # Evaluator action before acquiring this short original Lease.

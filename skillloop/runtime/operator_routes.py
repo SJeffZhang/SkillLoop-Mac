@@ -65,7 +65,7 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
                 or sum(s['action']=='proposal' for s in route['steps'])!=1
                 or sum(s['action']=='application_gate' for s in route['steps'])!=1
                 or any(s['action'] in {'roster_freeze','private_factory','private_session',
-                    'private_start','private_runtime','protected_close','campaign_gate','promote',
+                    'private_resources','private_start','private_runtime','protected_close','campaign_gate','promote',
                     'campaign_gate_assignment','qualification_withdraw','registry_withdraw','archive_role','archive_close'}
                     for s in route['steps'])):
             raise PermissionError('operator_harden_one_current_dev_round_only')
@@ -127,12 +127,13 @@ def _validate_evaluation_sequence(route):
     for index,action in enumerate(actions):
         if action=='private_session' and not factory<index<gate:
             raise ValueError('operator_evaluation_session_after_factory')
-        if action not in {'private_start','private_runtime','protected_close'}:continue
+        if action not in {'private_resources','private_start','private_runtime','protected_close'}:continue
         if not max(factory,lifecycle)<index<assignment:
             raise ValueError('operator_evaluation_protected_after_isolation')
-        expected={'idle':'private_start','leased':'private_runtime','running':'protected_close'}[state]
+        expected={'idle':'private_resources','prepared':'private_start','leased':'private_runtime','running':'protected_close'}[state]
         if action!=expected:raise ValueError('operator_evaluation_original_task_closure_order')
-        if action=='private_start':state='leased'
+        if action=='private_resources':state='prepared'
+        elif action=='private_start':state='leased'
         elif action=='private_runtime':state='running'
         else:state='idle';tasks+=1
     if state!='idle' or tasks==0:

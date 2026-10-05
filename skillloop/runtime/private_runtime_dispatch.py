@@ -21,16 +21,51 @@ from skillloop.repair.budget import SpendingLedger
 from skillloop.ci.campaign_registry import CampaignRegistry
 
 
+def resolve_private_runtime_policy(policy_path,*,reference_path):
+    if os.geteuid()!=21001:raise PermissionError('private_runtime_policy_actual_controller')
+    declaration=read_owned(policy_path,uid=21010,gid=21001,limit=262144)
+    if declaration.get('kind')!='FrozenPrivateRuntimeProduction':return declaration
+    fields={'kind','campaign_id','deployment_epoch','image','whole_round_manifest_digest',
+        'campaign_deadline','worker_seconds','mounts','handoff'}
+    if (set(declaration)!={'kind','runtime_template','resource_journal','resource_policy_digest','digest'}
+            or type(declaration['resource_journal']) is not str or not Path(declaration['resource_journal']).is_absolute()
+            or '..' in Path(declaration['resource_journal']).parts
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',declaration['resource_policy_digest'])
+            or type(declaration['runtime_template']) is not dict or set(declaration['runtime_template'])!=fields
+            or declaration['runtime_template']['kind']!='FrozenOpaquePrivateRuntimeDispatch'
+            or type(declaration['runtime_template']['mounts']) is not dict
+            or set(declaration['runtime_template']['mounts'])!={'current','tokenizer','proxy','gateway'}):
+        raise ValueError('private_runtime_original_production_template')
+    from skillloop.runtime.protected_flow import _controller_record
+    reference=read_owned(reference_path,uid=21004,gid=21001,limit=262144)
+    resource=_controller_record(Path(declaration['resource_journal'])/'completion.json')
+    template=declaration['runtime_template'];keeper=resource.get('keeper',{})
+    if (resource.get('kind')!='PrivateRuntimeResourcesReady'
+            or resource.get('policy_digest')!=declaration['resource_policy_digest']
+            or resource.get('reference_digest')!=reference['digest']
+            or resource.get('budget_closure')!='within_original_budget'
+            or resource.get('keeper_alive_before_runtime_write') is not True
+            or reference.get('campaign_id')!=template['campaign_id']
+            or reference.get('deployment_epoch')!=template['deployment_epoch']
+            or keeper.get('Image')!=template['image']
+            or keeper.get('Config',{}).get('Labels',{}).get('skillloop.run_request')!=reference.get('run_request_digest')
+            or resource.get('evidence_pin')!={'volume':resource.get('volume',{}).get('Name'),'subpath':None}):
+        raise ValueError('private_runtime_actual_original_resources')
+    policy={**template,'mounts':{**template['mounts'],'evidence':resource['evidence_pin']},'keeper_id':keeper['Id']}
+    policy['digest']=digest_jcs(policy)
+    return policy
+
+
 def dispatch_private_runtime(*, policy_path, reference_path, started_path, journal_directory,
                              whole_round_manifest_path, engine, ledger, registry, controller):
     if (os.geteuid() != 21001 or type(engine) is not DockerEngine
             or type(ledger) is not SpendingLedger or type(registry) is not CampaignRegistry
             or type(controller) is not FormalTaskController):
         raise PermissionError('private_runtime_actual_controller_required')
-    policy = read_owned(policy_path, uid=21010, gid=21001, limit=262144)
+    policy = resolve_private_runtime_policy(policy_path,reference_path=reference_path)
     fields = {'kind', 'campaign_id', 'deployment_epoch', 'image', 'whole_round_manifest_digest',
               'campaign_deadline', 'worker_seconds', 'keeper_id', 'mounts', 'handoff', 'digest'}
-    if (set(policy) != fields or policy['kind'] != 'AdminOpaquePrivateRuntimeDispatch'
+    if (set(policy) != fields or policy['kind'] not in {'AdminOpaquePrivateRuntimeDispatch','FrozenOpaquePrivateRuntimeDispatch'}
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', policy['image'])
             or not re.fullmatch(r'[0-9a-f]{64}', policy['keeper_id'])
             or type(policy['worker_seconds']) is not int or not 1 <= policy['worker_seconds'] <= 300):
@@ -80,12 +115,13 @@ def dispatch_private_runtime(*, policy_path, reference_path, started_path, journ
         pin = policy['mounts'][key]
         if type(pin) is not dict or set(pin) != {'volume', 'subpath'}:
             raise ValueError('private_runtime_volume_pin')
-        path = PurePosixPath(pin['subpath'])
+        whole_volume=key=='evidence' and pin['subpath'] is None
+        path = PurePosixPath(pin['subpath']) if not whole_volume else None
         if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', pin['volume'])
-                or not path.parts or path.is_absolute() or '..' in path.parts or str(path) != pin['subpath']):
+                or not whole_volume and (not path.parts or path.is_absolute() or '..' in path.parts or str(path) != pin['subpath'])):
             raise ValueError('private_runtime_exact_subpath')
         mounts.append({'Type': 'volume', 'Source': pin['volume'], 'Target': target,
-                       'ReadOnly': key != 'evidence', 'VolumeOptions': {'Subpath': pin['subpath']}})
+                       'ReadOnly': key != 'evidence', **({} if whole_volume else {'VolumeOptions': {'Subpath': pin['subpath']}})})
     transfer=policy['handoff']
     if (type(transfer) is not dict or set(transfer)!=
             {'volume','subpath','maximum_bytes','maximum_files','timeout_seconds','completion_directory'}
@@ -127,6 +163,19 @@ def dispatch_private_runtime(*, policy_path, reference_path, started_path, journ
                 or observed.get('Config', {}).get('Labels', {}).get('skillloop.run_request') != reference['run_request_digest']
                 or observed.get('State', {}).get('Running') is not True or len(pinned) != 1):
             raise ValueError('private_runtime_original_evidence_keeper')
+        if evidence['subpath'] is None:
+            volume=engine.inspect_volume(evidence['volume'])
+            labels=volume.get('Labels',{});options=volume.get('Options',{})
+            match=re.fullmatch(r'size=([0-9]+),uid=21002,gid=21002,mode=0700',options.get('o',''))
+            if (volume.get('Name')!=evidence['volume'] or volume.get('Driver')!='local'
+                    or options.get('type')!='tmpfs' or options.get('device')!='tmpfs'
+                    or match is None or not 1048576<=int(match[1])<=20971520
+                    or labels.get('skillloop.run_request')!=reference['run_request_digest']
+                    or labels.get('skillloop.deployment_epoch')!=policy['deployment_epoch']
+                    or not re.fullmatch(r'sha256:[0-9a-f]{64}',labels.get('skillloop.private_resource',''))
+                    or observed.get('Config',{}).get('Labels',{}).get('skillloop.private_resource')!=labels['skillloop.private_resource']
+                    or observed.get('Config',{}).get('Labels',{}).get('skillloop.role')!='private_evidence_keeper'):
+                raise ValueError('private_runtime_independent_bounded_whole_volume')
         return observed
 
     with registry.private_scope(campaign=policy['campaign_id']) as state:
