@@ -3,7 +3,8 @@
 This creates configuration, never approvals, lifecycle proofs or task results.
 The Controller consumes the resulting manifest through WholeRoleDeployment.
 """
-import os
+import os,math
+from datetime import datetime,timezone
 from pathlib import Path,PurePosixPath
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import digest_jcs
@@ -121,6 +122,26 @@ def produce_deployment(policy_path):
                 raise ValueError('whole_operator_route_mount_alias_conflict')
             documents[target]=document['value']
     operator=operator_documents[0]
+    controller=controller_documents[0]
+    from skillloop.runtime.round_manifest import validate_round_manifest
+    whole=documents.get(controller.get('whole_round_manifest_path'))
+    if whole is None:
+        raise ValueError('whole_production_actual_mounted_round_document_required')
+    validate_round_manifest(whole)
+    scope=next((c for c in whole['campaigns'] if c['campaign_digest']==value['campaign_digest']),None)
+    from scripts.dgx_m6_repair import source_index
+    if (scope is None or whole['digest']!=value['whole_round_manifest_digest']
+            or any(whole[key]!=value[key] for key in ('deployment_epoch','image','source_digest'))
+            or digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']
+            or controller.get('victim_seconds')!=scope['victim_seconds']
+            or controller.get('task_controller',{}).get('epoch')!=value['deployment_epoch']):
+        raise ValueError('whole_production_controller_source_and_full_cost_binding')
+    started=controller.get('campaign_started_at')
+    deadline=datetime.fromisoformat(value['deadline'].replace('Z','+00:00'))
+    if (type(started) not in (int,float) or not math.isfinite(started)
+            or deadline.tzinfo is None or deadline.timestamp()!=started+28800
+            or not started<=datetime.now(timezone.utc).timestamp()<deadline.timestamp()):
+        raise ValueError('whole_production_controller_original_clock')
     if type(operator.get('routes')) is not list or not 1<=len(operator['routes'])<=2048:
         raise ValueError('whole_operator_complete_route_documents_required')
     routes=[]

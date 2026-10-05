@@ -29,6 +29,9 @@ def validate_round_manifest(value):
     campaigns = value['campaigns']
     if type(campaigns) is not list or len(campaigns) != 3:
         raise ValueError('whole_round_three_serial_campaigns_required')
+    if [c.get('profile') if type(c) is dict else None for c in campaigns]!=[
+            'orders_total','refunds_total','markdown_index']:
+        raise ValueError('whole_round_original_serial_profile_order')
     profiles = set(); identities = set()
     for campaign in campaigns:
         if (type(campaign) is not dict or set(campaign) !=

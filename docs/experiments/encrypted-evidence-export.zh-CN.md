@@ -479,3 +479,9 @@ Gate私有vault保存原roster raw副本时，在写入前分配实际目标inod
 正式phase executor现在按本次新任务列表的实际访问前沿登记unexecuted_entry_digests。前一版本同campaign已完成任务仍保留在累计completed，但不再作为新列表切片下标；否则新增候选配对在早期失败时，累计父任务数会错误吞掉尚未执行的新任务。失败项保留原problem，后续未访问项全部保留，不消费、不补跑、不重置预算。
 
 仅源码/AST检查，未执行phase或模型。完整问题汇总将据当前真实前沿区分失败与未执行，旧冻结summary不改。
+
+### 11角色生产者与Controller原轮次实际挂载绑定
+
+Admin部署生产者在发布新manifest之前，按Controller实际卷/subpath和最具体overlay解析原whole-round配置，严格验证三个campaign全成本、source/image/epoch一致及当前生产源码摘要。Controller的victim窗口、task_controller epoch和原开始时钟必须对应同一轮次；缺少实际可读配置不能靠manifest引用摘要放行。三个profile的原声明顺序固定为orders_total→refunds_total→markdown_index，仍须实际串行调度才能形成运行证据。
+
+该检查由原produce-deployment委托生产调用进入，未新增公共权限或冻结枚举。仅源码/AST检查；完整recipe自动生产、每次推理权威授权和共享容量尚未完成，未创建部署或模型队列。
