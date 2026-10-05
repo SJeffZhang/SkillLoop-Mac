@@ -65,6 +65,11 @@ def validate_dispatch_route(route):
                 or type(step['rpc_params']) is not dict or type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120):
             raise ValueError('campaign_role_command_bound')
+        if action=='role_command':
+            from skillloop.runtime.role_command_worker import ADMIN_PROXY_COMMANDS
+            allowed={'report'} if step['role']=='report' else set(ADMIN_PROXY_COMMANDS)|{'produce-candidate','produce-plan'}
+            if step['role_command'] not in allowed:
+                raise ValueError('campaign_actual_role_command_provider_required')
         if action in {'campaign_gate','qualification_withdraw'} and (type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120 or type(step['maximum_evidence_bytes']) is not int
                 or not 1<=step['maximum_evidence_bytes']<=268435456):

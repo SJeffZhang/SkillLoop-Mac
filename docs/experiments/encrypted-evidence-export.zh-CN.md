@@ -156,3 +156,9 @@ OperatorService 重启时先恢复原最终结果；若没有最终结果，则�
 任一步已有 started 却没有 completed、缺失前缀、变更摘要或部分最终投影，仍保留 unknown_requires_recovery，不能重新派发。此变更只通过源码及语法检查，崩溃/响应丢失场景仍待完整轮次验证。
 
 全部步骤已有连续成对提交记录、但最终绑定尚未完成时，也可恢复同一操作的收尾。已有 Controller 结果或绑定只在逐字节对象一致时复用，不覆盖；实际角色结果仍从原 producer 读取。修正 Gate/Reporter 结果分支未导入发布函数的问题，Controller 只发布自己的完整步骤绑定，不生成 Gate 结论。部分最终投影且尚有未执行业务步骤的情况继续保持 unknown。未运行实验。
+
+### 正式 admin export 的真实结果生产
+
+AES-GCM 独立 Gate 审查完成后，从实际 ciphertext、原 inventory 和原 export intent/receipt 创建时间生成冻结 API4 ArchiveManifest，保存为 Gate-owned 只读结果。正式 admin export route 可以绑定该 manifest，再由 Controller 发布自己的步骤绑定。manifest 只证明冻结 CLI 所要求的 verified encrypted export，不宣称完整 campaign 验收、资格恢复或允许删除；coverage/deletion 仍独立保留未闭合状态。
+
+Admin 通用 role_command 不再发送尚无业务实现的 Proxy export/archive/restore RPC。路由准入先拒绝这种断开的调用路径，导出必须走实际 archive_role export→review；archive/restore 的完整资源和新部署收尾仍需实现。未改冻结 RPC enum，未运行实验。

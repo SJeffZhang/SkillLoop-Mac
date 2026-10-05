@@ -19,6 +19,7 @@ from skillloop.protocol import canonical_json_line,decode_json,digest_bytes,dige
 from skillloop.runtime.archive_crypto import locked_crypto,key_label,encrypt_stream,verify_stream,read_header,header_bytes,MAGIC
 from skillloop.runtime.archive_key_service import unwrap_for_gate
 from skillloop.runtime.archive_files import open_original,identity,require_unchanged,allocate_output
+from skillloop.proxy.wire import make_control
 
 
 def _hash(path,budget):
@@ -142,6 +143,15 @@ def run_export(policy_path,*,review=False):
         receipt=read_owned(receipt_path,uid=21005,gid=21005,limit=262144)
         if (receipt.get('kind')!='EncryptedEvidenceExportReceipt' or receipt['policy_digest']!=policy['digest']
                 or receipt['source_manifest_digest']!=inventory['digest']):raise ValueError('archive_review_original_receipt')
+        created=datetime.fromisoformat(receipt['created_at'].replace('Z','+00:00'))
+        if created.tzinfo is None or created>datetime.now(timezone.utc) or created>=deadline:
+            raise ValueError('archive_review_original_creation_clock')
+        intent=read_owned(private/(policy['operation_ref']+'.intent.json'),uid=21005,gid=21005,limit=262144)
+        if (intent.get('kind')!='EncryptedEvidenceExportIntent'
+                or intent.get('policy_digest')!=policy['digest']
+                or intent.get('source_manifest_digest')!=inventory['digest']
+                or intent.get('header')!=receipt['header'] or intent.get('created_at')!=receipt['created_at']):
+            raise ValueError('archive_review_original_intent_binding')
         cipher_digest,meta=_hash(bundle,budget)
         if (meta.st_uid,meta.st_gid,stat.S_IMODE(meta.st_mode))!=(21005,21010,0o640) or meta.st_size>maximum_output:
             raise ValueError('archive_review_ciphertext_custody_capacity')
@@ -172,7 +182,16 @@ def run_export(policy_path,*,review=False):
             'all_reviewed_task_bytes_present':coverage['all_reviewed_task_bytes_present'],
             'campaign_coverage_complete':False,
             'deletion_authorized':False};completion['digest']=digest_jcs(completion)
-        _publish(public/(policy['operation_ref']+'.review.json'),completion,21001);return completion
+        _publish(public/(policy['operation_ref']+'.review.json'),completion,21001)
+        # Frozen admin export promises verified encryption, not campaign
+        # eligibility or permission to remove the original selected evidence.
+        # Only this independent review publishes its actual API4 manifest.
+        manifest=make_control('ArchiveManifest',{'campaign_public_ref':policy['campaign'],
+            'source_deployment_epoch':policy['deployment_epoch'],
+            'encrypted_bundle_digest':cipher_digest,'evidence_manifest_digest':inventory['digest'],
+            'created_at':receipt['created_at']})
+        budget();_publish(public/(policy['operation_ref']+'.manifest.json'),manifest,21001)
+        return completion
     if any(os.path.lexists(p) for p in (bundle,receipt_path,private/(policy['operation_ref']+'.intent.json'))):
         raise RuntimeError('archive_original_partial_export_preserved_no_reencrypt')
     pem=read_owned(policy['public_key_path'],uid=21010,gid=21005,limit=16384)
@@ -194,8 +213,9 @@ def run_export(policy_path,*,review=False):
     fs=os.statvfs(encrypted)
     if fs.f_bavail*fs.f_frsize<2147483648+inventory['total_bytes']+8388608:
         raise OSError('archive_export_actual_free_floor')
+    created_at=datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
     intent={'kind':'EncryptedEvidenceExportIntent','policy_digest':policy['digest'],
-        'source_manifest_digest':inventory['digest'],'header':header};intent['digest']=digest_jcs(intent)
+        'source_manifest_digest':inventory['digest'],'header':header,'created_at':created_at};intent['digest']=digest_jcs(intent)
     _publish(private/(policy['operation_ref']+'.intent.json'),intent,21005)
     fd=os.open(bundle,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as output:
@@ -216,6 +236,7 @@ def run_export(policy_path,*,review=False):
     finally:os.close(fd)
     receipt={'kind':'EncryptedEvidenceExportReceipt','policy_digest':policy['digest'],'header':header,
         'source_manifest_digest':inventory['digest'],'encrypted_bundle_digest':ciphertext,
+        'created_at':created_at,
         'ciphertext_bytes':meta.st_size,'source_bytes':inventory['total_bytes'],
         'campaign_coverage_complete':False,'deletion_authorized':False}
     receipt['digest']=digest_jcs(receipt);_publish(receipt_path,receipt,21005)

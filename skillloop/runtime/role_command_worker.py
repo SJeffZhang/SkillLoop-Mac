@@ -5,6 +5,9 @@ from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import canonical_json_line
 from skillloop.runtime.client import ProxyClient
 
+ADMIN_PROXY_COMMANDS={'approve-domain':'approve_domain','approve-factory':'approve_factory',
+    'review-finding':'review_finding','retire-history':'retire_history'}
+
 
 def main():
     os.umask(0o077);uid=os.geteuid()
@@ -32,10 +35,9 @@ def main():
         if set(job['params'])!={'assignment_path'}:raise ValueError('plan_production_delegation')
         result=produce_plan_revision(job['params']['assignment_path'])
     else:
-        allowed={'approve-domain':'approve_domain','approve-factory':'approve_factory',
-            'review-finding':'review_finding','retire-history':'retire_history',
-            'export':'export','archive':'archive','restore':'restore'}
-        method=allowed.get(job['command'])
+        # Archive actions use the actual encrypted role dispatch chain. The
+        # business Proxy has no export/archive/restore implementation to call.
+        method=ADMIN_PROXY_COMMANDS.get(job['command'])
         if method is None:raise PermissionError('admin_delegation_method_not_allowed')
         result=ProxyClient(Path('/proxy-sockets'),expected_server_uid=21003).control_request(
             method,job['params'],operation_id=job['operation_id'],admin=True)
