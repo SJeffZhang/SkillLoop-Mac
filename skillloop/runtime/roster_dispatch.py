@@ -18,7 +18,7 @@ from skillloop.runtime.round_manifest import read_round_manifest
 
 
 def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_directory,
-                         authority_directory,whole_round_manifest_path,registry,ledger,engine,harden_only=False):
+                         authority_directory,whole_round_manifest_path,registry,ledger,engine,harden_only=False,executor=None):
     if type(harden_only) is not bool:raise ValueError('roster_dispatch_mode')
     if (os.geteuid()!=21001 or type(engine) is not DockerEngine
             or type(registry) is not CampaignRegistry or type(ledger) is not SpendingLedger):
@@ -26,7 +26,7 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
     fields={'kind','campaign_digest','image','assignment_digest','whole_round_manifest_digest',
             'campaign_deadline','timeout_seconds','maximum_evidence_bytes','mounts',
             'deployment_manifest_path','deployment_journal','digest'}
-    if (type(policy) is not dict or set(policy)!=fields or policy['kind']!=
+    if (type(policy) is not dict or set(policy) not in (fields,fields|{'assignment_production_path'}) or policy['kind']!=
             ('FrozenDevelopmentHardenDispatch' if harden_only else 'FrozenDevelopmentRosterDispatch')
             or policy['digest']!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
             or type(policy['timeout_seconds']) is not int or not 1<=policy['timeout_seconds']<=120
@@ -42,7 +42,6 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
     if deployment.plan['campaign_digest']!=policy['campaign_digest']:
         raise ValueError('roster_dispatch_original_deployment_campaign')
     keeper=deployment.provision()['keeper']
-    job=read_owned(Path(assignment_directory)/'job.json',uid=21001,gid=21005,limit=8388608)
     directory=Path(journal_directory);info=directory.lstat()
     if (not directory.is_absolute() or directory.is_symlink() or not stat.S_ISDIR(info.st_mode)
             or info.st_uid!=21001 or stat.S_IMODE(info.st_mode)!=0o700):
@@ -52,6 +51,17 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             or info.st_uid!=21005 or info.st_gid!=21001 or stat.S_IMODE(info.st_mode)!=0o750
             or any(output.iterdir()) or any(directory.iterdir())):
         raise PermissionError('roster_dispatch_fresh_output_or_recovery_required')
+    if 'assignment_production_path' in policy:
+        from skillloop.runtime.formal_phase import FormalPhaseExecutor
+        from skillloop.runtime.roster_assignment import produce_roster_assignment
+        if type(executor) is not FormalPhaseExecutor:
+            raise PermissionError('roster_dispatch_original_phase_executor_required')
+        job,assignment_binding=produce_roster_assignment(policy_path=policy['assignment_production_path'],
+            expected_policy_digest=policy['assignment_digest'],campaign=policy['campaign_digest'],
+            assignment_directory=assignment_directory,executor=executor,registry=registry,ledger=ledger,whole=whole)
+    else:
+        job=read_owned(Path(assignment_directory)/'job.json',uid=21001,gid=21005,limit=8388608)
+        assignment_binding=job['digest']
     targets={'assignment':'/assignment','whole_round':'/whole-round','evaluation':'/evaluation',
         'task_reviews':'/task-reviews','applications':'/applications','scans':'/scans',
         'scan_reviews':'/scan-reviews','authority':'/authority-projection','roster':'/roster'}
@@ -86,7 +96,7 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
     with registry.development_scope(campaign=policy['campaign_digest']) as state:
         deadline=datetime.fromisoformat(state['deadline'].replace('Z','+00:00'))
         spending=ledger.read()
-        if (job.get('kind')!='FormalDevelopmentRosterAssignment' or job.get('digest')!=policy['assignment_digest']
+        if (job.get('kind')!='FormalDevelopmentRosterAssignment' or assignment_binding!=policy['assignment_digest']
                 or job.get('bindings')!=state['bindings'] or job.get('deadline')!=state['deadline']
                 or policy['campaign_deadline']!=state['deadline']
                 or job.get('whole_round_manifest_digest')!=whole['digest']

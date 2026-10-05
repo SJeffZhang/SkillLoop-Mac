@@ -461,7 +461,7 @@ class CampaignDispatcher:
                     assignment_directory=step['assignment_directory'],roster_directory=step['roster_directory'],
                     journal_directory=step['journal_directory'],authority_directory=step['authority_directory'],
                     whole_round_manifest_path=self.manifest_path,registry=self.registry,ledger=self.ledger,engine=self.engine,
-                    harden_only=step['action']=='harden_review')
+                    harden_only=step['action']=='harden_review',executor=self.phase)
                 if step['action']=='harden_review' and request['command']=='harden' and (
                         request['parameters']!={'campaign':campaign,
                             'parent_subject':result['body']['parent_subject_digest']}):
