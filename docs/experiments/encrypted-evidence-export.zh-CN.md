@@ -393,3 +393,9 @@ Runtime在保存Gateway原错误字节时若达到冻结trace上限，另记录t
 原桥接服务在校验SO_PEERCRED后，最多接纳16个连接处理线程；超量连接在创建线程和读取body前关闭，推理并发仍为1。每个原连接从HTTP header读取开始共享单次截止，body、tokenizer预检和上游传输都消耗原窗口；独立计时器关闭超时socket，分片输入不能续期。拒绝重复Content-Length、Transfer-Encoding及不完整body，未准入推理不消费模型槽。
 
 停止listener后，先排空原连接处理再关闭服务和删除原socket；排空失败保全socket/证据并阻断收尾。该限制不能替代实际campaign物理容量、run/fence授权或满队列运行验收。仅AST及源码差异检查，没有模型、网络、容器或组件实验。
+
+### 统一部署私有读取范围绑定实际挂载
+
+private_read_scope改为已声明目录路径的排序唯一列表，并与每个角色实际volume子树中暴露的protected/current_private目录精确比较。RO挂载不能隐去目录，也不能用自报范围作为权限凭据；基础入口和每个冻结entry variant都执行同一检查。
+
+Runtime、Generator、Patcher、Scanner和Gateway禁止挂载其他角色拥有的control目录，包括只读挂载；受控socket和当前材料必须通过各自授权的独立交接目录配置。该修复约束正式部署生产者和消费者，不扩大角色或RPC权限。仍需接齐每次推理的权威run/fence/当前任务授权、完整容量所有权和恢复部署。仅源码检查，未启动角色或隔离实验。

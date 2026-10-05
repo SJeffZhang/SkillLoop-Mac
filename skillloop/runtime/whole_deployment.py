@@ -139,6 +139,11 @@ class WholeRoleDeployment:
                     or hc.get('Tmpfs')!={'/tmp':'rw,nosuid,nodev,size=64m'}):
                 raise ValueError('whole_role_actual_identity_and_isolation:'+role)
             mounts=hc.get('Mounts')
+            scope=template['private_read_scope']
+            if (type(scope) is not list or any(type(path) is not str or path not in directories for path in scope)
+                    or scope!=sorted(set(scope))):
+                raise ValueError('whole_role_exact_private_read_scope')
+            observed_private=set()
             if (type(mounts) is not list or not mounts
                     or any(type(m) is not dict or type(m.get('Target')) is not str
                         or not PurePosixPath(m['Target']).is_absolute()
@@ -170,6 +175,14 @@ class WholeRoleDeployment:
                     if PurePosixPath(path).is_relative_to(PurePosixPath(sub))]
                 for actual_directory in exposed:
                     privacy=actual_directory['privacy']
+                    if privacy in {'protected','current_private'}:
+                        observed_private.add(actual_directory['path'])
+                    # A read-only mount still exposes authority rows and keys.
+                    # These worker roles use separately provisioned UDS/current
+                    # input handoffs, never another role's control store.
+                    if (privacy=='control' and actual_directory['uid']!=uid
+                            and role in {'runtime','generator','patcher','scanner','model_gateway'}):
+                        raise PermissionError('whole_worker_foreign_control_store_mount_forbidden')
                     if privacy=='protected' and role not in {'protected_evaluator','gate'}:
                         raise PermissionError('whole_role_full_private_mount_forbidden')
                     if privacy=='current_private' and role not in {'protected_evaluator','gate','runtime'}:
@@ -178,6 +191,8 @@ class WholeRoleDeployment:
                         raise PermissionError('report_only_public_mount')
                     if not mount['ReadOnly'] and actual_directory['uid']!=uid:
                         raise PermissionError('whole_role_cross_owner_write')
+            if set(scope)!=observed_private:
+                raise PermissionError('whole_role_private_scope_actual_mount_mismatch')
     def bootstrap_config(self):
         p=self.plan
         mounts=[{'Type':'volume','Source':p['volume'],'Target':'/deployment-data','ReadOnly':False},
