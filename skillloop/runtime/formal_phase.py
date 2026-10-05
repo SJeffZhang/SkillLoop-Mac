@@ -41,9 +41,12 @@ class FormalPhaseExecutor:
 
     def _save(self,path,value):
         value['digest']=digest_jcs({k:v for k,v in value.items() if k!='digest'})
+        raw=canonical_json_line(value)
+        if len(raw)>262144:
+            raise ValueError('formal_phase_original_journal_capacity')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'wb') as stream:
-            stream.write(canonical_json_line(value));stream.flush();os.fsync(stream.fileno())
+            stream.write(raw);stream.flush();os.fsync(stream.fileno())
         fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:os.fsync(fd)
         finally:os.close(fd)
@@ -56,6 +59,64 @@ class FormalPhaseExecutor:
         return registry.close_protected_task(plan_path=closing_plan_path,controller=self.controller,
             ledger=self.ledger,engine=engine,whole_round_manifest_path=self._manifest_path,
             journal_directory=journal_directory)
+
+    def recover_completed(self, phase):
+        """Recover a lost summary response, never call a task producer again."""
+        from skillloop.runtime.protected_flow import _controller_record
+        from skillloop.discovery.formal_task_gate import read_owned
+        if (phase.get('kind')!='FrozenFormalPhase' or phase.get('phase')!='dev'
+                or phase.get('digest')!=digest_jcs({k:v for k,v in phase.items() if k!='digest'})):
+            raise ValueError('formal_phase_recovery_original_phase')
+        admit_phase(self.round_manifest,phase,self.ledger,self.controller.epoch)
+        root=self.directory/phase['digest'][7:]
+        admission=_controller_record(root/'admission.json')
+        summary=_controller_record(root/'summary.json')
+        if (admission.get('kind')!='FormalPhaseAdmission' or admission.get('phase_digest')!=phase['digest']
+                or admission.get('whole_round_manifest_digest')!=self.round_manifest['digest']
+                or admission.get('original_started_at')!=self.ledger.campaign_started_at
+                or summary.get('kind')!='FormalPhaseExecutionSummary' or summary.get('phase_digest')!=phase['digest']
+                or summary.get('campaign_started_at')!=self.ledger.campaign_started_at
+                or summary.get('complete') is not True or summary.get('problems')!=[]
+                or summary.get('unexecuted_entry_digests')!=[]):
+            raise RuntimeError('formal_phase_original_complete_summary_required')
+        rebuilt=[]
+        for unit in phase['entries']:
+            token=digest_jcs(unit['entry']['entry_id'])[7:]
+            prepared=_controller_record(root/('task-'+token+'.prepared.json'))
+            completed=_controller_record(root/('task-'+token+'.completed.json'))
+            attempted=_controller_record(root/('task-'+token+'.runtime-intent.json'))
+            lease=_controller_record(root/('task-'+token+'.lease.json'))
+            review=read_owned(unit['gate_review_path'],uid=21005,gid=21001,limit=262144)
+            archive=read_owned(unit['archive_review_path'],uid=21005,gid=21001,limit=262144)
+            retirement=_controller_record(Path(unit['retirement_journal_directory'])/'retirement-completion.json')
+            for record,kind in ((prepared,'FormalPhaseTaskPrepared'),(completed,'FormalPhaseTaskCompleted'),
+                    (attempted,'FormalPhaseRuntimeIntent'),(lease,'FormalPhaseLeaseObserved')):
+                if (record.get('kind')!=kind or record.get('phase_digest')!=phase['digest']
+                        or record.get('entry_digest')!=unit['entry']['digest']
+                        or record.get('unit_digest')!=digest_jcs(unit)
+                        or record.get('intent_digest')!=prepared.get('intent_digest')):
+                    raise ValueError('formal_phase_original_task_journal_chain')
+            if (attempted.get('lease_digest')!=lease['started']['digest']
+                    or completed.get('runtime_capture_digest')!=review.get('runtime_capture_digest')
+                    or completed.get('retirement_digest')!=retirement['digest']
+                    or review.get('kind')!='FormalTaskEvidenceReview' or review.get('evidence_complete') is not True
+                    or review.get('entry_digest')!=unit['entry']['digest']
+                    or review.get('intent_digest')!=prepared['intent_digest']
+                    or archive.get('kind')!='FormalTaskArchiveReview' or archive.get('complete') is not True
+                    or archive.get('task_review_digest')!=review['digest']
+                    or archive.get('intent_digest')!=prepared['intent_digest']
+                    or retirement.get('kind')!='FormalTaskRetirementCompletion'
+                    or retirement.get('intent_digest')!=prepared['intent_digest']
+                    or retirement.get('archive_review_digest')!=archive['digest']
+                    or retirement.get('budget_closure')!='within_original_budget'
+                    or retirement.get('runtime_resources_released') is not True
+                    or retirement.get('independent_archive_review_complete') is not True):
+                raise ValueError('formal_phase_original_review_and_retirement_required')
+            rebuilt.append({'entry_digest':unit['entry']['digest'],
+                'runtime_capture_digest':review['runtime_capture_digest']})
+        if rebuilt!=summary['completed']:
+            raise ValueError('formal_phase_original_summary_task_coverage')
+        return summary
 
     def run(self, phase):
         # The frozen visibility contract grants the full protected manifest,
@@ -250,6 +311,10 @@ class FormalPhaseExecutor:
                 inputs={k:base64.b64decode(v,validate=True) for k,v in unit['inputs'].items()}
                 intent=imported_task_intent(entry,domain=unit['domain'],policy=unit['policy'],
                     inputs=inputs,run_deadline=phase['campaign_deadline'])
+                identity={'phase_digest':phase['digest'],'entry_digest':entry['digest'],
+                    'unit_digest':digest_jcs(unit),'intent_digest':intent['digest']}
+                token='task-'+digest_jcs(key)[7:]
+                self._save(phase_root/(token+'.prepared.json'),{'kind':'FormalPhaseTaskPrepared',**identity})
                 self.controller.publish(intent)
                 started=time.monotonic()
                 while self.controller.admission(intent) is None:
@@ -258,6 +323,10 @@ class FormalPhaseExecutor:
                     time.sleep(0.1)
                 lease=self.controller.start(intent,operation_id='start-'+intent['digest'][7:])
                 if lease is None:raise RuntimeError('formal_phase_admission_disappeared')
+                self._save(phase_root/(token+'.lease.json'),{'kind':'FormalPhaseLeaseObserved',
+                    **identity,'started':lease})
+                self._save(phase_root/(token+'.runtime-intent.json'),{'kind':'FormalPhaseRuntimeIntent',
+                    **identity,'lease_digest':lease['digest'],'automatic_reexecution_allowed':False})
                 capture=execute_admitted(entry,intent,lease,unit['runtime_output'],
                     resource_context=unit['resource_context'],tokenizer=self.tokenizer,controller=self.controller,
                     ledger=self.ledger,evaluator_policy=unit['evaluator_policy'],
@@ -268,11 +337,23 @@ class FormalPhaseExecutor:
                     archive_gate_policy=unit['archive_gate_policy'],
                     archive_gate_journal_directory=unit['archive_gate_journal_directory'],
                     archive_review_path=unit['archive_review_path'],private_session_context=unit.get('private_session_context'))
+                from skillloop.runtime.protected_flow import _controller_record
+                retirement=_controller_record(Path(unit['retirement_journal_directory'])/'retirement-completion.json')
+                if (retirement.get('kind')!='FormalTaskRetirementCompletion'
+                        or retirement.get('intent_digest')!=intent['digest']
+                        or retirement.get('budget_closure')!='within_original_budget'
+                        or retirement.get('runtime_resources_released') is not True):
+                    raise ValueError('formal_phase_original_retirement_receipt')
+                self._save(phase_root/(token+'.completed.json'),{'kind':'FormalPhaseTaskCompleted',
+                    **identity,'runtime_capture_digest':capture['digest'],'retirement_digest':retirement['digest']})
                 completed.append({'entry_digest':entry['digest'],'runtime_capture_digest':capture['digest']})
             except Exception as error:
                 problems.append({'entry_digest':entry['digest'],'entry_id':key,'error_type':type(error).__name__,
                     'reason':str(error),'notes':list(getattr(error,'__notes__',[])),
                     'dependent_actions_blocked':True,'spent_attempts_preserved':True})
+                self._save(phase_root/('task-'+digest_jcs(key)[7:]+'.failure.json'),
+                    {'kind':'FormalPhaseTaskFailure','phase_digest':phase['digest'],
+                     'unit_digest':digest_jcs(unit),'problem':problems[-1],'automatic_reexecution_allowed':False})
                 # The shared Proxy/volume may have an uncertain active worker.
                 # Stop this dependency chain; another independent profile may
                 # continue only through its own admitted services and budget.

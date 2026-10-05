@@ -138,6 +138,14 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action']=='development':
+                # Only a completely committed original phase can close a lost
+                # response. A partial phase or task start remains unknown.
+                phase=read_owned(step['plan_path'],uid=21010,gid=21001,limit=8388608)
+                result=self.phase.recover_completed(phase)
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action'] in {'semantic_discovery','campaign_gate','qualification_withdraw'}:
                 if not (Path(step['journal_directory'])/'removing.json').exists():return
                 from skillloop.runtime.campaign_auxiliary import recover_auxiliary_retirement
