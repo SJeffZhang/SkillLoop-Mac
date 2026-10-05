@@ -178,6 +178,21 @@ class WholeRoleDeployment:
                         raise PermissionError('report_only_public_mount')
                     if not mount['ReadOnly'] and actual_directory['uid']!=uid:
                         raise PermissionError('whole_role_cross_owner_write')
+    def bootstrap_config(self):
+        p=self.plan
+        mounts=[{'Type':'volume','Source':p['volume'],'Target':'/deployment-data','ReadOnly':False},
+                {'Type':'volume','Source':p['bootstrap_mount']['volume'],'Target':'/bootstrap','ReadOnly':True,
+                 'VolumeOptions':{'Subpath':p['bootstrap_mount']['subpath']}}]
+        config={'Image':p['image'],'User':'0:0','Entrypoint':['python'],'Cmd':['-m','skillloop.runtime.deployment_bootstrap'],
+            'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
+                   'SKILLLOOP_DEPLOYMENT_DIGEST='+p['digest']],
+            'Labels':{'skillloop.deployment_epoch':p['deployment_epoch'],'skillloop.role':'trusted_directory_bootstrap'},
+            'HostConfig':{'NetworkMode':'none','ReadonlyRootfs':True,'CapDrop':['ALL'],
+                'CapAdd':['CHOWN','FOWNER','DAC_OVERRIDE'],'SecurityOpt':['no-new-privileges'],
+                'Memory':134217728,'NanoCpus':1000000000,'PidsLimit':16,
+                'LogConfig':{'Type':'none','Config':{}},'Mounts':mounts}}
+        return config
+
     def provision(self):
         p=self.plan
         if (self.root/'provisioned.json').exists():
@@ -185,12 +200,12 @@ class WholeRoleDeployment:
             if (original.get('kind')!='WholeRoleProvisionCompletion' or original.get('manifest_digest')!=p['digest']
                     or original.get('role_uids')!=ROLES or original.get('storage_backend')!='local_persistent'):
                 raise ValueError('whole_deployment_original_provision_identity')
-            keeper=self.engine.inspect(original['keeper']['Id'])
+            keeper=self.engine.inspect(original['keeper']['Id'],timeout=5)
             if (any(keeper.get(k)!=original['keeper'].get(k) for k in ('Id','Image','Config','HostConfig','Mounts'))
                     or keeper.get('State',{}).get('Running') is not True):
                 raise RuntimeError('whole_deployment_original_keeper_unavailable')
             return original
-        if any(self.root.iterdir()):raise RuntimeError('whole_deployment_original_bootstrap_recovery_required')
+        if any(self.root.iterdir()):return self.recover_provision()
         if self.deadline.tzinfo is None or (self.deadline-datetime.now(timezone.utc)).total_seconds()<=p['bootstrap_seconds']+120:
             raise TimeoutError('whole_deployment_original_clock')
         _save(self.root,'provision-intent.json',{'kind':'WholeRoleProvisionIntent','manifest_digest':p['digest']})
@@ -201,7 +216,7 @@ class WholeRoleDeployment:
         # Long-lived authority stores must share the actual persistent disk's
         # free floor. A <=2GiB tmpfs can never admit a 2GiB floor plus DB/WAL.
         # Per-task bounded tmpfs and its original Keeper are separate callers.
-        volume=self.engine.create_volume(p['volume'],driver_options={},labels={'skillloop.deployment_epoch':p['deployment_epoch']})
+        volume=self.engine.create_volume(p['volume'],driver_options={},labels={'skillloop.deployment_epoch':p['deployment_epoch']},timeout=5)
         if (volume.get('Name')!=p['volume'] or volume.get('Driver')!='local'
                 or volume.get('Options') not in (None,{})
                 or volume.get('Labels',{}).get('skillloop.deployment_epoch')!=p['deployment_epoch']):
@@ -214,28 +229,102 @@ class WholeRoleDeployment:
                 'Memory':134217728,'PidsLimit':16,'LogConfig':{'Type':'none','Config':{}},
                 'Mounts':[{'Type':'volume','Source':p['volume'],'Target':'/deployment-data','ReadOnly':True}]},
             'Labels':{'skillloop.deployment_epoch':p['deployment_epoch'],'skillloop.role':'deployment_keeper'}}
-        keeper=self.engine.create('skillloop-keeper-'+p['digest'][7:31],keeper_config)
+        keeper=self.engine.create('skillloop-keeper-'+p['digest'][7:31],keeper_config,timeout=5)
         _save(self.root,'keeper-created.json',{'kind':'WholeRoleKeeperCreated','id':keeper,'configuration':keeper_config})
-        self.engine.start(keeper);live=self.engine.inspect(keeper)
+        self.engine.start(keeper,timeout=5);live=self.engine.inspect(keeper,timeout=5)
         if live['State']['Running'] is not True or live['Image']!=p['image']:raise RuntimeError('whole_role_keeper_not_live')
-        mounts=[{'Type':'volume','Source':p['volume'],'Target':'/deployment-data','ReadOnly':False},
-                {'Type':'volume','Source':p['bootstrap_mount']['volume'],'Target':'/bootstrap','ReadOnly':True,
-                 'VolumeOptions':{'Subpath':p['bootstrap_mount']['subpath']}}]
-        config={'Image':p['image'],'User':'0:0','Entrypoint':['python'],'Cmd':['-m','skillloop.runtime.deployment_bootstrap'],
-            'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
-                   'SKILLLOOP_DEPLOYMENT_DIGEST='+p['digest']],
-            'Labels':{'skillloop.deployment_epoch':p['deployment_epoch'],'skillloop.role':'trusted_directory_bootstrap'},
-            'HostConfig':{'NetworkMode':'none','ReadonlyRootfs':True,'CapDrop':['ALL'],
-                'CapAdd':['CHOWN','FOWNER','DAC_OVERRIDE'],'SecurityOpt':['no-new-privileges'],
-                'Memory':134217728,'NanoCpus':1000000000,'PidsLimit':16,
-                'LogConfig':{'Type':'none','Config':{}},'Mounts':mounts}}
-        identifier=self.engine.create('skillloop-bootstrap-'+p['digest'][7:31],config)
+        config=self.bootstrap_config()
+        identifier=self.engine.create('skillloop-bootstrap-'+p['digest'][7:31],config,timeout=5)
         _save(self.root,'bootstrap-created.json',{'kind':'WholeRoleBootstrapCreated','id':identifier,'configuration':config})
-        self.engine.start(identifier);wait=self.engine.wait(identifier,p['bootstrap_seconds']);actual=self.engine.inspect(identifier)
+        self.engine.start(identifier,timeout=5);wait=self.engine.wait(identifier,p['bootstrap_seconds']);actual=self.engine.inspect(identifier,timeout=5)
         if wait['StatusCode'] or actual['State']['ExitCode'] or actual['State']['Running']:
             raise RuntimeError('whole_role_bootstrap_failed_volume_preserved')
+        return self.recover_provision()
+
+    def recover_provision(self):
+        """GET and attest the original completed bootstrap; never recreate/start."""
+        p=self.plan
+        if (self.deadline-datetime.now(timezone.utc)).total_seconds()<=120:
+            raise TimeoutError('whole_deployment_original_closure_clock')
+        names={'provision-intent.json','spending.json','volume.json','keeper-created.json','bootstrap-created.json'}
+        if {path.name for path in self.root.iterdir()}!=names:
+            raise RuntimeError('whole_deployment_partial_or_unknown_bootstrap_preserved')
+        original={name:_controller_record(self.root/name) for name in names}
+        if original['provision-intent.json'].get('manifest_digest')!=p['digest']:
+            raise ValueError('whole_deployment_original_provision_intent')
+        spent=original['spending.json'].get('spending')
+        state=self.ledger.read()
+        if (spent not in state.get('auxiliary_executions',[])
+                or spent.get('operation_key')!='deploy-'+p['digest'][7:]
+                or spent.get('stage')!='approval_deployment'
+                or state.get('whole_round_binding')!={'manifest_digest':self.whole['digest'],
+                                                     'campaign':p['campaign_digest']}):
+            raise ValueError('whole_deployment_original_spending_required')
+        volume=self.engine.inspect_volume(p['volume'],timeout=5)
+        old_volume=original['volume.json'].get('inspection')
+        if (type(old_volume) is not dict
+                or any(volume.get(k)!=old_volume.get(k) for k in
+                       ('Name','Driver','Mountpoint','CreatedAt','Options','Labels','Scope'))
+                or volume.get('Name')!=p['volume'] or volume.get('Driver')!='local'
+                or volume.get('Options') not in (None,{})
+                or volume.get('Labels',{}).get('skillloop.deployment_epoch')!=p['deployment_epoch']):
+            raise ValueError('whole_deployment_original_volume_changed')
+        keeper_record=original['keeper-created.json'];bootstrap_record=original['bootstrap-created.json']
+        if (keeper_record.get('kind')!='WholeRoleKeeperCreated'
+                or bootstrap_record.get('kind')!='WholeRoleBootstrapCreated'
+                or bootstrap_record.get('configuration')!=self.bootstrap_config()):
+            raise ValueError('whole_deployment_original_configuration_changed')
+        keeper_config=keeper_record['configuration']
+        keeper=self.engine.inspect(keeper_record['id'],timeout=5)
+        bootstrap=self.engine.inspect(bootstrap_record['id'],timeout=5)
+        def inspect_original(value,record):
+            config=record['configuration']
+            if (value.get('Id')!=record['id'] or value.get('Image')!=p['image']
+                    or any(value.get('Config',{}).get(k)!=config[k] for k in
+                           ('User','Entrypoint','Cmd','Labels'))
+                    or not set(config.get('Env',[])).issubset(value['Config'].get('Env',[]))):
+                raise ValueError('whole_deployment_original_container_changed')
+            hc=value.get('HostConfig',{});expected=config['HostConfig']
+            for field,setting in expected.items():
+                if field in {'CapDrop','CapAdd'}:
+                    if {c.removeprefix('CAP_') for c in hc.get(field) or []}!=set(setting):
+                        raise ValueError('whole_deployment_original_privileges_changed')
+                elif hc.get(field)!=setting:
+                    raise ValueError('whole_deployment_original_host_configuration_changed:'+field)
+            if hc.get('Privileged') is not False or hc.get('Binds') or hc.get('Devices'):
+                raise ValueError('whole_deployment_original_unapproved_mount_or_privilege')
+            if ('CapAdd' not in expected and hc.get('CapAdd')
+                    or 'GroupAdd' not in expected and hc.get('GroupAdd')):
+                raise ValueError('whole_deployment_original_unapproved_group_or_capability')
+            actual_mounts=value.get('Mounts',[])
+            if len(actual_mounts)!=len(expected['Mounts']):
+                raise ValueError('whole_deployment_original_mount_inventory')
+            for mount in expected['Mounts']:
+                actual=[m for m in actual_mounts if m.get('Destination')==mount['Target']]
+                if (len(actual)!=1 or actual[0].get('Type')!='volume'
+                        or actual[0].get('Name')!=mount['Source']
+                        or actual[0].get('RW') is not (not mount['ReadOnly'])):
+                    raise ValueError('whole_deployment_original_physical_volume_mount')
+        inspect_original(keeper,keeper_record);inspect_original(bootstrap,bootstrap_record)
+        if (keeper_config.get('Image')!=p['image'] or keeper_config.get('User')!='21001:21001'
+                or keeper_config.get('Labels')!={'skillloop.deployment_epoch':p['deployment_epoch'],
+                                                'skillloop.role':'deployment_keeper'}
+                or keeper.get('State',{}).get('Running') is not True):
+            raise RuntimeError('whole_deployment_original_keeper_unavailable')
+        status=bootstrap.get('State',{})
+        if (status.get('Status')!='exited' or status.get('Running') is not False
+                or status.get('ExitCode')!=0 or status.get('OOMKilled') is not False
+                or status.get('Error') or not status.get('StartedAt')
+                or status['StartedAt'].startswith('0001-')):
+            raise RuntimeError('whole_deployment_original_bootstrap_not_complete')
+        finished=datetime.fromisoformat(status['FinishedAt'].replace('Z','+00:00'))
+        began=datetime.fromisoformat(status['StartedAt'].replace('Z','+00:00'))
+        if (finished.tzinfo is None or began.tzinfo is None or began.timestamp()<self.ledger.campaign_started_at
+                or finished<began or finished>self.deadline or finished>datetime.now(timezone.utc)
+                or (finished-began).total_seconds()>p['bootstrap_seconds']):
+            raise ValueError('whole_deployment_original_bootstrap_finish_clock')
         return _save(self.root,'provisioned.json',{'kind':'WholeRoleProvisionCompletion','manifest_digest':p['digest'],
-            'keeper':self.engine.inspect(keeper),'bootstrap':actual,'role_uids':ROLES,
+            'keeper':keeper,'bootstrap':bootstrap,'role_uids':ROLES,
             'storage_backend':'local_persistent','campaign_capacity_verified':False,
             'runtime_acceptance_complete':False,'qualification_issued':False})
     def role_config(self,role,module=None):

@@ -54,16 +54,16 @@ class DockerEngine:
         finally:
             watchdog.cancel();watchdog.join()
             connection.close()
-    def create_volume(self,name,*,driver_options=None,labels=None):
+    def create_volume(self,name,*,driver_options=None,labels=None,timeout=30):
         body={'Name':name}
         if driver_options is not None:body.update(Driver='local',DriverOpts=driver_options)
         if labels is not None:body['Labels']=labels
-        return self.request('POST','/volumes/create',body)
-    def inspect_volume(self,name):return self.request('GET','/volumes/'+quote(name,safe=''))
-    def create(self,name,config):return self.request('POST','/containers/create?name='+quote(name),config)['Id']
-    def start(self,identifier):self.request('POST','/containers/'+identifier+'/start')
+        return self.request('POST','/volumes/create',body,timeout=timeout)
+    def inspect_volume(self,name,*,timeout=30):return self.request('GET','/volumes/'+quote(name,safe=''),timeout=timeout)
+    def create(self,name,config,*,timeout=30):return self.request('POST','/containers/create?name='+quote(name),config,timeout=timeout)['Id']
+    def start(self,identifier,*,timeout=30):self.request('POST','/containers/'+identifier+'/start',timeout=timeout)
     def wait(self,identifier,timeout):return self.request('POST','/containers/'+identifier+'/wait?condition=not-running',timeout=timeout)
-    def inspect(self,identifier):return self.request('GET','/containers/'+identifier+'/json')
+    def inspect(self,identifier,*,timeout=30):return self.request('GET','/containers/'+identifier+'/json',timeout=timeout)
     def archive(self,identifier,path,*,maximum_bytes=None):return self.request('GET','/containers/'+identifier+'/archive?path='+quote(path,safe=''),raw=True,maximum_response_bytes=maximum_bytes)
     def remove(self,identifier):self.request('DELETE','/containers/'+identifier+'?force=true&v=true')
     def remove_volume(self,name):self.request('DELETE','/volumes/'+quote(name))

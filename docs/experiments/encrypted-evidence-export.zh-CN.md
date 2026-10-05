@@ -361,3 +361,9 @@ Controller在任何新投递前递归核对父phase的真实完整summary、原�
 HostModelBridge在单次实际投递前置未确认标记，仅完整已校验的原终止响应且客户响应交付完成后解除。超时、畸形响应、传输断连或客户响应丢失保留该标记；新请求在取得并发锁后再次检查，不能利用竞态继续投递。Gateway服务收尾和语义发现完成都检查实际未确认状态，不能将HTTP handler结束当后端空闲或隔离凭据。标记仅属于原服务进程，不授权新进程恢复/重投；原服务启动O_EXCL身份和原operation恢复规则继续适用。
 
 宿主Supervisor与Gateway启动身份查询也接入有界原HTTP读取，保留实际版本、manifest和启动cache-empty检查；它们仍不是模型预热或fresh-private独立证明。仅源码/AST检查，未执行模型或服务。
+
+### 原统一部署 bootstrap 完成链恢复
+
+统一部署fresh和恢复共用同一bootstrap配置生产函数。原bootstrap实际成功退出而Controller尚未保存provisioned时，调度器从原私有journal读取原意图、已消费辅助预算、原卷、Keeper与bootstrap创建记录；仅GET核对原实际ID、配置、权限、真实挂载、卷身份、Keeper存活、bootstrap正常退出和原时钟，随后保存原完成结果。不重复create/start/初始化，不再消费部署槽。缺记录、运行中、未知或失败均保全原卷与Keeper并明确阻断。
+
+部署创建及身份GET使用5秒整次Engine期限，bootstrap wait沿用原冻结期限，避免一系列默认30秒请求遗漏在原部署辅助时间内；未修改冻结bootstrap秒数或重置预算。配置权限检查区分可信root目录生产者与11个工作角色，不向Runtime增加能力。完整共享容量、实际证据写入租约和新epoch恢复还未接齐。仅源码检查，未运行Docker或bootstrap实验。
