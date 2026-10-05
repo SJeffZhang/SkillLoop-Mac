@@ -34,6 +34,7 @@ ACTION_FIELDS={
     'campaign_gate_assignment':{'policy_path','assignment_directory'},
     'campaign_gate':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'promote':{'qualification_path','authority_directory'},
+    'discovery_suite':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'semantic_discovery':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'native_gateway':{'policy_path','gateway_policy_directory','bridge_directory','journal_directory'},
     'native_gateway_close':{'dispatch_journal','journal_directory'},
@@ -55,7 +56,7 @@ def validate_dispatch_route(route):
             or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
         raise ValueError('campaign_route_exact_campaign')
     producing={'register_campaign','development','roster_freeze','harden_review','private_factory','private_session','private_resources',
-        'private_start','private_runtime','lifecycle_review','semantic_discovery','native_gateway','native_gateway_close','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote'}
+        'private_start','private_runtime','lifecycle_review','discovery_suite','semantic_discovery','native_gateway','native_gateway_close','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
     if any(step.get('action')=='campaign_inspection' for step in route['steps']) and (
@@ -95,6 +96,11 @@ def validate_dispatch_route(route):
                 or not 1<=step['maximum_evidence_bytes']<=268435456
                 or type(step['closure_seconds']) is not int or not 30<=step['closure_seconds']<=120):
             raise ValueError('campaign_final_gate_full_cost_bound')
+        if action=='discovery_suite' and (type(step['timeout_seconds']) is not int
+                or not 1<=step['timeout_seconds']<=600 or type(step['closure_seconds']) is not int
+                or not 30<=step['closure_seconds']<=120 or type(step['maximum_evidence_bytes']) is not int
+                or not 8388608<=step['maximum_evidence_bytes']<=268435456):
+            raise ValueError('campaign_discovery_suite_full_cost_bound')
         if action=='semantic_discovery' and (type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=1200
                 or type(step['closure_seconds']) is not int or not 30<=step['closure_seconds']<=120
@@ -268,7 +274,7 @@ class CampaignDispatcher:
                 _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
                     'request_digest':request['digest'],'result':result})
                 return
-            if step['action'] in {'semantic_discovery','campaign_gate','qualification_withdraw'}:
+            if step['action'] in {'discovery_suite','semantic_discovery','campaign_gate','qualification_withdraw'}:
                 if not (Path(step['journal_directory'])/'removing.json').exists():return
                 from skillloop.runtime.campaign_auxiliary import recover_auxiliary_retirement
                 result=recover_auxiliary_retirement(step,self.engine)
@@ -434,7 +440,7 @@ class CampaignDispatcher:
             # No new model, task, candidate, qualification or promotion may
             # start from this route after the actual Proxy cancellation commit.
             if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze','harden_review',
-                    'private_factory','private_session','private_resources','private_start','private_runtime','lifecycle_review','semantic_discovery',
+                    'private_factory','private_session','private_resources','private_start','private_runtime','lifecycle_review','discovery_suite','semantic_discovery',
                     'native_gateway','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote','static_scan'} or (
                     campaign is not None and step['action']=='role_command' and step['role']=='admin'):
                 from skillloop.proxy.qualification_authority import require_campaign_not_cancelled
@@ -497,6 +503,11 @@ class CampaignDispatcher:
                 phase=read_owned(step['plan_path'],uid=21010,gid=21001,limit=8388608)
                 result=self.phase.run(phase)
                 if result.get('complete') is not True:raise RuntimeError('campaign_development_incomplete')
+            elif step['action']=='discovery_suite':
+                from skillloop.runtime.discovery_suite_dispatch import dispatch_discovery_suite
+                result=dispatch_discovery_suite(step=step,operation_id=request['operation_id'],
+                    whole_round_manifest_path=self.manifest_path,ledger=self.ledger,engine=self.engine,
+                    registry=self.registry,campaign=campaign)
             elif step['action']=='semantic_discovery':
                 from skillloop.runtime.whole_deployment import WholeRoleDeployment
                 job=read_owned(Path(step['assignment_directory'])/'job.json',uid=21001,gid=21011,limit=2097152)

@@ -14,9 +14,17 @@ def produce_plan_revision(assignment_path):
     job=read_owned(assignment_path,uid=21001,gid=21010,limit=8388608)
     fields={'kind','deployment_digest','deployment_epoch','campaign_id','config','parent_plan',
         'parent_suite','compiled','subjects','source_grant_paths','inbox_directory','reason','digest'}
-    if set(job)!=fields or job['kind']!='AdminPublicPlanProduction':raise ValueError('plan_producer_assignment')
+    generated=(fields-{'compiled'})|{'compiled_path','revision_directory'}
+    if set(job) not in (fields,generated) or job['kind']!='AdminPublicPlanProduction':raise ValueError('plan_producer_assignment')
     parent,old_suite=job['parent_plan'],job['parent_suite'];validate_plan(parent,old_suite)
-    compiled=job['compiled'];suite=compiled['suite']
+    if 'compiled_path' in job:
+        from skillloop.discovery.compiled_authority import current_compilation
+        compiled=current_compilation(job['compiled_path'],campaign_id=job['campaign_id'],config=job['config'])
+    else:
+        if job['config'].get('whole_flow_required') is True:
+            raise ValueError('plan_producer_formal_gate_compilation_required')
+        compiled=job['compiled']
+    suite=compiled['suite']
     validate_suite(suite,list(compiled['cases'].values()),compiled['objectives'])
     if (parent['body']['campaign_id']!=job['campaign_id'] or parent['body']['config_digest']!=digest_jcs(job['config'])
             or parent['body']['phase']!='dev' or suite['body']['visibility']!='public_dev'
@@ -60,6 +68,13 @@ def produce_plan_revision(assignment_path):
     if target.exists():
         if read_owned(target,uid=21010,gid=21003,limit=2097152)!=grant:raise ValueError('plan_producer_original_revision_conflict')
     else:_publish(target,grant,21003)
+    if 'revision_directory' in job:
+        output=_directory(job['revision_directory'],21010,21001,0o750)
+        fixed=output/'plan-revision.json'
+        if os.path.lexists(fixed):
+            if read_owned(fixed,uid=21010,gid=21001,limit=2097152)!=grant:
+                raise ValueError('plan_producer_original_fixed_revision_conflict')
+        else:_publish(fixed,grant,21001)
     result={'kind':'AdminPublicPlanProduced','assignment_digest':job['digest'],'plan_digest':plan['digest'],
         'revision_grant_digest':grant['digest'],'proxy_admission_verified':False,'original_budget_reset':False,
         'qualification_issued':False};result['digest']=digest_jcs(result);return result

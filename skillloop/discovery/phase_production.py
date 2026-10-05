@@ -27,14 +27,27 @@ def produce_formal_phase(assignment_path):
     job=read_owned(assignment_path,uid=21001,gid=21010,limit=8388608)
     fields={'kind','campaign_id','config','compiled','plan','source_grant_paths','unit_templates',
         'campaign_started_at','campaign_deadline','whole_round_manifest_path','output_directory','digest'}
-    if set(job) not in (fields,fields|{'parent_phase_path'}) or job['kind']!='FrozenFormalDevelopmentPhaseProduction':
+    generated=(fields-{'compiled','plan'})|{'compiled_path','plan_revision_path'}
+    if set(job) not in (fields,fields|{'parent_phase_path'},generated,generated|{'parent_phase_path'}) or job['kind']!='FrozenFormalDevelopmentPhaseProduction':
         raise ValueError('phase_producer_original_assignment')
     whole=read_round_manifest(job['whole_round_manifest_path'])
     from scripts.dgx_m6_repair import source_index
     if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('phase_producer_actual_frozen_source')
     campaign=next((c for c in whole['campaigns'] if c['campaign_digest']==job['campaign_id']),None)
-    config,compiled,plan=job['config'],job['compiled'],job['plan']
+    config=job['config']
+    if 'compiled_path' in job:
+        from skillloop.discovery.compiled_authority import current_compilation
+        compiled=current_compilation(job['compiled_path'],campaign_id=job['campaign_id'],config=config)
+        revision=read_owned(job['plan_revision_path'],uid=21010,gid=21001,limit=2097152)
+        if (revision.get('kind')!='AdminCampaignPlanRevision' or revision.get('campaign_id')!=job['campaign_id']
+                or revision.get('deployment_epoch')!=whole['deployment_epoch'] or revision.get('suite')!=compiled['suite']):
+            raise ValueError('phase_producer_actual_produced_plan_revision')
+        plan=revision['plan']
+    else:
+        if config.get('whole_flow_required') is True:
+            raise ValueError('phase_producer_formal_gate_compilation_required')
+        compiled,plan=job['compiled'],job['plan']
     validate_suite(compiled['suite'],list(compiled['cases'].values()),compiled['objectives'])
     validate_plan(plan,compiled['suite'])
     deadline=datetime.fromisoformat(job['campaign_deadline'].replace('Z','+00:00'))

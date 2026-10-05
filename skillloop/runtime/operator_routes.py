@@ -103,7 +103,7 @@ def _validate_evaluation_sequence(route):
     once=('register_campaign','roster_freeze','private_factory','lifecycle_review','campaign_gate_assignment','campaign_gate')
     if (route['campaign_digest'] is None or route['result_uid']!=21005
             or any(actions.count(action)!=1 for action in once)
-            or any(action not in actions for action in ('semantic_discovery','development','private_session'))
+            or any(action not in actions for action in ('semantic_discovery','discovery_suite','development','private_session'))
             or any(action in actions for action in ('harden_review','qualification_withdraw',
                 'registry_withdraw','archive_close','promote'))):
         raise PermissionError('operator_complete_evaluation_callers_required')
@@ -120,11 +120,14 @@ def _validate_evaluation_sequence(route):
         and step.get('role')=='admin' and step.get('role_command')=='produce-private-policy']
     if len(private_policy)!=1 or not frozen<private_policy[0]<assignment:
         raise ValueError('operator_evaluation_current_private_policy_producer_required')
-    development={'semantic_discovery','development','proposal','application_gate'}
+    development={'semantic_discovery','discovery_suite','development','proposal','application_gate'}
     if any(not registered<index<frozen for index,action in enumerate(actions) if action in development):
         raise ValueError('operator_evaluation_development_before_freeze')
     if not any(action=='semantic_discovery' for action in actions[registered+1:actions.index('development')]):
         raise ValueError('operator_evaluation_discovery_before_development')
+    first_development=actions.index('development')
+    if not any(action=='discovery_suite' for action in actions[actions.index('semantic_discovery')+1:first_development]):
+        raise ValueError('operator_evaluation_actual_discovery_suite_before_development')
     # Reserve/materialize actions can occur between task stages, but a second
     # Lease or a final Gate cannot cross an unclosed original Runtime.
     state='idle';tasks=0

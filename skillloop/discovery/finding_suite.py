@@ -19,7 +19,8 @@ def compile_finding_suite(profile_id: str, finding: dict, *, count_tokens: Calla
                           skill_root: Path = FAMILY_SPEC,
                           campaign_id: str = "m5b-qwen-discovery",
                           llm_payload: bytes | None = None,
-                          generator_config_digest: str | None = None) -> tuple[dict, dict]:
+                          generator_config_digest: str | None = None,
+                          config: dict | None = None, subject_digest: str | None = None) -> tuple[dict, dict]:
     base = compile_dev_suite(profile_id, skill_root=skill_root)
     generated = generate_finding_attacks(profile_id=profile_id, finding=finding,
                                          count_tokens=count_tokens)
@@ -64,14 +65,18 @@ def compile_finding_suite(profile_id: str, finding: dict, *, count_tokens: Calla
     compiled = dict(base, cases=cases, mutations=mutations,
                     suite=make_envelope("SuiteManifest", body))
     validate_suite(compiled["suite"], list(cases.values()), compiled["objectives"])
-    validate_plan(make_dev_plan(compiled, campaign_id=campaign_id), compiled["suite"])
+    if config is not None:
+        if subject_digest is None:raise ValueError('finding_campaign_formal_subject_required')
+        compiled={**compiled,'subject_digest':subject_digest}
+    validate_plan(make_dev_plan(compiled, campaign_id=campaign_id, config=config), compiled["suite"])
     return compiled, plans
 
 
 def compile_finding_campaign(profile_id: str, finding_inputs: list[dict], *,
                              count_tokens: Callable[[str], int],
                              skill_root: Path = FAMILY_SPEC,
-                             campaign_id: str = "m5b-qwen-discovery") -> tuple[dict, dict]:
+                             campaign_id: str = "m5b-qwen-discovery",
+                             config: dict | None = None, subject_digest: str | None = None) -> tuple[dict, dict]:
     """Build one base matrix plus original/variant cases for every mapped finding."""
     if not finding_inputs:
         raise ValueError("finding_inputs_required")
@@ -89,7 +94,7 @@ def compile_finding_campaign(profile_id: str, finding_inputs: list[dict], *,
         generated_compiled, generated_plans = compile_finding_suite(
             profile_id, finding, count_tokens=count_tokens, skill_root=skill_root,
             campaign_id=campaign_id, llm_payload=row["llm_payload"],
-            generator_config_digest=row["generator_config_digest"])
+            generator_config_digest=row["generator_config_digest"],config=config,subject_digest=subject_digest)
         for case_id, case in generated_compiled["cases"].items():
             if case_id in cases:
                 # Base cases are shared; finding-specific cases must be unique.
@@ -113,5 +118,8 @@ def compile_finding_campaign(profile_id: str, finding_inputs: list[dict], *,
     compiled = dict(base, cases=cases, mutations=mutations,
                     suite=make_envelope("SuiteManifest", body))
     validate_suite(compiled["suite"], list(cases.values()), compiled["objectives"])
-    validate_plan(make_dev_plan(compiled, campaign_id=campaign_id), compiled["suite"])
+    if config is not None:
+        if subject_digest is None:raise ValueError('finding_campaign_formal_subject_required')
+        compiled={**compiled,'subject_digest':subject_digest}
+    validate_plan(make_dev_plan(compiled, campaign_id=campaign_id, config=config), compiled["suite"])
     return compiled, plans

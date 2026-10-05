@@ -154,6 +154,13 @@ def produce_deployment(policy_path):
     validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
     for route in routes:
         for step in route['steps']:
+            if step.get('action')=='discovery_suite':
+                from skillloop.runtime.discovery_suite_dispatch import verify_suite_locators
+                entry=value['roles']['gate'];module='skillloop.discovery.formal_suite_gate'
+                gate_config=(entry['config'] if entry['config']['Cmd']==['-m',module]
+                    else entry.get('entry_variants',{}).get(module,{}).get('config'))
+                if gate_config is None:raise ValueError('whole_discovery_suite_entry_not_frozen')
+                verify_suite_locators(value,step,gate_config)
             if step.get('action')!='role_command':continue
             role=step['role'];template=value['roles'][role]
             config=template['config']

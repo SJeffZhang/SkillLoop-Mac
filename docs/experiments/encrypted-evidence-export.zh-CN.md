@@ -651,3 +651,13 @@ source-authority导出在原同一SQLite事务中读取完整Runtime dev及Gener
 创建、启动、未知创建保全都使用同一原委托身份和配置。收尾核对原job摘要、实际进程配置及原结果；没有新进程重跑或失败证据删除。完成156份Python AST与diff空白检查，未启动任何角色、数据库或组件实验，整链仍未完成。
 
 部署生产者复用相同的role-command挂载解析及全角色校验，逐正式route在bootstrap前检查，避免只在执行到该步时发现错误。开发推理归档独立核验另严格检查unknown计数整数、Runtime/Proposal嵌套kind和proposal grant唯一性，拒绝外层摘要正确但内部类型错置的记录。仅源码检查。
+
+### 当前发现证据到开发Suite、计划和正式任务生产
+
+新增真实Gate入口formal_suite_gate，由正式campaign的discovery_suite步骤调用。Gate重读当前Admin source grant、完整semantic原始请求/响应/扫描覆盖，以及每个applicable finding的Generator原请求、响应与spending lock。使用实际同tokenizer重算prompt，核对原生响应字节、模型及512输出上限、原grant、单次session和payload；多目标未支持finding、遗漏finding、未知或额外attempt拒绝，不用预填payload代替模型。
+
+Gate调用原finding campaign编译器产生正常对照、original/variant、AttackPlan及完整Suite，并保存独立审查原始字节。无applicable finding仍保留完整实际语义审查和正常/base攻击义务，不制造改善。all_attempt_history_complete仍false。新增内部步骤沿用11角色和公共RPC/CLI，部署准入核对assignment/result实际双向挂载、原容量，执行持有development锁，原cost/进程/Keeper/结果与失败保全沿用原auxiliary生命周期。
+
+Admin计划修订和正式phase在whole-flow配置下必须读取该实际Gate compiled.json；禁止内嵌编译对象绕过生产Gate。计划仍追加原行、预算和时钟不重置；原摘要命名Proxy grant另有独立Admin→Controller固定plan-revision.json普通投影，以冻结定位读取真实新计划，无未来摘要猜测。正式evaluate要求发现Suite生产发生在语义发现之后、首次development之前。
+
+完成160份Python AST和diff检查；未调用模型、SQLite、Docker、Scanner或参考/组件测试。全成本生产、全部尝试库存、物理容量及其他剩余连接仍待完成，未启动第一整轮。

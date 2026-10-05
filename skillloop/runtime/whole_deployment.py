@@ -22,7 +22,7 @@ MODULES={'controller':{'skillloop.runtime.operator_service'},'runtime':{'scripts
     'generator':{'skillloop.runtime.proposal_worker'},'patcher':{'skillloop.runtime.proposal_worker'},
     'report':{'skillloop.runtime.role_command_worker'},'admin':{'skillloop.runtime.role_command_worker','skillloop.runtime.archive_key_service'},
     'model_gateway':{'skillloop.runtime.model_bridge_service','skillloop.discovery.semantic_worker'}}
-MODULES['gate'].add('skillloop.discovery.formal_harden_gate')
+MODULES['gate'].update({'skillloop.discovery.formal_harden_gate','skillloop.discovery.formal_suite_gate'})
 
 
 class WholeRoleDeployment:
