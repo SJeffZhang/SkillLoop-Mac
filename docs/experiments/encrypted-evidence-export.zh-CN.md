@@ -132,3 +132,9 @@ Registry 使用已提交的 RegistryArchiveWithdrawal 原操作结果阻断该 c
 OperatorService 将自身实际 OperatorOperationStore 交给正式 dispatcher；operation_archive action 读取 Admin 冻结策略，预收原预算后保存实际操作 SQLite backup 与声明的 Controller/Generator/Patcher/Gateway 历史字节。逐文件核对原所有权、权限、大小、读取稳定性和目录变化；未知、失败、accepted/running 状态按原记录保留。保护角色库被排除，不扩大 Controller 私有读取权限。空 spending.lock 仅保留元数据，不修改原锁权限。
 
 加密归档审查要求实际操作快照和每份历史副本均进入 inventory，并重开操作库验证原 epoch、请求、route、ticket 和状态。此链还不能证明物理 evidence lease、穷尽所有模型尝试或完整删除/恢复边界，相关类别保持未闭合。未启动组件或整轮实验。
+
+### 归档审查内存与撤销后的入口边界
+
+Gate 对数据库和二进制原件改为 1MiB 分块核验，每块检查原预算截止时间，不再将最大 256MiB 的数据库副本整体读入内存。核验结束还检查当前路径与已读取文件的 inode、时间和大小，拒绝读取期间替换路径。JSON 元数据继续按原上限解码。
+
+Registry 的名单冻结和原 campaign 绑定入口也核对已提交的 archive withdrawal；已关闭的身份不能再冻结名单或重新绑定。Registry 快照在消耗预算和写入意图之前核对原 configuration/epoch，快照之后再次核对。只进行了源码及语法审查，未运行实验；完整物理容量和归档恢复仍需接通。

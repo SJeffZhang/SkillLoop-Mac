@@ -181,6 +181,7 @@ class CampaignRegistry:
             raise ValueError('campaign_roster_original_clock_expired')
         with closing(sqlite3.connect(self.path,timeout=2)) as db:
             db.execute('PRAGMA synchronous=FULL');db.execute('BEGIN IMMEDIATE')
+            self._archive_fence(db,campaign)
             row=db.execute('SELECT project,source,bindings FROM formal_campaigns WHERE campaign=?',
                            (campaign,)).fetchone()
             if row is None:raise ValueError('formal_campaign_not_registered')
@@ -283,6 +284,7 @@ class CampaignRegistry:
             raise ValueError('formal_campaign_source_binding')
         with closing(sqlite3.connect(self.path)) as db:
             db.execute('PRAGMA synchronous=FULL');db.execute('BEGIN IMMEDIATE')
+            self._archive_fence(db,bindings['campaign'])
             current = db.execute('SELECT generation,head,config FROM projects WHERE project=?', (project,)).fetchone()
             if current != (bindings['generation'], source['body']['source_commit_sha'], bindings['config_digest']):
                 raise ValueError('formal_campaign_current_generation')

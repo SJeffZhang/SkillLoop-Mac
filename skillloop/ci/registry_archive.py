@@ -74,11 +74,17 @@ def dispatch_registry_snapshot(*,registry,policy_path,journal_directory,ledger,w
     journal=_directory(journal_directory,21001,21001,0o700)
     if any(journal.iterdir()):raise RuntimeError('registry_snapshot_original_operation_recovery_required')
     with closing(sqlite3.connect(registry.path,timeout=2)) as db:
+        db.execute('BEGIN')
         row=db.execute('SELECT result FROM promotions WHERE operation=?',('archive-withdraw-'+policy['withdrawal_operation_id'],)).fetchone()
         clock=db.execute('SELECT deadline FROM campaign_original_clocks WHERE campaign=?',(policy['campaign'],)).fetchone()
+        original=db.execute('SELECT bindings FROM formal_campaigns WHERE campaign=?',(policy['campaign'],)).fetchone()
     if row is None or clock!=(policy['deadline'],):raise ValueError('registry_snapshot_committed_original_withdrawal_and_clock')
     withdrawal=decode_json(row[0])
     if withdrawal['campaign']!=policy['campaign']:raise ValueError('registry_snapshot_withdrawal_campaign')
+    bindings=decode_json(original[0]) if original else {}
+    if (bindings.get('config_digest')!=policy['config_digest']
+            or bindings.get('deployment_epoch')!=policy['deployment_epoch']):
+        raise ValueError('registry_snapshot_original_configuration')
     expiry=datetime.fromisoformat(policy['deadline'].replace('Z','+00:00'))
     if (ledger.campaign_started_at is None or expiry.timestamp()!=ledger.campaign_started_at+28800
             or (expiry-datetime.now(timezone.utc)).total_seconds()<=policy['timeout_seconds']+60):

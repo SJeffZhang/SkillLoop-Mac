@@ -5,9 +5,10 @@ It never grants deletion or implies that operational/credential stores have
 been archived merely because all task receipts are present.
 """
 import os
+import hashlib
 from pathlib import Path,PurePosixPath
 import stat
-from skillloop.protocol import decode_json,digest_bytes,digest_jcs
+from skillloop.protocol import decode_json,digest_jcs
 from scripts.spec_v22_core import execution_record
 
 
@@ -36,12 +37,26 @@ def review_campaign_inventory(*,policy,inventory,budget):
                     or (before.st_uid,before.st_gid,stat.S_IMODE(before.st_mode),before.st_size)
                         !=(row['uid'],row['gid'],row['mode'],row['bytes'])):
                 raise PermissionError('campaign_archive_original_file_custody')
-            raw=stream.read(limit+1);after=os.fstat(stream.fileno())
-        if (len(raw)!=row['bytes'] or digest_bytes(raw)!=row['digest']
+            checksum=hashlib.sha256();size=0;parts=[]
+            while True:
+                budget();block=stream.read(min(1048576,limit-size+1))
+                if not block:break
+                size+=len(block)
+                if size>limit or size>row['bytes']:
+                    raise ValueError('campaign_archive_file_changed')
+                checksum.update(block)
+                if decode:parts.append(block)
+            after=os.fstat(stream.fileno())
+        current=path.lstat()
+        if (size!=row['bytes'] or 'sha256:'+checksum.hexdigest()!=row['digest']
                 or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)
-                    !=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns)):
+                    !=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns)
+                or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)
+                    !=(current.st_dev,current.st_ino,current.st_size,current.st_mtime_ns,current.st_ctime_ns)):
             raise ValueError('campaign_archive_file_changed')
-        return decode_json(raw) if decode else raw
+        # Binary evidence and SQLite backups are verified incrementally. They
+        # are never retained as a second full database in the Gate's memory.
+        return decode_json(b''.join(parts)) if decode else None
 
     def original(locator):
         path=Path(locator)
