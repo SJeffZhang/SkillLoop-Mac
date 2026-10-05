@@ -23,23 +23,25 @@ def publish_qualification(app, registry, *, pr, check_id, head_sha,
     """
     from .github_app import check_identity
     outcome = qualification_outcome(decision['verdict'])
-    identity = check_identity(app.repository, pr, head_sha, config_digest)
+    identity = check_identity(app.repository, pr, head_sha, config_digest, generation)
     project = app.repository + '#' + str(pr)
-    def fence():
+    def fence(expected_status):
         if app.request('/pulls/' + str(pr))['head']['sha'] != head_sha:
             raise ValueError('stale_head')
         check = app.request('/check-runs/' + str(check_id))
         if (check['head_sha'] != head_sha or check.get('external_id') != identity
+                or check.get('name') != 'SkillLoop qualification'
+                or check.get('status') != expected_status
                 or check['app']['id'] != app.app_id):
             raise ValueError('check_identity_mismatch')
         registry.complete(project, head_sha, config_digest, generation, campaign, decision)
-    fence()
-    fence()
+    fence('in_progress')
+    fence('in_progress')
     result = app.request('/check-runs/' + str(check_id), 'PATCH', {
         'status': 'completed', 'conclusion': outcome['conclusion'],
         'output': {'title': 'Qualification decision: ' + decision['verdict'],
                    'summary': summary}})
-    fence()
+    fence('completed')
     if result.get('conclusion') != outcome['conclusion'] or result.get('status') != 'completed':
         raise ValueError('check_completion_mismatch')
     return result

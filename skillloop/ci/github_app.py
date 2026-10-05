@@ -3,9 +3,14 @@ import base64,json,re,subprocess,time,urllib.request
 from skillloop.protocol import digest_jcs
 
 
-def check_identity(repository,pr,head_sha,config_digest):
+def check_identity(repository,pr,head_sha,config_digest,generation=None):
     if not re.fullmatch('[0-9a-f]{40}',head_sha):raise ValueError('invalid_head_sha')
-    return digest_jcs([repository,pr,head_sha,config_digest])
+    if generation is None:
+        # Preserve the identity of historical transport-only integration checks.
+        return digest_jcs([repository,pr,head_sha,config_digest])
+    if type(generation) is not int or not 1<=generation<=9007199254740991:
+        raise ValueError('invalid_qualification_generation')
+    return digest_jcs([repository,pr,head_sha,config_digest,generation])
 
 
 class GitHubApp:
@@ -36,6 +41,46 @@ class GitHubApp:
         if len(matching)>1:raise ValueError('duplicate_check_identity')
         check=matching[0] if matching else self.request('/check-runs','POST',{'name':'SkillLoop synthetic integration','head_sha':head,'external_id':identity,'status':'in_progress','output':{'title':'Integration experiment; qualification pending','summary':'Synthetic CI fixture. No Skill qualification is asserted by this check.'}})
         return {'head_sha':head,'identity':identity,'check_id':check['id'],'created':not bool(matching)}
+
+    def ensure_qualification_check(self,*,pr,head_sha,config_digest,generation):
+        """Create one generation-bound formal Check after an exact live PR read.
+
+        A completed Check is returned only as an original receipt. The caller
+        must verify its current qualification and may not reopen it as pending.
+        """
+        if type(pr) is not int or pr<1:
+            raise ValueError('invalid_pull_request')
+        identity=check_identity(self.repository,pr,head_sha,config_digest,generation)
+        observed=self.request('/pulls/'+str(pr))
+        if observed['head']['sha']!=head_sha:
+            raise ValueError('stale_head')
+        matches=[]
+        for page in range(1,11):
+            batch=self.request('/commits/'+head_sha+'/check-runs?per_page=100&page='+str(page))['check_runs']
+            matches.extend(c for c in batch if c.get('external_id')==identity
+                           and c.get('app',{}).get('id')==self.app_id)
+            if len(batch)<100:break
+        else:
+            raise ValueError('check_inventory_pagination_limit')
+        if len(matches)>1:raise ValueError('duplicate_check_identity')
+        if matches:
+            check=matches[0]
+            if (check.get('head_sha')!=head_sha or check.get('name')!='SkillLoop qualification'
+                    or check.get('status') not in {'in_progress','completed'}):
+                raise ValueError('qualification_check_original_state')
+        else:
+            check=self.request('/check-runs','POST',{
+                'name':'SkillLoop qualification','head_sha':head_sha,'external_id':identity,
+                'status':'in_progress','output':{
+                    'title':'Qualification pending independent review',
+                    'summary':'The current campaign has not issued a qualification decision.'}})
+        if (check.get('head_sha')!=head_sha or check.get('external_id')!=identity
+                or check.get('app',{}).get('id')!=self.app_id):
+            raise ValueError('qualification_check_actual_app_binding')
+        if self.request('/pulls/'+str(pr))['head']['sha']!=head_sha:
+            raise ValueError('stale_head_after_check_creation')
+        return {'head_sha':head_sha,'identity':identity,'check_id':check['id'],
+                'generation':generation,'status':check['status'],'created':not bool(matches)}
 
     def complete_integration_check(self,pr,receipt,current_config):
         if self.request('/pulls/'+str(pr))['head']['sha']!=receipt['head_sha']:
