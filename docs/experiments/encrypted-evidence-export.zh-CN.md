@@ -266,3 +266,10 @@ NativeBackendSupervisor 新增 export_lifecycle：必须持有原开发/保护�
 实际 Admin role_command import-lifecycle 消费可信部署转交到Admin专属目录的同字节文件。宿主UID只作为来源绑定，不充当Linux权限；输入必须21010:21010/0700、文件0600，输出为Admin→Gate的21010:21005只读授权。核验导出清单、完整记录/日志摘要、原UTC及容量后实际复制、分配输出块、fsync，再发布evidence。Controller只读不透明 imported状态，独立Gate仍必须重建真实隔离结论。部分导入保存intent/原件，禁止盲目重试。
 
 此源码已接统一Admin委托和原auxiliary成本/收尾。正式宿主启动调度及可信宿主→Admin卷传输生产配置仍待接通；未导出/导入任何真实记录、未启动新后端、未运行实验，不能把imported状态当独立隔离证明。
+
+
+### 完整正式入口配置准入
+
+统一部署生产者和实际 Operator 启动共同使用同一 route 审查：17条冻结 CLI 必须全部有明确生产 route，逐条匹配原输出类型、当前 campaign、参数摘要及带时区的原截止时间；CIResult/HardenResult必须来自独立Gate。取消/撤销仍只走原Controller授权RPC。所有检查在配置输出、预算消费和操作数据库初始化之前完成。
+
+不同 route 不能复用可变操作/阶段恢复目录或最终绑定文件；同一不可变部署 journal 可以共享。此修复阻止只有少数入口的配置冒充完整部署，不证明各入口已经具备实际运行证据。规范或权限阻断不能用缺省成功填补；正式配置生产与整轮仍待完成。仅AST和源码检查，未启动任何运行实验。

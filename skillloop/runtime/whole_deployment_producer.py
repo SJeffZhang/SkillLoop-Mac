@@ -91,8 +91,6 @@ def produce_deployment(policy_path):
         raise ValueError('whole_operator_original_physical_storage_and_clock')
     # All approved routes are checked before producing a bootstrap package.
     # Actual operator startup repeats this check on the mounted documents.
-    from skillloop.runtime.operation_store import WIRE_LIMIT
-    from skillloop.runtime.campaign_dispatcher import validate_dispatch_route
     documents={}
     directories={d['path']:d for d in value['directories']}
     mounts=value['roles']['controller']['config']['HostConfig']['Mounts']
@@ -119,20 +117,14 @@ def produce_deployment(policy_path):
     operator=operator_documents[0]
     if type(operator.get('routes')) is not list or not 1<=len(operator['routes'])<=2048:
         raise ValueError('whole_operator_complete_route_documents_required')
-    route_keys=set()
+    routes=[]
     for path in operator['routes']:
         route=documents.get(path)
         if route is None:
             raise ValueError('whole_operator_route_document_missing')
-        validate_dispatch_route(route)
-        from skillloop.protocol import canonical_json_line
-        if (route.get('kind')!='FrozenOperatorCampaignRoute'
-                or route.get('campaign_digest') not in {None,value['campaign_digest']}
-                or len(canonical_json_line(route))>WIRE_LIMIT):
-            raise ValueError('whole_operator_route_campaign_and_capacity')
-        key=(route['command'],route['parameters_digest'])
-        if key in route_keys:raise ValueError('whole_operator_route_duplicate')
-        route_keys.add(key)
+        routes.append(route)
+    from skillloop.runtime.operator_routes import validate_operator_routes
+    validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
     output=_directory(policy['output_directory'],21010,21001,0o750)
     path=output/'deployment.json'
     if os.path.lexists(path):

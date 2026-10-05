@@ -1,0 +1,67 @@
+"""Admission of the complete frozen CLI before any deployment side effect."""
+from datetime import datetime
+import json
+from pathlib import Path
+import re
+
+from skillloop.protocol import canonical_json_line, digest_jcs
+from skillloop.runtime.operation_store import WIRE_LIMIT
+
+
+def validate_operator_routes(routes, *, campaign_digest, deadline):
+    from skillloop.runtime.campaign_dispatcher import validate_dispatch_route
+    profile = json.loads((Path(__file__).resolve().parents[2] /
+        'specs/v2.2/operations/cli.json').read_text())
+    commands = {item['name']: item for item in profile['commands']}
+    if len(commands) != 17:
+        raise ValueError('operator_frozen_cli_complete_contract')
+    end = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+    if end.tzinfo is None:
+        raise ValueError('operator_original_deadline_timezone')
+    if type(routes) is not list or not 17 <= len(routes) <= 2048:
+        raise ValueError('operator_all_frozen_cli_routes_required')
+    fields = {'kind','campaign_digest','command','parameters_digest','result_kind',
+        'deadline','steps','result_path','result_binding_path','result_uid',
+        'journal_directory','digest'}
+    admitted = {}; covered = set(); journals = set(); bindings = set()
+    for route in routes:
+        if (type(route) is not dict or set(route) != fields
+                or route['kind'] != 'FrozenOperatorCampaignRoute'
+                or route['digest'] != digest_jcs({k:v for k,v in route.items() if k != 'digest'})
+                or len(canonical_json_line(route)) > WIRE_LIMIT):
+            raise ValueError('operator_complete_route_shape')
+        command = commands.get(route['command'])
+        if (command is None or command['stdout_schema'] != route['result_kind']
+                or type(route['result_uid']) is not int
+                or route['result_uid'] not in {21001,21005,21009,21010}
+                or route['result_kind'] in {'CIResult','HardenResult'} and route['result_uid'] != 21005):
+            raise ValueError('operator_frozen_cli_result_contract')
+        if (type(route['parameters_digest']) is not str
+                or not re.fullmatch(r'sha256:[0-9a-f]{64}', route['parameters_digest'])
+                or route['campaign_digest'] not in {None,campaign_digest}):
+            raise ValueError('operator_route_parameters_and_campaign')
+        route_end = datetime.fromisoformat(route['deadline'].replace('Z', '+00:00'))
+        if route_end.tzinfo is None or route_end > end:
+            raise ValueError('operator_route_original_deployment_deadline')
+        validate_dispatch_route(route)
+        if route['command'] in {'admin cancel','admin revoke'} and (
+                len(route['steps']) != 1 or route['steps'][0]['action'] != 'proxy_controller'
+                or route['steps'][0]['method'] != {
+                    'admin cancel':'cancel_run','admin revoke':'revoke_approval'}[route['command']]):
+            raise PermissionError('operator_control_lane_frozen_rpc_only')
+        key = (route['command'],route['parameters_digest'])
+        if key in admitted:
+            raise ValueError('operator_duplicate_route')
+        # Two operations must not claim the same mutable recovery journal.
+        # Deployment journals and immutable input/result projections may be shared.
+        own = {route['journal_directory']} | {
+            step['journal_directory'] for step in route['steps'] if 'journal_directory' in step and step['action'] != 'deployment'}
+        if any(str(Path(path)) != path for path in own | {route['result_binding_path']}):
+            raise ValueError('operator_canonical_recovery_locator_required')
+        if journals & own or route['result_binding_path'] in bindings:
+            raise ValueError('operator_routes_original_recovery_custody_conflict')
+        journals.update(own); bindings.add(route['result_binding_path'])
+        admitted[key] = route; covered.add(route['command'])
+    if covered != set(commands):
+        raise ValueError('operator_all_frozen_cli_routes_required')
+    return admitted
