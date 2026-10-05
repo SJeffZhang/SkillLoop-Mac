@@ -4,13 +4,14 @@ No model response, candidate, or stopped process grants qualification. Complete
 role evidence and the gateway stay available for independent whole-round review.
 """
 from datetime import datetime, timezone
+import base64
 import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
 import time
 
-from skillloop.protocol import canonical_json_line, digest_jcs
+from skillloop.protocol import canonical_json_line, digest_jcs, digest_bytes
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.repair.budget import SpendingLedger
 from skillloop.runtime.docker_api import DockerEngine
@@ -54,7 +55,7 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     gateway_policy=read_owned(Path(gateway_policy_directory)/'policy.json',uid=21010,gid=21011,limit=262144)
     deadline=datetime.fromisoformat(policy['campaign_deadline'].replace('Z','+00:00'))
     protected=gateway_policy.get('kind')=='ProtectedNativeModelBridgePolicy'
-    if (gateway_policy.get('allowed_client_uid') == 21002 and (
+    if (gateway_policy.get('allowed_client_uid') in {21002,21006,21007} and (
             gateway_policy.get('campaign_id') != policy['campaign_digest']
             or gateway_policy.get('deployment_epoch') != whole['deployment_epoch'])):
         raise ValueError('runtime_gateway_dispatch_authority_binding')
@@ -88,7 +89,8 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     targets={'gateway_policy':'/gateway-policy','whole_round':'/whole-round',
              'tokenizer':'/model','model_bridge':'/model-bridge'}
     if protected:targets['lifecycle_review']='/lifecycle-review'
-    if uid == 21002:targets['inference_authority']='/inference-authority'
+    targets['inference_authority']='/inference-authority'
+    if uid in {21006,21007}:targets['proposal_authority']='/proposal-authority'
     if type(policy['mounts']) is not dict or set(policy['mounts'])!=set(targets):
         raise ValueError('native_gateway_mount_set')
     for key,target in targets.items():
@@ -183,8 +185,11 @@ def dispatch_proposal(*, assignment_directory, evidence_directory, policy,
     if type(registry) is not CampaignRegistry:
         raise ValueError('native_proposal_current_campaign_registry_required')
     with registry.development_scope(campaign=policy['campaign_digest']) as admitted:
-        if admitted['deadline']!=policy['campaign_deadline']:
+        if (admitted['deadline']!=policy['campaign_deadline']
+                or admitted['bindings']['config_digest']!=policy.get('config_digest')):
             raise ValueError('native_proposal_original_registry_clock_changed')
+        if policy['role_uid']==21006 and policy.get('source_subject_digest')!=admitted['bindings']['subjects']['submitted']:
+            raise ValueError('native_generator_original_submitted_source')
         return _dispatch_proposal_open(assignment_directory=assignment_directory,
             evidence_directory=evidence_directory,policy=policy,journal_directory=journal_directory,
             whole_round_manifest_path=whole_round_manifest_path,ledger=ledger,engine=engine)
@@ -304,7 +309,8 @@ def _dispatch_proposal_open(*, assignment_directory, evidence_directory, policy,
         raise PermissionError('native_dispatch_actual_controller_required')
     required={'kind','campaign_digest','role_uid','assignment_digest','proposal_policy_digest',
               'image','whole_round_manifest_digest','campaign_deadline','timeout_seconds',
-              'maximum_evidence_bytes','gateway_container_id','gateway_policy_digest','mounts','digest'}
+              'maximum_evidence_bytes','gateway_container_id','gateway_policy_digest','mounts',
+              'config_digest','plan_digest','source_subject_digest','inference_authority_directory','digest'}
     if (type(policy) is not dict or set(policy)!=required
             or policy['kind']!='FrozenNativeProposalDispatch'
             or policy['digest']!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
@@ -377,6 +383,15 @@ def _dispatch_proposal_open(*, assignment_directory, evidence_directory, policy,
             or gateway_mounts[0].get('Source')!=bridge_pin['volume']
             or gateway_mounts[0].get('VolumeOptions',{}).get('Subpath')!=bridge_pin['subpath']):
         raise ValueError('native_dispatch_actual_gateway_binding')
+    if uid==21007 and job.get('parent_subject_digest')!=policy['source_subject_digest']:
+        raise ValueError('native_patcher_original_parent_source')
+    authority_mounts=[m for m in gateway.get('HostConfig',{}).get('Mounts',[]) if m.get('Target')=='/proposal-authority']
+    if (len(authority_mounts)!=1 or authority_mounts[0].get('ReadOnly') is not True
+            or authority_mounts[0].get('Type')!='volume'):
+        raise PermissionError('native_proposal_gateway_trusted_authority_mount')
+    for key in ('config_digest','plan_digest','source_subject_digest'):
+        if type(policy[key]) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',policy[key]):
+            raise ValueError('native_proposal_live_identity_digest')
     model=proposal_policy['model_config']
     maximum=512 if uid==21006 else 1024
     if (model.get('max_context_tokens')!=16384 or model.get('max_output_tokens')!=maximum
@@ -399,6 +414,26 @@ def _dispatch_proposal_open(*, assignment_directory, evidence_directory, policy,
         seconds=policy['timeout_seconds']+60,input_tokens=16384-maximum,output_tokens=maximum,
         disk_bytes=policy['maximum_evidence_bytes'])
     _save(directory,'spending.json',{'kind':'FormalNativeProposalSpending','policy_digest':policy['digest'],'spending':spending})
+    from skillloop.protection.current_task import _directory, _publish
+    authority_root=_directory(policy['inference_authority_directory'],21001,21011,0o750)
+    grant={'kind':'ControllerProposalInferenceGrant','deployment_epoch':whole['deployment_epoch'],
+        'campaign_id':policy['campaign_digest'],'config_digest':policy['config_digest'],
+        'plan_digest':policy['plan_digest'],'source_subject_digest':policy['source_subject_digest'],
+        'whole_round_manifest_digest':whole['digest'],'assignment_digest':job['digest'],
+        'proposal_policy_digest':proposal_policy['digest'],'dispatch_policy_digest':policy['digest'],
+        'role_uid':uid,'instruction_digest':digest_bytes(base64.b64decode(job['skill_b64'],validate=True)),
+        'model_identity':{'model_id':model['model'],
+            'model_manifest_digest':proposal_policy['model_manifest_digest'],
+            'tokenizer_hashes':proposal_policy['tokenizer_hashes']},
+        'model_config':model,'spending':spending,'deadline':policy['campaign_deadline'],'maximum_requests':1}
+    grant['digest']=digest_jcs(grant)
+    _publish(authority_root/(grant['digest'][7:]+'.json'),grant,21011)
+    reference={'kind':'ControllerProposalInferenceReference','grant_digest':grant['digest'],
+        'assignment_digest':job['digest'],'proposal_policy_digest':proposal_policy['digest'],'role_uid':uid}
+    reference['digest']=digest_jcs(reference)
+    _publish(assignment/'inference.json',reference,uid)
+    _save(directory,'inference-grant.json',{'kind':'FormalNativeProposalInferenceGrant',
+        'grant':grant,'reference':reference,'automatic_replay_allowed':False})
     identifier=engine.create('skillloop-proposal-'+policy['digest'][7:39],config)
     _save(directory,'created.json',{'kind':'FormalNativeProposalCreated','container_id':identifier,'policy_digest':policy['digest']})
     def identity(observed):

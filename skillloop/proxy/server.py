@@ -195,6 +195,10 @@ class ProxyServer:
                     with self.store.rpc_window(end):
                         if request.get("kind") == "RuntimeInferenceReservationRequest":
                             result = self.inference_authority.reserve(request)
+                        elif request.get("kind") == "ProposalInferenceReservationRequest":
+                            result = self.inference_authority.reserve_proposal(request)
+                        elif request.get("kind") == "ProposalInferenceCompletion":
+                            result = self.inference_authority.complete_proposal(request)
                         else:
                             result = self.inference_authority.complete(request)
                     self._send(connection, {"ok": True, "result": result})

@@ -40,8 +40,14 @@ def execute():
             max_context_tokens=model['max_context_tokens'],max_output_tokens=model['max_output_tokens'],
             timeout_seconds=policy['request_timeout_seconds'],unix_socket_path='/model-bridge/model.sock',
             expected_server_uid=21011,temperature=model['temperature'],top_p=model['top_p'])
+        reference=read_owned('/assignment/inference.json',uid=21001,gid=uid,limit=262144)
+        if (set(reference)!={'kind','grant_digest','assignment_digest','proposal_policy_digest','role_uid','digest'}
+                or reference['kind']!='ControllerProposalInferenceReference'
+                or reference['assignment_digest']!=job['digest'] or reference['proposal_policy_digest']!=policy['digest']
+                or reference['role_uid']!=uid):
+            raise ValueError('formal_proposal_original_inference_reference')
         session=NativeProposalSession(policy_path='/assignment/policy.json',gateway=gateway,
-                                     evidence_directory='/evidence')
+                                     evidence_directory='/evidence',inference_grant_digest=reference['grant_digest'])
         if uid==21006:
             from skillloop.discovery.llm_attack import propose_payload
             payload,evidence=propose_payload(job['profile'],job['finding'],skill,native_session=session)

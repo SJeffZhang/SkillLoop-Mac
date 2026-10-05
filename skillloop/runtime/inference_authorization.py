@@ -114,3 +114,84 @@ def validate_inference_transport_manifest(plan):
     if any(name != proxy_root and PurePosixPath(name).is_relative_to(PurePosixPath(proxy_root))
            for name in directories):
         raise PermissionError('inference_authority_no_private_descendants')
+    _, policy_original = mounted(gateway, '/gateway-policy/policy.json')
+    policies = [d['value'] for d in plan['documents'] if
+        str(PurePosixPath(d['directory'])/d['name']) == policy_original]
+    if len(policies)!=1:
+        raise ValueError('inference_authority_actual_gateway_policy')
+    policy=policies[0]
+    if (policy.get('kind') not in {'NativeModelBridgePolicy','ProtectedNativeModelBridgePolicy'}
+            or policy.get('campaign_id')!=plan['campaign_digest']
+            or policy.get('deployment_epoch')!=plan['deployment_epoch']):
+        raise ValueError('inference_authority_gateway_campaign_scope')
+    if policy.get('allowed_client_uid') in {21006,21007}:
+        mount,root=mounted(gateway,'/proposal-authority')
+        owner=directories.get(root)
+        if (owner is None or owner['uid']!=21001 or owner['gid']!=21011
+                or owner['mode']!=0o750 or owner['privacy']!='development'
+                or mount['ReadOnly'] is not True or mount['Target']!='/proposal-authority'
+                or mount['VolumeOptions']['Subpath']!=root):
+            raise PermissionError('proposal_authority_trusted_controller_directory')
+        proposals=[d['value'] for d in plan['documents'] if d['value'].get('kind')=='FrozenNativeProposalDispatch'
+            and d['value'].get('role_uid')==policy['allowed_client_uid']]
+        for proposal in proposals:
+            controller_mount,controller_root=mounted(roles['controller']['config'],proposal['inference_authority_directory'])
+            if controller_root!=root or controller_mount['ReadOnly'] is not False:
+                raise PermissionError('proposal_authority_actual_controller_gateway_binding')
+        if not proposals:raise ValueError('proposal_authority_current_producer_required')
+
+
+
+class ProposalInferenceAuthorization(RuntimeInferenceAuthorization):
+    """Read a Controller-owned budget grant, then obtain live Proxy authority."""
+    def __init__(self, policy, path='/inference-authority/inference.sock'):
+        if os.geteuid()!=21011 or policy['allowed_client_uid'] not in {21006,21007}:
+            raise PermissionError('proposal_inference_authorization_gateway_only')
+        self.policy=policy;self.path=Path(path)
+        info=self.path.parent.lstat()
+        if (not self.path.is_absolute() or self.path.parent.is_symlink() or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid!=21003 or info.st_gid!=21011 or stat.S_IMODE(info.st_mode)!=0o750):
+            raise PermissionError('proposal_inference_authority_socket_custody')
+
+    def reserve(self, context, payload, input_tokens, seconds):
+        from skillloop.discovery.formal_task_gate import read_owned
+        import re
+        if (type(context) is not dict or set(context)!={'grant_digest','slot'} or context['slot']!=0
+                or type(context['slot']) is not int or type(context['grant_digest']) is not str
+                or not re.fullmatch(r'sha256:[0-9a-f]{64}',context['grant_digest'])):
+            raise ValueError('proposal_inference_current_grant_reference')
+        grant=read_owned(Path('/proposal-authority')/(context['grant_digest'][7:]+'.json'),
+            uid=21001,gid=21011,limit=262144)
+        if (grant['digest']!=context['grant_digest'] or grant.get('kind')!='ControllerProposalInferenceGrant'
+                or grant.get('role_uid')!=self.policy['allowed_client_uid']
+                or any(grant.get(k)!=self.policy[k] for k in
+                    ('deployment_epoch','campaign_id','config_digest','whole_round_manifest_digest'))
+                or grant.get('deadline')!=self.policy['campaign_deadline']
+                or grant.get('model_identity')!={k:self.policy[k] for k in ('model_id','model_manifest_digest','tokenizer_hashes')}
+                or payload.get('tools')!=[]):
+            raise PermissionError('proposal_inference_exact_controller_grant')
+        request={'kind':'ProposalInferenceReservationRequest','grant':grant,
+            'messages_digest':digest_jcs(payload['messages']),'tools_digest':digest_jcs(payload['tools']),
+            'payload_digest':digest_bytes(canonical_json_line(payload)),'input_tokens':input_tokens,
+            'deadline':(datetime.now(timezone.utc)+timedelta(seconds=min(9,seconds))).isoformat()}
+        request['digest']=digest_jcs(request)
+        result=self._exchange(request,seconds)
+        if (set(result)!={'kind','request_digest','request','deadline','reserved_at','redispatch_allowed','qualification_issued','digest'}
+                or result['kind']!='ProxyProposalInferenceReserved' or result['request']!=request
+                or result['request_digest']!=request['digest']
+                or result['digest']!=digest_jcs({k:v for k,v in result.items() if k!='digest'})
+                or result['redispatch_allowed'] is not False or result['qualification_issued'] is not False):
+            raise ValueError('proposal_inference_original_reservation_binding')
+        deadline=datetime.fromisoformat(result['deadline'].replace('Z','+00:00'))
+        if deadline.tzinfo is None or deadline<=datetime.now(timezone.utc):
+            raise TimeoutError('proposal_inference_original_grant_expired')
+        return result
+
+    def complete(self,reservation,raw,seconds):
+        request={'kind':'ProposalInferenceCompletion','request_digest':reservation['request_digest'],
+            'response_digest':digest_jcs(decode_json(raw)),
+            'deadline':(datetime.now(timezone.utc)+timedelta(seconds=min(9,seconds))).isoformat()}
+        result=self._exchange(request,seconds)
+        if result!={'kind':'ProxyProposalInferenceRecorded','request_digest':request['request_digest'],
+                'response_digest':request['response_digest'],'redispatch_allowed':False}:
+            raise ValueError('proposal_inference_original_response_binding')

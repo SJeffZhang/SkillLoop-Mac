@@ -130,3 +130,113 @@ class RuntimeInferenceAuthority:
                 (request['response_digest'], _stamp(_now()), request['request_digest']))
             return {'kind':'ProxyRuntimeInferenceRecorded','request_digest':request['request_digest'],
                     'response_digest':request['response_digest'],'redispatch_allowed':False}
+
+    def reserve_proposal(self, request):
+        """One Controller-budgeted development proposal, authorized live."""
+        from datetime import datetime, timezone
+        from skillloop.protocol import canonical_json_line
+        fields = {'kind','grant','messages_digest','tools_digest','payload_digest','input_tokens','deadline','digest'}
+        if (type(request) is not dict or set(request) != fields
+                or request['kind'] != 'ProposalInferenceReservationRequest'
+                or request['digest'] != digest_jcs({k:v for k,v in request.items() if k!='digest'})
+                or type(request['input_tokens']) is not int or not 0 <= request['input_tokens'] <= 16384
+                or any(type(request[k]) is not str or not DIGEST.fullmatch(request[k])
+                       for k in ('messages_digest','tools_digest','payload_digest','digest'))):
+            raise ProxyError('invalid_args')
+        grant=request['grant']
+        required={'kind','deployment_epoch','campaign_id','config_digest','plan_digest','source_subject_digest',
+            'whole_round_manifest_digest','assignment_digest','proposal_policy_digest','dispatch_policy_digest',
+            'role_uid','instruction_digest','model_identity','model_config','spending','deadline','maximum_requests','digest'}
+        if (type(grant) is not dict or set(grant)!=required or grant['kind']!='ControllerProposalInferenceGrant'
+                or grant['digest']!=digest_jcs({k:v for k,v in grant.items() if k!='digest'})
+                or grant['deployment_epoch']!=self.store.deployment_epoch or grant['role_uid'] not in {21006,21007}
+                or type(grant['role_uid']) is not int or type(grant['maximum_requests']) is not int or grant['maximum_requests']!=1
+                or any(type(grant[k]) is not str or not DIGEST.fullmatch(grant[k]) for k in
+                    ('campaign_id','config_digest','plan_digest','source_subject_digest','whole_round_manifest_digest',
+                     'assignment_digest','proposal_policy_digest','dispatch_policy_digest','instruction_digest'))):
+            raise ProxyError('invalid_args')
+        maximum=512 if grant['role_uid']==21006 else 1024
+        model=grant['model_config'];spending=grant['spending']
+        if (type(model) is not dict or type(spending) is not dict
+                or model.get('max_context_tokens')!=16384 or model.get('max_output_tokens')!=maximum
+                or model.get('temperature')!=(0.7 if grant['role_uid']==21006 else 0.2)
+                or model.get('top_p')!=0.9 or model.get('thinking') is not False or model.get('gateway_uid')!=21011
+                or request['input_tokens']+maximum>16384 or request['tools_digest']!=digest_jcs([])
+                or spending.get('operation_key')!='proposal-'+grant['dispatch_policy_digest'][7:]
+                or spending.get('stage')!=('development' if grant['role_uid']==21006 else 'repair_pairing')
+                or spending.get('requested_cost',{}).get('input_tokens')!=16384-maximum
+                or spending.get('requested_cost',{}).get('output_tokens')!=maximum):
+            raise ProxyError('denied')
+        deadline=datetime.fromisoformat(grant['deadline'].replace('Z','+00:00'))
+        if deadline.tzinfo is None or deadline <= datetime.now(timezone.utc):
+            raise ProxyError('expired')
+        with self.store._transaction() as db:
+            campaign=grant['campaign_id']
+            db.execute('CREATE TABLE IF NOT EXISTS proposal_inference_attempts('
+                'grant_digest TEXT PRIMARY KEY,request_digest TEXT UNIQUE NOT NULL,campaign TEXT NOT NULL,'
+                'role_uid INTEGER NOT NULL,reservation_json BLOB NOT NULL,response_digest TEXT,completed_at TEXT) STRICT')
+            if [r[1] for r in db.execute('PRAGMA table_info(proposal_inference_attempts)')] != [
+                    'grant_digest','request_digest','campaign','role_uid','reservation_json','response_digest','completed_at']:
+                raise ProxyError('unsupported_database_version')
+            prior=db.execute('SELECT request_digest FROM proposal_inference_attempts WHERE grant_digest=?',
+                (grant['digest'],)).fetchone()
+            if prior:raise ProxyError('inference_already_spent' if prior[0]==request['digest'] else 'version_conflict')
+            if db.execute('SELECT count(*) FROM proposal_inference_attempts WHERE campaign=?',(campaign,)).fetchone()[0]>=128:
+                raise ProxyError('budget_exhausted')
+            if (grant['role_uid']==21007 and db.execute('SELECT count(*) FROM proposal_inference_attempts '
+                    'WHERE campaign=? AND role_uid=21007',(campaign,)).fetchone()[0]>=4):
+                raise ProxyError('budget_exhausted')
+            self.store._require_uncancelled_campaign(db,campaign)
+            head=self.store._one(db,'SELECT plan FROM controller_plan_heads WHERE campaign=?',(campaign,))
+            if head[0]!=grant['plan_digest']:raise ProxyError('version_conflict')
+            if db.execute('SELECT 1 FROM evaluator_protected_campaigns WHERE campaign=?',(campaign,)).fetchone():
+                raise ProxyError('denied')
+            admitted=self.store._one(db,'SELECT authorization FROM controller_source_admissions WHERE campaign=? AND subject=?',
+                (campaign,grant['source_subject_digest']))
+            authorization=_load(admitted[0]);config=authorization['config']
+            import base64
+            from skillloop.protocol import digest_bytes
+            if grant['instruction_digest']!=digest_bytes(base64.b64decode(authorization['admission']['package_files']['SKILL.md'],validate=True)):
+                raise ProxyError('denied')
+            if (digest_jcs(config)!=grant['config_digest'] or grant['model_identity']!=
+                    {k:config.get(k) for k in ('model_id','model_manifest_digest','tokenizer_hashes')}
+                    or model.get('model')!=config.get('model_id')):
+                raise ProxyError('denied')
+            pins=self.store.capacity_campaigns.get(campaign)
+            if pins is None:raise ProxyError('denied')
+            operation=self.store._one(db,'SELECT role,method,result_json FROM operations WHERE operation_id=?',
+                (pins['approval_operation'],))
+            if tuple(operation[:2])!=('admin','approve_domain'):raise ProxyError('approval_required')
+            approval_ref=_load(operation[2])['body']['approval_ref']
+            approval=self.store._one(db,'SELECT * FROM approvals WHERE approval_digest=?',(approval_ref,))
+            self.store._check_formal_approval(db,approval,config_digest=grant['config_digest'])
+            if approval['state']!='active':raise ProxyError('approval_required')
+            if approval['expires_at'] is not None:
+                if _parse(approval['expires_at'])<=_now():raise ProxyError('expired')
+                deadline=min(deadline,_parse(approval['expires_at']))
+            deployment=self.store._one(db,'SELECT deadline FROM formal_proxy_deployment WHERE singleton=1',())
+            original_end=datetime.fromisoformat(deployment[0].replace('Z','+00:00'))
+            if original_end.tzinfo is None or deadline>original_end:raise ProxyError('expired')
+            reserved=self.store._one(db,'SELECT state FROM campaign_storage_reservations WHERE campaign=?',(campaign,))
+            if reserved[0]!='reserved':raise ProxyError('denied')
+            value={'kind':'ProxyProposalInferenceReserved','request_digest':request['digest'],'request':request,
+                'deadline':deadline.isoformat(),'reserved_at':_stamp(_now()),'redispatch_allowed':False,'qualification_issued':False}
+            value['digest']=digest_jcs(value)
+            db.execute('INSERT INTO proposal_inference_attempts VALUES(?,?,?,?,?,NULL,NULL)',
+                (grant['digest'],request['digest'],campaign,grant['role_uid'],canonical_json_line(value)))
+            return value
+
+    def complete_proposal(self, request):
+        if (type(request) is not dict or set(request)!={'kind','request_digest','response_digest','deadline'}
+                or request['kind']!='ProposalInferenceCompletion'
+                or any(type(request[k]) is not str or not DIGEST.fullmatch(request[k]) for k in ('request_digest','response_digest'))):
+            raise ProxyError('invalid_args')
+        with self.store._transaction() as db:
+            row=self.store._one(db,'SELECT response_digest FROM proposal_inference_attempts WHERE request_digest=?',
+                (request['request_digest'],))
+            if row[0] is not None and row[0]!=request['response_digest']:raise ProxyError('version_conflict')
+            db.execute('UPDATE proposal_inference_attempts SET response_digest=?,completed_at=? '
+                'WHERE request_digest=? AND response_digest IS NULL',
+                (request['response_digest'],_stamp(_now()),request['request_digest']))
+            return {'kind':'ProxyProposalInferenceRecorded','request_digest':request['request_digest'],
+                    'response_digest':request['response_digest'],'redispatch_allowed':False}

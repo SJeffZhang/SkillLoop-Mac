@@ -52,7 +52,7 @@ def main():
         'request_timeout_seconds','tokenizer_hashes','temperature','top_p','max_output_tokens','digest'}
     protected = policy.get('kind') == 'ProtectedNativeModelBridgePolicy'
     runtime = policy.get('allowed_client_uid') == 21002
-    runtime_fields = {'campaign_id','deployment_epoch','config_digest'} if runtime else set()
+    runtime_fields = {'campaign_id','deployment_epoch','config_digest'}
     protected_fields = {'source_index_digest', 'lifecycle_grant_digest'} if protected else set()
     if (set(policy)!=(required | runtime_fields | protected_fields)
             or policy['kind'] not in {'NativeModelBridgePolicy', 'ProtectedNativeModelBridgePolicy'}
@@ -68,12 +68,13 @@ def main():
             or policy['source_digest']!=digest_jcs(source_index(Path(__file__).resolve().parents[2]))):
         raise ValueError('native_model_gateway_source_or_whole_round_changed')
     inference_authority = None
-    if runtime:
+    if policy['allowed_client_uid'] in {21002,21006,21007}:
         campaigns = [c for c in whole['campaigns'] if c['campaign_digest'] == policy['campaign_id']]
         if len(campaigns) != 1 or policy['deployment_epoch'] != whole['deployment_epoch']:
             raise ValueError('runtime_gateway_whole_campaign_binding')
         from skillloop.runtime.inference_authorization import RuntimeInferenceAuthorization
-        inference_authority = RuntimeInferenceAuthorization(policy)
+        from skillloop.runtime.inference_authorization import ProposalInferenceAuthorization
+        inference_authority = (RuntimeInferenceAuthorization(policy) if runtime else ProposalInferenceAuthorization(policy))
     lifecycle_grant = None
     if protected:
         if policy['allowed_client_uid'] != 21002:

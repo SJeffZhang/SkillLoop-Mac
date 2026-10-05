@@ -433,7 +433,7 @@ class OllamaGateway:
                    "options": {"temperature": self.temperature, "top_p": self.top_p,
                                "num_ctx": self.max_context_tokens,
                                "num_predict": self.max_output_tokens}}
-        if self.expected_server_uid == 21011 and os.geteuid() == 21002:
+        if self.expected_server_uid == 21011 and os.geteuid() in {21002,21006,21007}:
             if type(inference_context) is not dict:
                 raise GatewayError("runtime_inference_current_identity_required")
             payload["skillloop_runtime_context"] = inference_context

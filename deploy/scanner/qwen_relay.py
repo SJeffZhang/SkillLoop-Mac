@@ -70,9 +70,9 @@ class HostModelBridge:
         self.semantic_scope_digest=semantic_scope_digest
         self.evidence_observer=evidence_observer
         self.inference_authority=inference_authority
-        if allowed_client_uid == 21002 and inference_authority is None:
+        if allowed_client_uid in {21002,21006,21007} and inference_authority is None:
             raise ValueError("runtime_bridge_live_inference_authority_required")
-        if inference_authority is not None and allowed_client_uid != 21002:
+        if inference_authority is not None and allowed_client_uid not in {21002,21006,21007}:
             raise ValueError("runtime_bridge_authority_exact_role")
         if semantic_scope_digest is not None:
             import re

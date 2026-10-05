@@ -11,7 +11,7 @@ from skillloop.runtime.gateway import OllamaGateway, ExactLocalTokenizer, Gatewa
 
 
 class NativeProposalSession:
-    def __init__(self, *, policy_path, gateway, evidence_directory):
+    def __init__(self, *, policy_path, gateway, evidence_directory, inference_grant_digest):
         uid = os.geteuid()
         if uid not in {21006,21007} or type(gateway) is not OllamaGateway:
             raise PermissionError('native_proposal_actual_role_and_gateway_required')
@@ -71,6 +71,9 @@ class NativeProposalSession:
                     or decode_json(identity.read_bytes())!=policy):
                 raise ValueError('native_proposal_session_policy_changed')
         else:self._save(identity,policy)
+        if type(inference_grant_digest) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',inference_grant_digest):
+            raise ValueError('native_proposal_trusted_inference_reference')
+        self.inference_grant_digest=inference_grant_digest
         self.policy,self.gateway,self.deadline=policy,gateway,deadline
 
     def _save(self, path, value):
@@ -106,7 +109,8 @@ class NativeProposalSession:
         for slot in range(len(requests)):
             intent=self._original('request-'+str(slot)+'.json')
             if (type(intent) is not dict or intent.get('kind')!='NativeProposalIntent'
-                    or intent.get('policy_digest')!=self.policy['digest'] or intent.get('slot')!=slot):
+                    or intent.get('policy_digest')!=self.policy['digest'] or intent.get('slot')!=slot
+                    or intent.get('inference_grant_digest')!=self.inference_grant_digest):
                 raise ValueError('native_proposal_original_attempt_identity')
             response_name='response-'+str(slot)+'.json'
             if response_name not in names or 'response-'+str(slot)+'-unknown.json' in names:
@@ -135,13 +139,15 @@ class NativeProposalSession:
             slot=self._next_slot(messages)
             if slot>=self.policy['max_requests']:raise ValueError('native_proposal_reserved_budget_exhausted')
             self._save(self.root/('request-'+str(slot)+'.json'), {'kind':'NativeProposalIntent',
-                'policy_digest':self.policy['digest'],'slot':slot,'messages':messages,
+                'policy_digest':self.policy['digest'],'inference_grant_digest':self.inference_grant_digest,
+                'slot':slot,'messages':messages,
                 'reserved_input_tokens':self.gateway.max_context_tokens-self.gateway.max_output_tokens,
                 'reserved_output_tokens':self.gateway.max_output_tokens,'reserved_seconds':timeout})
             # Keep the lock through the real request: this role cannot create a
             # second concurrent native inference or reclaim an unknown attempt.
             try:
-                response,prompt,latency=self.gateway.complete(messages,[],remaining_seconds=timeout)
+                response,prompt,latency=self.gateway.complete(messages,[],remaining_seconds=timeout,
+                    inference_context={'grant_digest':self.inference_grant_digest,'slot':slot})
             except GatewayError as error:
                 self._save(self.root/('response-'+str(slot)+'-unknown.json'),
                     {'error_code':str(error),'response':error.response,'spent':True,'retry_allowed':False})
