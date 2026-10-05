@@ -194,6 +194,23 @@ class CampaignDispatcher:
                 _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
                     'request_digest':request['digest'],'result':result})
                 return
+            if step['action'] in {'roster_freeze','harden_review'}:
+                if not (Path(step['journal_directory'])/'consumed.json').exists():return
+                from skillloop.runtime.roster_dispatch import recover_roster_retirement
+                policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                expected=('FrozenDevelopmentHardenDispatch' if step['action']=='harden_review'
+                          else 'FrozenDevelopmentRosterDispatch')
+                if policy.get('kind')!=expected:
+                    raise ValueError('campaign_recovery_original_roster_policy')
+                result=recover_roster_retirement(journal_directory=step['journal_directory'],
+                    policy_digest=policy['digest'],engine=self.engine)
+                if step['action']=='harden_review' and request['command']=='harden' and (
+                        request['parameters']!={'campaign':policy['campaign_digest'],
+                            'parent_subject':result['body']['parent_subject_digest']}):
+                    raise ValueError('harden_original_operator_parent_binding')
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action']=='lifecycle_review':
                 # A raw review without a recorded removal is not retryable.
                 removing=Path(step['journal_directory'])/'removing.json'

@@ -7,10 +7,11 @@ import stat
 
 from skillloop.ci.campaign_registry import CampaignRegistry
 from skillloop.discovery.formal_task_gate import read_owned
-from skillloop.protocol import digest_jcs
+from skillloop.protocol import digest_jcs,digest_bytes
 from skillloop.proxy.qualification_authority import current_authority
 from skillloop.repair.budget import SpendingLedger
-from skillloop.runtime.docker_api import DockerEngine
+from skillloop.runtime.docker_api import DockerEngine,DockerEngineError
+from skillloop.runtime.protected_flow import _controller_record
 from skillloop.runtime.evaluation_dispatch import _preserve_logs,_verify_role_process
 from skillloop.runtime.proposal_dispatch import _save
 from skillloop.runtime.round_manifest import read_round_manifest
@@ -23,7 +24,8 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             or type(registry) is not CampaignRegistry or type(ledger) is not SpendingLedger):
         raise PermissionError('roster_dispatch_actual_controller')
     fields={'kind','campaign_digest','image','assignment_digest','whole_round_manifest_digest',
-            'campaign_deadline','timeout_seconds','maximum_evidence_bytes','mounts','digest'}
+            'campaign_deadline','timeout_seconds','maximum_evidence_bytes','mounts',
+            'deployment_manifest_path','deployment_journal','digest'}
     if (type(policy) is not dict or set(policy)!=fields or policy['kind']!=
             ('FrozenDevelopmentHardenDispatch' if harden_only else 'FrozenDevelopmentRosterDispatch')
             or policy['digest']!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
@@ -32,6 +34,14 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             or not 1<=policy['maximum_evidence_bytes']<=268435456):
         raise ValueError('roster_dispatch_original_frozen_policy')
     whole=read_round_manifest(whole_round_manifest_path)
+    from skillloop.runtime.whole_deployment import WholeRoleDeployment
+    _controller_record(Path(policy['deployment_journal'])/'provisioned.json')
+    deployment=WholeRoleDeployment(manifest_path=policy['deployment_manifest_path'],
+        journal_directory=policy['deployment_journal'],engine=engine,ledger=ledger,
+        whole_round_manifest_path=whole_round_manifest_path)
+    if deployment.plan['campaign_digest']!=policy['campaign_digest']:
+        raise ValueError('roster_dispatch_original_deployment_campaign')
+    keeper=deployment.provision()['keeper']
     job=read_owned(Path(assignment_directory)/'job.json',uid=21001,gid=21005,limit=8388608)
     directory=Path(journal_directory);info=directory.lstat()
     if (not directory.is_absolute() or directory.is_symlink() or not stat.S_ISDIR(info.st_mode)
@@ -61,6 +71,8 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             raise ValueError('roster_dispatch_volume_subpath')
         mounts.append({'Type':'volume','Source':pin['volume'],'Target':target,'ReadOnly':key!='roster',
             'VolumeOptions':{'Subpath':pin['subpath']}})
+    if policy['mounts']['roster']['volume']!=deployment.plan['volume']:
+        raise ValueError('roster_dispatch_actual_keeper_output_volume')
     config={'Image':policy['image'],'User':'21005:21005','Entrypoint':['python'],
         'Cmd':['-m','skillloop.discovery.formal_harden_gate' if harden_only else 'skillloop.discovery.formal_roster_gate'],
         'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
@@ -89,7 +101,10 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             operation_key='roster-'+policy['digest'][7:],seconds=policy['timeout_seconds']+60,
             input_tokens=0,output_tokens=0,disk_bytes=policy['maximum_evidence_bytes'])
         _save(directory,'dispatch-intent.json',{'kind':'FormalDevelopmentRosterDispatchIntent',
-            'configuration':config,'assignment_digest':job['digest'],'spending':cost})
+            'configuration':config,'assignment_digest':job['digest'],'spending':cost,
+            'policy_digest':policy['digest'],'started_at':datetime.now(timezone.utc).isoformat(),
+            'deadline':deadline.isoformat(),'reserved_seconds':policy['timeout_seconds']+60,
+            'roster_directory':str(output),'keeper':keeper})
         identifier=engine.create('skillloop-roster-'+policy['digest'][7:39],config)
         _save(directory,'created.json',{'kind':'FormalDevelopmentRosterCreated','container_id':identifier})
         try:
@@ -129,6 +144,7 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
                     or freeze.get('development_plan_digest')!=job['plan']['digest']
                     or freeze.get('subjects')!=evidence.get('subjects')):
                 raise ValueError('roster_dispatch_actual_gate_freeze_chain')
+            deployment.provision()  # Original Keeper must still preserve output.
         except BaseException as error:
             try:
                 observed=engine.inspect(identifier);_verify_role_process(observed,identifier,config,mounts)
@@ -140,8 +156,8 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
     if harden_only:
         _save(directory,'consumed.json',{'kind':'FormalDevelopmentHardenConsumed',
             'review_digest':review['digest'],'result_digest':result['digest'],
-            'container_id':identifier,'roster_frozen':False,'qualification_issued':False})
-        return result
+            'result':result,'container_id':identifier,'roster_frozen':False,'qualification_issued':False})
+        return recover_roster_retirement(journal_directory=directory,engine=engine,policy_digest=policy['digest'])
     # The Gate review ran under the registry read transaction. Now serialize
     # consuming its result with live Proxy approval/plan-head publication too.
     with current_authority(authority_directory,epoch=state['bindings']['deployment_epoch'],
@@ -151,6 +167,122 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
         if len(heads)!=1 or heads[0]['plan_digest']!=job['plan']['digest']:
             raise ValueError('roster_dispatch_proxy_plan_changed_before_consumption')
         final=registry.freeze_subjects(campaign=policy['campaign_digest'],gate_freeze_path=output/'freeze.json')
+    result={'freeze':freeze,'bindings':final,'inspection':observed,'container_id':identifier}
     _save(directory,'consumed.json',{'kind':'FormalDevelopmentRosterConsumed',
-        'freeze_digest':freeze['digest'],'final_bindings':final,'container_id':identifier,'qualification_issued':False})
-    return {'freeze':freeze,'bindings':final,'inspection':observed,'container_id':identifier}
+        'freeze_digest':freeze['digest'],'final_bindings':final,'result':result,
+        'result_digest':digest_jcs(result),'container_id':identifier,'qualification_issued':False})
+    return recover_roster_retirement(journal_directory=directory,engine=engine,policy_digest=policy['digest'])
+
+
+def recover_roster_retirement(*,journal_directory,engine,policy_digest):
+    """Retire only the original reviewed and consumed Gate; never run it again."""
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('roster_retirement_actual_controller')
+    from skillloop.protection.current_task import _directory
+    directory=_directory(journal_directory,21001,21001,0o700)
+    intent=_controller_record(directory/'dispatch-intent.json')
+    created=_controller_record(directory/'created.json')
+    completed=_controller_record(directory/'completion.json')
+    consumed=_controller_record(directory/'consumed.json')
+    config=intent['configuration'];original=completed['inspection'];identifier=created['container_id']
+    result=consumed['result'];harden=consumed.get('kind')=='FormalDevelopmentHardenConsumed'
+    expected_digest=result.get('digest') if harden else digest_jcs(result)
+    if (intent.get('kind')!='FormalDevelopmentRosterDispatchIntent'
+            or intent.get('policy_digest')!=policy_digest
+            or config.get('Labels',{}).get('skillloop.dispatch_policy')!=policy_digest
+            or created.get('kind')!='FormalDevelopmentRosterCreated'
+            or completed.get('kind')!='FormalDevelopmentRosterProcessCompletion'
+            or consumed.get('kind') not in {'FormalDevelopmentHardenConsumed','FormalDevelopmentRosterConsumed'}
+            or consumed['container_id']!=identifier or consumed['result_digest']!=expected_digest
+            or original['State']['Running'] is not False or original['State']['ExitCode']!=0
+            or completed['wait_result'].get('StatusCode')!=0):
+        raise ValueError('roster_retirement_original_reviewed_process')
+    _verify_role_process(original,identifier,config,config['HostConfig']['Mounts'])
+    from skillloop.runtime.archive_files import open_original,require_unchanged,identity
+    log_path=directory/'process.log'
+    with os.fdopen(open_original(log_path),'rb') as stream:
+        before=os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid!=21001
+                or stat.S_IMODE(before.st_mode)!=0o600 or before.st_nlink!=1
+                or before.st_size>1048576):
+            raise PermissionError('roster_retirement_original_log_custody')
+        raw=stream.read(1048577);after=os.fstat(stream.fileno())
+    require_unchanged(log_path,before,after)
+    if (identity(before)!=identity(after) or len(raw)!=before.st_size
+            or digest_bytes(raw)!=completed['logs_digest']):
+        raise ValueError('roster_retirement_original_logs_changed')
+    output=Path(intent['roster_directory'])
+    evidence=read_owned(output/'development-evidence.json',uid=21005,gid=21001,limit=16777216)
+    if (evidence.get('kind')!='FormalDevelopmentRosterEvidence'
+            or evidence.get('assignment_digest')!=intent['assignment_digest']):
+        raise ValueError('roster_retirement_original_assignment_changed')
+    if harden:
+        from skillloop.proxy.wire import validate_control
+        actual_result=read_owned(output/'harden-result.json',uid=21005,gid=21001,limit=262144)
+        validate_control(actual_result)
+        review=read_owned(output/'harden-review.json',uid=21005,gid=21001,limit=262144)
+        if (actual_result!=result or actual_result.get('kind')!='HardenResult'
+                or review.get('kind')!='FormalDevelopmentHardenReview'
+                or review.get('assignment_digest')!=intent['assignment_digest']
+                or review.get('roster_frozen') is not False or review.get('qualification_issued') is not False
+                or review['digest']!=consumed['review_digest']
+                or review['result_digest']!=expected_digest
+                or review['development_evidence_digest']!=evidence['digest']
+                or evidence['assignment_digest']!=intent['assignment_digest']
+                or os.path.lexists(output/'freeze.json')):
+            raise ValueError('roster_retirement_original_harden_output_changed')
+    else:
+        freeze=read_owned(output/'freeze.json',uid=21005,gid=21001,limit=262144)
+        if (freeze!=result['freeze'] or freeze['digest']!=consumed['freeze_digest']
+                or freeze.get('kind')!='FrozenCampaignSubjectRoster'
+                or freeze.get('development_evidence_digest')!=evidence['digest']
+                or freeze.get('subjects')!=evidence.get('subjects')
+                or result['bindings']!=consumed['final_bindings']
+                or result['inspection']!=original or result['container_id']!=identifier):
+            raise ValueError('roster_retirement_original_freeze_changed')
+    if (directory/'retired.json').exists():
+        retired=_controller_record(directory/'retired.json')
+        if (retired.get('kind')!='FormalDevelopmentGateRetired'
+                or retired.get('result_digest')!=expected_digest
+                or retired.get('container_id')!=identifier
+                or retired.get('evidence_released') is not False
+                or retired.get('budget_closure')!='within_original_budget'):
+            raise ValueError('roster_retirement_original_completion')
+        return result
+    keeper=intent['keeper'];live=engine.inspect(keeper['Id'])
+    if (any(live.get(k)!=keeper.get(k) for k in ('Id','Image','Config','HostConfig','Mounts'))
+            or live['State']['Running'] is not True):
+        raise RuntimeError('roster_retirement_original_keeper_unavailable')
+    removing=directory/'removing.json'
+    if removing.exists():
+        record=_controller_record(removing)
+        if record!={'kind':'FormalDevelopmentGateRemovalIntent','container_id':identifier,
+                    'inspection':original,'result_digest':expected_digest,
+                    'digest':digest_jcs({'kind':'FormalDevelopmentGateRemovalIntent','container_id':identifier,
+                        'inspection':original,'result_digest':expected_digest})}:
+            raise ValueError('roster_retirement_original_removal_intent')
+    else:
+        actual=engine.inspect(identifier)
+        if any(actual.get(k)!=original.get(k) for k in ('Id','Image','Config','HostConfig','Mounts','State')):
+            raise ValueError('roster_retirement_original_process_changed')
+        _save(directory,'removing.json',{'kind':'FormalDevelopmentGateRemovalIntent',
+            'container_id':identifier,'inspection':original,'result_digest':expected_digest})
+    try:actual=engine.inspect(identifier)
+    except DockerEngineError as error:
+        if error.status!=404:raise
+    else:
+        if any(actual.get(k)!=original.get(k) for k in ('Id','Image','Config','HostConfig','Mounts','State')):
+            raise ValueError('roster_retirement_actual_original_process')
+        engine.request('DELETE','/containers/'+identifier+'?force=false&v=false')
+        try:engine.inspect(identifier)
+        except DockerEngineError as error:
+            if error.status!=404:raise
+        else:raise RuntimeError('roster_retirement_removal_not_observed')
+    now=datetime.now(timezone.utc);began=datetime.fromisoformat(intent['started_at']);deadline=datetime.fromisoformat(intent['deadline'])
+    if began.tzinfo is None or deadline.tzinfo is None or now<began:raise ValueError('roster_retirement_original_clock')
+    elapsed=(now-began).total_seconds();within=now<deadline and elapsed<=intent['reserved_seconds']
+    _save(directory,'retired.json',{'kind':'FormalDevelopmentGateRetired','container_id':identifier,
+        'result_digest':expected_digest,'elapsed_seconds':elapsed,'evidence_released':False,
+        'budget_closure':'within_original_budget' if within else 'inconclusive_expired_budget_closure'})
+    if not within:raise TimeoutError('roster_retirement_original_budget_expired')
+    return result

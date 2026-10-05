@@ -449,3 +449,11 @@ inspect新增Controller生产调用：读取当前Registry generation、名单�
 Controller使用原Registry development_scope，冻结后拒绝新的开发；实际Gate worker、原花费与结果通过正式campaign dispatcher连续调用，harden公共route限制一次proposal/Application Gate并以harden_review结束，排除保护/资格/晋级/归档步骤。完整部署producer允许新的Gate入口；冻结公共CLI/角色/RPC/API4未修改。合法补丁缺失/任务无法独立审查仍保留原操作失败，未制造候选或通过结果。
 
 仅AST及源码检查，未运行Gate/模型或组件实验。完整配置生产、共享物理容量及原Gate进程统一退休恢复仍待整链接通，整体修复和第一轮启动门槛未完成。
+
+### 原开发Gate和harden进程退休与原操作恢复
+
+Controller派发策略绑定原部署manifest/journal；派发前确认原provisioned记录和活跃Keeper，Gate输出必须位于Keeper原卷。原进程退出、日志和独立输出链保存后，freeze消费或harden审查结果持久化；退休只删除精确核验的原停止容器，不删证据卷、不停Keeper。原日志重读核验所有者、权限、稳定字节及摘要，原输出/assignment/策略/容器一致才允许收尾。
+
+campaign恢复调用同一退休生产函数：仅有原consumed记录的阶段可以继续，核对Admin原策略与原request/step；原删除意图后404才能视作删除已发生。恢复返回原结果、不重跑Gate或推理、不续时钟；超过原窗口保留inconclusive预算收尾，不能提交成功阶段。harden继续保留名单未冻结和资格未发行的范围。
+
+仅145份生产Python的AST解析与源码差异检查，未运行容器或实验。当前正式整轮配置生产、推理权威授权、共享容量所有权和新部署恢复仍需集中修复；第一整轮未启动。
