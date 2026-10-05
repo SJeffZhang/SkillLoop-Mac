@@ -48,6 +48,17 @@ class CampaignRegistry:
         finally:
             os.umask(previous)
 
+    @staticmethod
+    def _archive_fence(db,campaign):
+        # The original committed withdrawal operation is the authority. No
+        # caller flag or second independently mutable archived boolean is used.
+        for (raw,) in db.execute("SELECT result FROM promotions WHERE operation LIKE 'archive-withdraw-%'"):
+            value=decode_json(raw)
+            if value.get('kind')=='RegistryArchiveWithdrawal' and value.get('campaign')==campaign:
+                if value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+                    raise ValueError('campaign_archive_fence_integrity')
+                raise ValueError('campaign_closed_by_archive_withdrawal')
+
     def begin_evaluation(self, *, project, profile, source, config_digest,
                          deployment_epoch, trust_revision, subjects, operation_id,
                          campaign_started_at=None):
@@ -86,6 +97,7 @@ class CampaignRegistry:
                             {'submitted_subject':subjects['submitted']})
         with closing(sqlite3.connect(self.path,timeout=2)) as db:
             db.execute('PRAGMA synchronous=FULL');db.execute('BEGIN IMMEDIATE')
+            self._archive_fence(db,campaign)
             if campaign_started_at is not None:
                 from datetime import datetime,timezone
                 deadline=datetime.fromtimestamp(campaign_started_at+28800,timezone.utc).isoformat().replace('+00:00','Z')
@@ -216,6 +228,7 @@ class CampaignRegistry:
             if db.execute('PRAGMA journal_mode').fetchone()!=('delete',):
                 raise ValueError('campaign_registry_serialized_private_scope_required')
             db.execute('BEGIN')
+            self._archive_fence(db,campaign)
             row=db.execute('SELECT final_bindings,gate_freeze FROM campaign_roster_freezes WHERE campaign=?',
                            (campaign,)).fetchone()
             if row is None:raise ValueError('campaign_roster_not_frozen')
@@ -243,6 +256,7 @@ class CampaignRegistry:
             if db.execute('PRAGMA journal_mode').fetchone()!=('delete',):
                 raise ValueError('campaign_development_serialization_requires_delete_journal')
             db.execute('BEGIN')
+            self._archive_fence(db,campaign)
             if db.execute('SELECT 1 FROM campaign_roster_freezes WHERE campaign=?',(campaign,)).fetchone():
                 raise ValueError('campaign_development_closed_after_freeze')
             row=db.execute('SELECT c.source,c.bindings,p.generation,p.head,p.config,t.deadline FROM formal_campaigns c JOIN projects p ON p.project=c.project JOIN campaign_original_clocks t ON t.campaign=c.campaign WHERE c.campaign=?',
@@ -290,6 +304,7 @@ class CampaignRegistry:
         parameters = digest_jcs([campaign,subject,expected_active_revision])
         with closing(sqlite3.connect(self.path,timeout=2)) as db:
             db.execute('PRAGMA synchronous=FULL');db.execute('BEGIN IMMEDIATE')
+            self._archive_fence(db,campaign)
             row = db.execute('SELECT project,profile,source,bindings FROM formal_campaigns WHERE campaign=?', (campaign,)).fetchone()
             if not row:
                 raise ValueError('formal_campaign_not_registered')

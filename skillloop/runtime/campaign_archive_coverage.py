@@ -182,6 +182,31 @@ def review_campaign_inventory(*,policy,inventory,budget):
             if proof.get('digest')!=digest_jcs({k:v for k,v in proof.items() if k!='digest'}):
                 raise ValueError('campaign_archive_issuer_original_proof_seal')
         load(row,limit=268435456,decode=False)
+    registry_candidates=[(row,value) for candidates in objects.values() for row,value in candidates
+        if value.get('kind')=='ControllerWithdrawnRegistrySnapshot' and value.get('campaign')==policy['campaign']]
+    if len(registry_candidates)!=1:raise ValueError('campaign_archive_actual_registry_snapshot_required')
+    registry_row,registry_snapshot=registry_candidates[0]
+    if (registry_row['uid']!=21001 or registry_row['gid']!=21005
+            or registry_snapshot.get('bindings')!=evidence['bindings']
+            or registry_snapshot.get('campaign_dispatch_closed') is not True
+            or registry_snapshot.get('withdrawal',{}).get('gate_withdrawal_digest')!=issuer_snapshot['withdrawal_digest']
+            or registry_snapshot.get('database_name')!='registry.sqlite'):
+        raise ValueError('campaign_archive_original_registry_snapshot_binding')
+    locator=str(PurePosixPath(registry_row['path']).parent/'registry.sqlite');row=rows.get(locator)
+    if (row is None or row['uid']!=21001 or row['gid']!=21005 or row['mode']!=0o640
+            or row['digest']!=registry_snapshot['database_digest'] or row['bytes']!=registry_snapshot['database_size_bytes']):
+        raise ValueError('campaign_archive_original_registry_database_missing')
+    load(row,limit=268435456,decode=False)
+    alias,relative=locator.split('/',1);database=roots[alias]/relative
+    with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
+        db.set_progress_handler(lambda:(budget() or 0),1000)
+        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:raise ValueError('campaign_archive_registry_database_integrity')
+        original=db.execute('SELECT bindings FROM formal_campaigns WHERE campaign=?',(policy['campaign'],)).fetchone()
+        withdrawals=db.execute("SELECT result FROM promotions WHERE operation LIKE 'archive-withdraw-%'").fetchall()
+        if (original is None or decode_json(original[0])!=evidence['bindings']
+                or not any(decode_json(value[0])==registry_snapshot['withdrawal'] for value in withdrawals)):
+            raise ValueError('campaign_archive_actual_registry_closed_campaign_required')
+    load(row,limit=268435456,decode=False)
     covered=[];protected={}
     for task in tasks:
         budget()
@@ -276,7 +301,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'original_gate_fact_digests':evidence['archive_fact_digests'],
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
         'withdrawn_issuer_databases_verified':True,'issuer_snapshot_digest':issuer_snapshot['digest'],
-        'missing_categories':list(UNBOUND_CATEGORIES),'campaign_coverage_complete':False,
+        'withdrawn_registry_database_verified':True,'registry_snapshot_digest':registry_snapshot['digest'],
+        'missing_categories':[c for c in UNBOUND_CATEGORIES if c!='qualification_and_registry_snapshots'],'campaign_coverage_complete':False,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)
     return result

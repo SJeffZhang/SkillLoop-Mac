@@ -104,3 +104,9 @@ Application Gate 在独立重建合法候选后，将实际审查的 Controller 
 正式资格撤销 worker 在实际撤销提交后，使用当前原 SpendingLedger 的 resource_archive_restore 成本保存资格元数据库与私有 proof 库的一致 SQLite backup。备份逐页检查容量、原截止时间，核验数据库版本、部署身份和目标 campaign 的实际 revoked 行/原 proof 绑定；写入 Gate 私有卷并保留完整字节摘要。部分备份失败保留原件，不延长原 clock 或重新发行资格。
 
 加密归档 Gate 现在必须找到这份实际 owner snapshot，并重开两份原数据库核验完整性、目标绑定与撤销状态。公共撤销完成只返回 snapshot 摘要，不暴露原 proof。Registry 快照、操作/资源 owner 历史和新 epoch 恢复仍未闭合；不据此允许删除证据。未运行实验。
+
+### Registry 撤销 fence 与原数据库归档
+
+Registry 使用已提交的 RegistryArchiveWithdrawal 原操作结果阻断该 campaign 的新开发、保护派发、promote 与同身份重新准入，不新增可由调用者自行填写的 archived 标志。正式调度增加 registry_snapshot action：读 Admin 冻结策略，核对原撤销操作及原 clock，预收原预算后，对 Controller 实际 Registry 做有界一致 backup。备份归 Controller 所有，仅以 21005 组只读授予 Gate；原可写数据库权限不改。
+
+加密归档 Gate 重开实际 Registry 副本，核对原 campaign 绑定、撤销操作，以及与 Gate 资格撤销摘要的对应关系。只有两类实际数据库都验证才可认为本归档的资格/Registry 快照类别已覆盖；完整 campaign 覆盖与删除仍 false。生产者路由/挂载和完整运行验证仍需完成。
