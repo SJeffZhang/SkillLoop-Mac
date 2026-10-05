@@ -237,7 +237,14 @@ def preserve_failed_model_bridge(*,journal_directory,engine,expected_campaign=No
             'container_name':name,'container_id':identifier,'observation':'original_process_stopped',
             'inspection':observed,'spent':True,'automatic_replay_allowed':False,'evidence_released':False}
         if not intent['protected'] and not os.path.lexists(root/'failure-process.log'):
-            value['logs_digest']=_preserve_logs(engine,identifier,root,'failure-process.log')
+            try:
+                value['logs_digest']=_preserve_logs(engine,identifier,root,'failure-process.log')
+                value['logs_preserved']=True
+            except BaseException as log_error:
+                # Do not lose proof of the stopped process just because the
+                # separate bounded log export failed. It remains incomplete.
+                value['logs_preserved']=False
+                value['logs_error_type']=type(log_error).__name__
     now=datetime.now(timezone.utc)
     started=datetime.fromisoformat(intent['started_at'])
     deadline=datetime.fromisoformat(intent['campaign_deadline'].replace('Z','+00:00'))
