@@ -86,3 +86,71 @@ def produce_closing_dispatch(*,recipe,stage,reference_path,whole,ledger,registry
             'qualification_issued':False})
         if not within:raise TimeoutError('private_closing_delegation_original_budget_expired')
     return policy
+
+
+def produce_task_initialization_dispatch(*,recipe,whole,ledger,registry):
+    """Delegate one ordinal; only Evaluator resolves it to a private plan row."""
+    if os.geteuid()!=21001:raise PermissionError('private_task_delegation_actual_controller')
+    fields={'kind','task_ordinal','production_policy_digest','assignment_directory',
+        'production_journal_directory','dispatch_template','digest'}
+    template_fields={'kind','image','campaign_deadline','campaign_digest','whole_round_manifest_digest',
+        'maximum_evidence_bytes','timeout_seconds','keeper_id','mounts'}
+    import re
+    if (type(recipe) is not dict or set(recipe)!=fields or recipe['kind']!='FrozenPrivateCurrentTaskDispatchProduction'
+            or recipe['digest']!=digest_jcs({k:v for k,v in recipe.items() if k!='digest'})
+            or type(recipe['task_ordinal']) is not int or not 0<=recipe['task_ordinal']<128
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',recipe['production_policy_digest'])
+            or type(recipe['dispatch_template']) is not dict
+            or set(recipe['dispatch_template']) not in (template_fields,(template_fields-{'keeper_id'})|{'keeper_reference'})):
+        raise ValueError('private_task_delegation_frozen_recipe')
+    template=recipe['dispatch_template']
+    if (template['kind']!='FrozenOpaquePrivateSessionDispatch' or template['image']!=whole['image']
+            or template['whole_round_manifest_digest']!=whole['digest']
+            or template['campaign_digest'] not in {c['campaign_digest'] for c in whole['campaigns']}
+            or type(template['mounts']) is not dict or 'task_policy' not in template['mounts']):
+        raise ValueError('private_task_delegation_original_scope')
+    for field in ('assignment_directory','production_journal_directory'):
+        if (type(recipe[field]) is not str or not Path(recipe[field]).is_absolute() or '..' in Path(recipe[field]).parts):
+            raise ValueError('private_task_delegation_absolute_path')
+    job={'kind':'ControllerPrivateTaskPreparationProduction','policy_digest':recipe['production_policy_digest'],
+        'task_ordinal':recipe['task_ordinal']};job['digest']=digest_jcs(job)
+    from skillloop.runtime.private_session_dispatch import resolve_session_keeper
+    from skillloop.runtime.protected_flow import _controller_record
+    policy={**resolve_session_keeper(template,deployment_epoch=whole['deployment_epoch']),'action_digest':job['digest']}
+    policy['digest']=digest_jcs(policy)
+    root=_directory(recipe['production_journal_directory'],21001,21001,0o700)
+    assignment=_directory(recipe['assignment_directory'],21001,21004,0o750)
+    if (root/'production.json').exists():
+        old=_controller_record(root/'production.json');actual=read_owned(assignment/'action.json',uid=21001,gid=21004,limit=262144)
+        if (old.get('kind')!='PrivateTaskDelegationProduced' or old.get('recipe_digest')!=recipe['digest']
+                or old.get('policy')!=policy or old.get('budget_closure')!='within_original_budget' or actual!=job):
+            raise ValueError('private_task_delegation_changed_original')
+        return policy
+    if any(root.iterdir()) or any(assignment.iterdir()):
+        raise RuntimeError('private_task_delegation_partial_unknown_no_regeneration')
+    deadline=datetime.fromisoformat(template['campaign_deadline'].replace('Z','+00:00'))
+    if (deadline.tzinfo is None or ledger.campaign_started_at is None
+            or deadline.timestamp()!=ledger.campaign_started_at+28800
+            or (deadline-datetime.now(timezone.utc)).total_seconds()<=30):
+        raise TimeoutError('private_task_delegation_original_clock')
+    scope=next(c for c in whole['campaigns'] if c['campaign_digest']==template['campaign_digest'])
+    bound=scope['stages']['protected'];previous=ledger.read().get('auxiliary_executions',[])
+    if (bound['seconds']<max(30,template['timeout_seconds']+60)
+            or bound['disk_bytes']<max(1048576,template['maximum_evidence_bytes'])
+            or sum(e.get('stage')=='protected' for e in previous)+2>bound['count']
+            or (deadline-datetime.now(timezone.utc)).total_seconds()<=2*bound['seconds']+120):
+        raise ValueError('private_task_delegation_and_evaluator_cost_not_reserved')
+    with registry.private_scope(campaign=template['campaign_digest']) as state:
+        if state['gate_freeze']['deadline']!=template['campaign_deadline']:
+            raise ValueError('private_task_delegation_current_registry')
+        began=time.monotonic();cost=ledger.consume_auxiliary(manifest=whole,campaign=template['campaign_digest'],stage='protected',
+            operation_key='private-task-delegation-'+job['digest'][7:],seconds=30,
+            input_tokens=0,output_tokens=0,disk_bytes=1048576)
+        _save(root,'spending.json',{'kind':'PrivateTaskDelegationSpending','recipe_digest':recipe['digest'],'spending':cost})
+        _publish(assignment/'action.json',job,21004)
+        elapsed=time.monotonic()-began;within=elapsed<=30 and datetime.now(timezone.utc)<deadline
+        _save(root,'production.json',{'kind':'PrivateTaskDelegationProduced','recipe_digest':recipe['digest'],
+            'policy':policy,'spending':cost,'elapsed_seconds':elapsed,
+            'budget_closure':'within_original_budget' if within else 'inconclusive_expired_budget_closure','qualification_issued':False})
+        if not within:raise TimeoutError('private_task_delegation_original_budget_expired')
+    return policy

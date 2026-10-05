@@ -62,7 +62,7 @@ def resolve_session_policy(policy_path):
             or action.get('stage')!=policy['stage']
             or action.get('policy_digest')!=policy['production_policy_digest']
             or policy['stage'] not in {'capture','evaluate','task_gate','session_complete','archive',
-                'archive_gate','terminal_authority_snapshot','retirement_gate'}
+                'archive_gate','terminal_authority_snapshot','retirement_gate','runtime_prepare'}
             or action.get('qualification_issued') is not False
             or action.get('assignment_filename')!=('assignment.json' if policy['stage'] in {'task_gate','archive_gate'} else 'action.json')
             or action.get('campaign_id')!=template['campaign_digest']
@@ -98,7 +98,7 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
                 type(policy.get('mounts')) is dict and 'gate_authority' in policy['mounts'] else 20971520)
             or type(policy['timeout_seconds']) is not int
             or not 1 <= policy['timeout_seconds'] <= (300 if policy['kind']=='FrozenOpaquePrivateGateDispatch'
-                or (type(policy.get('mounts')) is dict and ({'prepared_assignment','archive_output'} & set(policy['mounts']))) else 30)):
+                or (type(policy.get('mounts')) is dict and ({'prepared_assignment','archive_output','task_policy'} & set(policy['mounts']))) else 30)):
         raise ValueError('formal_session_frozen_opaque_dispatch')
     whole=read_round_manifest(whole_round_manifest_path)
     if (whole['digest']!=policy['whole_round_manifest_digest'] or whole['image']!=policy['image']
@@ -122,6 +122,8 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
     base_mounts = {'assignment', 'private', 'projection', 'evaluation', 'reviews', 'authority'}
     if (type(policy['mounts']) is not dict or set(policy['mounts']) not in
             (base_mounts, base_mounts | {'private_task_inbox', 'private_policy', 'tokenizer'},
+             base_mounts | {'private_task_inbox','private_policy','tokenizer','task_policy','task_production',
+                 'private_receipts','private_launch_inbox','runtime_action_output'},
              base_mounts | {'private_receipts', 'private_launch_inbox'},
              base_mounts | {'private_started', 'runtime_current'},
              base_mounts | {'gate_authority'},
@@ -146,6 +148,8 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
     if 'private_launch_inbox' in policy['mounts']:
         targets['private_receipts'] = '/private-receipts'
         targets['private_launch_inbox'] = '/private-launch-inbox'
+    if 'task_policy' in policy['mounts']:
+        targets.update(task_policy='/task-policy',task_production='/task-production',runtime_action_output='/runtime-action-output')
     if 'private_started' in policy['mounts']:
         targets['private_started'] = '/private-started'
         targets['runtime_current'] = '/runtime-current'
@@ -183,7 +187,8 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
                 ({'private','projection','action_output','opaque_actions'} if 'production_policy' in policy['mounts'] else
                 ({'private','projection','archive_output'} if 'archive_output' in policy['mounts'] else
                 ({'private','projection','evaluation'} if 'prepared_assignment' in policy['mounts'] else
-                {'private','projection','private_task_inbox','private_launch_inbox','runtime_current','gate_authority','private_raw','evaluation_assignment'})))),
+                {'private','projection','private_task_inbox','private_launch_inbox','runtime_current','gate_authority','private_raw',
+                    'evaluation_assignment','task_production','runtime_action_output'})))),
             'VolumeOptions':{'Subpath':pin['subpath']}})
     from skillloop.runtime.role_deployment import private_role_configuration
     groups=(['21001','21004'] if gate else ['21001'])

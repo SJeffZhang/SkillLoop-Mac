@@ -198,6 +198,10 @@ class CampaignDispatcher:
                 elif step['action']=='private_session':
                     from skillloop.runtime.private_session_dispatch import recover_session_completion,resolve_session_policy
                     policy=resolve_session_policy(step['policy_path'])
+                    if policy.get('kind')=='FrozenPrivateCurrentTaskDispatchProduction':
+                        from skillloop.runtime.closing_dispatch_production import produce_task_initialization_dispatch
+                        policy=produce_task_initialization_dispatch(recipe=policy,whole=self.phase.round_manifest,
+                            ledger=self.ledger,registry=self.registry)
                     if policy.get('campaign_digest')!=campaign:
                         raise ValueError('campaign_private_recovery_original_session')
                     result=recover_session_completion(journal_directory=step['journal_directory'],
@@ -570,7 +574,12 @@ class CampaignDispatcher:
                     whole_round_manifest_path=self.manifest_path,ledger=self.ledger,registry=self.registry,engine=self.engine)
             elif step['action']=='private_session':
                 from skillloop.runtime.private_session_dispatch import dispatch_session_action,resolve_session_policy
-                result=dispatch_session_action(policy=resolve_session_policy(step['policy_path']),
+                policy=resolve_session_policy(step['policy_path'])
+                if policy.get('kind')=='FrozenPrivateCurrentTaskDispatchProduction':
+                    from skillloop.runtime.closing_dispatch_production import produce_task_initialization_dispatch
+                    policy=produce_task_initialization_dispatch(recipe=policy,whole=self.phase.round_manifest,
+                        ledger=self.ledger,registry=self.registry)
+                result=dispatch_session_action(policy=policy,
                     journal_directory=step['journal_directory'],engine=self.engine,ledger=self.ledger,registry=self.registry,
                     whole_round_manifest_path=self.manifest_path)
             elif step['action']=='private_resources':

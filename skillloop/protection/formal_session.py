@@ -25,6 +25,13 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
             or job['digest']!=expected_action_digest):
         raise ValueError('formal_session_sealed_action_digest')
     if owner==21001:
+        if job.get('kind')=='ControllerPrivateTaskPreparationProduction':
+            if set(job)!={'kind','policy_digest','task_ordinal','digest'}:
+                raise PermissionError('formal_session_controller_private_task_opaque_only')
+            from skillloop.protection.task_production import produce_current_task
+            authority=ProtectionAuthority(Path(private_directory)/'epoch-authority')
+            return produce_current_task(authority=authority,job=job,private_directory=private_directory,
+                projection_directory=projection_directory,authority_directory=authority_directory)
         if (set(job)!={'kind','policy_digest','reference_digest','stage','digest'}
                 or job.get('kind')!='ControllerPrivateClosingActionProduction'):
             raise PermissionError('formal_session_controller_opaque_production_only')
