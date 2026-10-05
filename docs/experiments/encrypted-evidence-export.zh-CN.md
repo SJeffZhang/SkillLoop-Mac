@@ -182,3 +182,9 @@ Operator 重启可接续已开始的 archive_close 原清理意图，然后核�
 新增 whole_deployment_producer，经既有 Admin role_command 的 produce-deployment 内部委托，按一份冻结声明产生全部11角色的实际 Engine 配置。入口、UID、权限、网络、CPU、PID、FD、日志和只读根由生产代码统一设置；挂载、source/image、私有范围、目录和配置文档在写 manifest 前经过同一部署校验。该生产者只创建配置，不制造批准、私有任务或生命周期证据；Controller 继续用 WholeRoleDeployment 消费产出的 manifest。
 
 Controller 的 Docker socket 增加显式 engine_socket_gid 绑定；只有 Controller 可获得该组和精确 /engine.sock 挂载。正式 Controller 入口检查实际 socket 类型、组、组读写权限和无其他用户权限，拒绝靠偶然继承权限启动。配置中的 ControllerCampaignDeployment 必须与统一声明绑定一致。旧冻结 manifest 不修改。完整 route/任务材料与真实物理容量仍需接通，未启动实验。
+
+### 操作状态的完整追加历史
+
+新部署 OperatorOperationStore 使用版本2，接收、claim、完成、失败、原未开始尾部恢复及到期拒绝均在更新当前状态的同一 SQLite 事务追加 sealed transition。每条记录绑定原 epoch、operation、前一摘要、实际 UTC 和真实结果摘要；UPDATE/DELETE trigger 禁止改写已追加历史。重放原 ticket 不追加伪事件。旧版本数据库拒绝作为新部署使用，旧冻结数据库不迁移。
+
+实际操作 backup 生产者和独立加密 archive Gate 都逐条重建允许的状态转换、摘要链、时间及当前行/结果一致性。失败和未知状态不能由当前状态快照替代或删除。此变更尚未证明完整物理容量、全尝试目录或运行恢复通过；只有源码与语法检查，整轮未启动。

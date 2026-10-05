@@ -243,8 +243,10 @@ def review_campaign_inventory(*,policy,inventory,budget):
     alias,relative=locator.split('/',1);database=roots[alias]/relative
     with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
         db.set_progress_handler(lambda:(budget() or 0),1000)
-        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('SELECT version,epoch FROM identity').fetchall()!=[(1,policy['deployment_epoch'])]:
+        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('SELECT version,epoch FROM identity').fetchall()!=[(2,policy['deployment_epoch'])]:
             raise ValueError('campaign_archive_actual_operation_store_integrity')
+        from skillloop.runtime.operation_store import verify_operation_transitions
+        operation_history=verify_operation_transitions(db,policy['deployment_epoch'],budget=budget)
         for request,route,ticket,state,result,error in db.execute('SELECT request,route,ticket,state,result,error FROM operations'):
             for raw in (request,route,ticket):
                 value=decode_json(raw)
@@ -351,6 +353,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
         'withdrawn_issuer_databases_verified':True,'issuer_snapshot_digest':issuer_snapshot['digest'],
         'withdrawn_registry_database_verified':True,'registry_snapshot_digest':registry_snapshot['digest'],
+        'operation_transition_history_verified':operation_history,
         'operation_history_original_bytes_verified':True,'operation_history_snapshot_digest':history['digest'],
         'missing_categories':[c for c in UNBOUND_CATEGORIES if c!='qualification_and_registry_snapshots'],'campaign_coverage_complete':False,
         'deletion_authorized':False}

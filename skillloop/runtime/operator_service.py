@@ -183,7 +183,7 @@ def main():
         raise PermissionError('controller_engine_socket_explicit_group')
     engine_socket=Path(cfg['engine_socket']).lstat()
     if (not stat.S_ISSOCK(engine_socket.st_mode) or engine_socket.st_gid!=cfg['engine_socket_gid']
-            or stat.S_IMODE(engine_socket.st_mode)&0o007 or not engine_socket.st_mode&0o060):
+            or stat.S_IMODE(engine_socket.st_mode)&0o007 or engine_socket.st_mode&0o060!=0o060):
         raise PermissionError('controller_actual_engine_socket_custody')
     controller=FormalTaskController(**cfg['task_controller'])
     tokenizer=ExactLocalTokenizer('/model',expected_hashes=cfg['tokenizer_hashes'])

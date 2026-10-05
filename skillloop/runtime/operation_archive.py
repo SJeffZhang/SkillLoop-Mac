@@ -16,7 +16,7 @@ import time
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import digest_jcs
-from skillloop.runtime.operation_store import OperatorOperationStore
+from skillloop.runtime.operation_store import OperatorOperationStore,verify_operation_transitions
 from skillloop.runtime.proposal_dispatch import _save
 from skillloop.runtime.round_manifest import read_round_manifest
 from skillloop.runtime.archive_files import open_original,identity,require_unchanged
@@ -63,8 +63,9 @@ def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whol
             with closing(sqlite3.connect(store.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as source:
                 source.backup(destination,pages=64,progress=progress,sleep=0.01)
             destination.set_progress_handler(lambda:int(time.monotonic()-started>=policy['timeout_seconds']),1000)
-            if destination.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or destination.execute('SELECT version,epoch FROM identity').fetchall()!=[(1,policy['deployment_epoch'])]:
+            if destination.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or destination.execute('SELECT version,epoch FROM identity').fetchall()!=[(2,policy['deployment_epoch'])]:
                 raise ValueError('operation_archive_actual_store_integrity')
+            verify_operation_transitions(destination,policy['deployment_epoch'],budget=budget)
         return target
     database=snapshot_database()
     capacity(database.stat().st_size)
