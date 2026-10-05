@@ -18,18 +18,18 @@ from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import canonical_json_line,decode_json,digest_bytes,digest_jcs
 from skillloop.runtime.archive_crypto import locked_crypto,key_label,encrypt_stream,verify_stream,read_header,header_bytes,MAGIC
 from skillloop.runtime.archive_key_service import unwrap_for_gate
+from skillloop.runtime.archive_files import open_original,identity,require_unchanged
 
 
 def _hash(path,budget):
     checksum=hashlib.sha256()
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    fd=open_original(path)
     with os.fdopen(fd,'rb') as stream:
         before=os.fstat(stream.fileno())
         if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1:raise ValueError('archive_source_regular_single_link')
         for block in iter(lambda:stream.read(1048576),b''):budget();checksum.update(block)
         after=os.fstat(stream.fileno())
-    if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):
-        raise ValueError('archive_source_changed')
+    require_unchanged(path,before,after)
     return 'sha256:'+checksum.hexdigest(),before
 
 
@@ -47,7 +47,7 @@ def _inventory(policy,budget):
         if '..' in base.parts or any(p.is_symlink() for p in base.parents):raise ValueError('archive_source_parent_symlink')
         pending=[base]
         while pending:
-            budget();parent=pending.pop()
+            budget();parent=pending.pop();before_directory=parent.lstat()
             with os.scandir(parent) as children:
                 for child in children:
                     count+=1
@@ -63,12 +63,14 @@ def _inventory(policy,budget):
                     total+=meta.st_size
                     if total>policy['maximum_bytes']:raise ValueError('archive_original_inventory_byte_budget')
                     digest,actual=_hash(path,budget)
-                    if (actual.st_dev,actual.st_ino,actual.st_size,actual.st_mtime_ns)!=(meta.st_dev,meta.st_ino,meta.st_size,meta.st_mtime_ns):
+                    if identity(actual)!=identity(meta):
                         raise ValueError('archive_source_changed_before_inventory')
                     relative=path.relative_to(base).as_posix()
                     if len(relative)>1024 or '..' in PurePosixPath(relative).parts:raise ValueError('archive_relative_path_capacity')
                     rows.append({'path':root['alias']+'/'+relative,'bytes':meta.st_size,'digest':digest,
                         'uid':meta.st_uid,'gid':meta.st_gid,'mode':stat.S_IMODE(meta.st_mode)})
+            if identity(parent.lstat())!=identity(before_directory):
+                raise ValueError('archive_source_directory_changed')
     rows.sort(key=lambda r:r['path'])
     if not rows or len({r['path'] for r in rows})!=len(rows):raise ValueError('archive_nonempty_unique_inventory')
     value={'kind':'FrozenEncryptedEvidenceInventory','campaign':policy['campaign'],
@@ -84,7 +86,7 @@ def _chunks(inventory,policy,budget):
     roots={r['alias']:Path(r['path']) for r in policy['sources']}
     for row in inventory['files']:
         alias,relative=row['path'].split('/',1);path=roots[alias]/relative
-        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        fd=open_original(path)
         with os.fdopen(fd,'rb') as stream:
             before=os.fstat(stream.fileno());checksum=hashlib.sha256();size=0
             if (not stat.S_ISREG(before.st_mode) or before.st_nlink!=1
@@ -96,8 +98,8 @@ def _chunks(inventory,policy,budget):
                 if size>row['bytes']:raise ValueError('archive_source_grew')
                 checksum.update(block);yield block
             after=os.fstat(stream.fileno())
-        if (size!=row['bytes'] or 'sha256:'+checksum.hexdigest()!=row['digest']
-                or (after.st_size,after.st_mtime_ns)!=(before.st_size,before.st_mtime_ns)):
+        require_unchanged(path,before,after)
+        if size!=row['bytes'] or 'sha256:'+checksum.hexdigest()!=row['digest']:
             raise ValueError('archive_original_bytes_changed_during_encrypt')
 
 

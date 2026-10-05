@@ -19,6 +19,7 @@ from skillloop.protocol import digest_jcs
 from skillloop.runtime.operation_store import OperatorOperationStore
 from skillloop.runtime.proposal_dispatch import _save
 from skillloop.runtime.round_manifest import read_round_manifest
+from skillloop.runtime.archive_files import open_original,identity,require_unchanged
 
 
 def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whole_round_manifest_path):
@@ -66,6 +67,7 @@ def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whol
                 raise ValueError('operation_archive_actual_store_integrity')
         return target
     database=snapshot_database()
+    capacity(database.stat().st_size)
     checksum=hashlib.sha256()
     with database.open('r+b') as stream:
         for block in iter(lambda:stream.read(1048576),b''):budget();checksum.update(block)
@@ -109,18 +111,21 @@ def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whol
                 relative=source['alias']+'/'+path.relative_to(origin).as_posix()
                 if len(relative)>1024:raise ValueError('operation_archive_relative_path_capacity')
                 name='history-'+hashlib.sha256(relative.encode()).hexdigest()+'.bin'
-                fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK);out=os.open(root/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o640)
+                fd=open_original(path)
+                try:out=os.open(root/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o640)
+                except BaseException:os.close(fd);raise
                 checksum=hashlib.sha256();size=0
                 with os.fdopen(fd,'rb') as reader,os.fdopen(out,'wb') as writer:
                     opened=os.fstat(reader.fileno())
-                    if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns)!=(before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns):raise ValueError('operation_archive_original_replaced')
+                    if identity(opened)!=identity(before):raise ValueError('operation_archive_original_replaced')
                     os.fchown(writer.fileno(),-1,21005);os.fchmod(writer.fileno(),0o640)
                     for block in iter(lambda:reader.read(1048576),b''):
                         budget();size+=len(block)
                         if size>before.st_size:raise ValueError('operation_archive_original_grew')
                         writer.write(block);checksum.update(block)
                     after=os.fstat(reader.fileno());writer.flush();os.fsync(writer.fileno())
-                if size!=before.st_size or (before.st_mtime_ns,before.st_ctime_ns)!=(after.st_mtime_ns,after.st_ctime_ns):raise ValueError('operation_archive_original_changed')
+                require_unchanged(path,before,after)
+                if size!=before.st_size:raise ValueError('operation_archive_original_changed')
                 used+=size;files.append({'name':name,'original_path':relative,'original_uid':source['uid'],
                                         'bytes':size,'digest':'sha256:'+checksum.hexdigest()})
             after_directory=parent.stat()

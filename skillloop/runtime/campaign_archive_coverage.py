@@ -10,6 +10,7 @@ from pathlib import Path,PurePosixPath
 import stat
 from skillloop.protocol import decode_json,digest_jcs
 from scripts.spec_v22_core import execution_record
+from skillloop.runtime.archive_files import open_original,require_unchanged
 
 
 # These categories need producers bound to actual owner snapshots, rather than
@@ -30,7 +31,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         alias,relative=row['path'].split('/',1)
         path=roots[alias]/relative
         if row['bytes']>limit:raise ValueError('campaign_archive_object_capacity')
-        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        fd=open_original(path)
         with os.fdopen(fd,'rb') as stream:
             before=os.fstat(stream.fileno())
             if (not stat.S_ISREG(before.st_mode) or before.st_nlink!=1
@@ -47,12 +48,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
                 checksum.update(block)
                 if decode:parts.append(block)
             after=os.fstat(stream.fileno())
-        current=path.lstat()
-        if (size!=row['bytes'] or 'sha256:'+checksum.hexdigest()!=row['digest']
-                or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)
-                    !=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns)
-                or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)
-                    !=(current.st_dev,current.st_ino,current.st_size,current.st_mtime_ns,current.st_ctime_ns)):
+        require_unchanged(path,before,after)
+        if size!=row['bytes'] or 'sha256:'+checksum.hexdigest()!=row['digest']:
             raise ValueError('campaign_archive_file_changed')
         # Binary evidence and SQLite backups are verified incrementally. They
         # are never retained as a second full database in the Gate's memory.
@@ -99,7 +96,9 @@ def review_campaign_inventory(*,policy,inventory,budget):
             # Raw model output may be a .json file without being a sealed
             # internal object. Changed files/custody must never be ignored.
             if isinstance(error,ValueError) and str(error) in {
-                    'campaign_archive_file_changed','campaign_archive_object_capacity'}:raise
+                    'campaign_archive_file_changed','campaign_archive_object_capacity',
+                    'archive_original_path_or_bytes_changed',
+                    'archive_original_absolute_canonical_path'}:raise
             continue
         if (type(value) is dict and type(value.get('digest')) is str
                 and value['digest']==digest_jcs({k:v for k,v in value.items() if k!='digest'})):
