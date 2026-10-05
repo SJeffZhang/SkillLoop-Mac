@@ -122,8 +122,10 @@ def produce_roster_assignment(*,policy_path,expected_policy_digest,campaign,assi
                 datetime.now(timezone.utc)).total_seconds()<=120:
             raise TimeoutError('roster_assignment_original_production_budget')
         _publish(root/'job.json',job,21005)
-        _publish(root/'production.json',{'kind':'ControllerDevelopmentRosterProduced',
+        receipt={'kind':'ControllerDevelopmentRosterProduced',
             'production_policy_digest':recipe['digest'],'assignment_digest':job['digest'],
             'original_phase_summary_digest':summary['digest'],'spending':cost,'elapsed_seconds':elapsed,
-            'budget_closure':'within_original_budget'},21005)
+            'budget_closure':'within_original_budget'}
+        receipt['digest']=digest_jcs(receipt)
+        _publish(root/'production.json',receipt,21005)
     return job,recipe['digest']
