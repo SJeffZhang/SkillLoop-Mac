@@ -26,6 +26,10 @@ def main():
         validate_control(result)
         if result['kind']!='PublicReport' or result['body']['campaign_public_ref']!=campaign:
             raise ValueError('reporter_actual_gate_public_projection')
+    elif job['command']=='import-lifecycle':
+        from skillloop.protection.native_lifecycle_import import import_lifecycle
+        if set(job['params'])!={'assignment_path'}:raise ValueError('lifecycle_import_delegation')
+        result=import_lifecycle(job['params']['assignment_path'])
     elif job['command']=='produce-deployment':
         from skillloop.runtime.whole_deployment_producer import produce_deployment
         if set(job['params'])!={'assignment_path'}:raise ValueError('deployment_production_delegation')

@@ -31,8 +31,8 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
         'job_digest':job['digest'],'role_uid':uid,'result_path':step['result_path'],
         'started_at':datetime.now(timezone.utc).isoformat(),'deadline':deadline.isoformat(),
         'reserved_seconds':reserved+60,'maximum_evidence_bytes':step['maximum_evidence_bytes']})
-    stage='gate_qualification_report' if uid==21009 else (
-        'repair_pairing' if step['role_command'] in {'produce-candidate','produce-plan'} else 'approval_deployment')
+    stage='private_factory_lifecycle' if step['role_command']=='import-lifecycle' else ('gate_qualification_report' if uid==21009 else (
+        'repair_pairing' if step['role_command'] in {'produce-candidate','produce-plan'} else 'approval_deployment'))
     ledger.consume_auxiliary(manifest=deployment.whole,campaign=deployment.plan['campaign_digest'],stage=stage,
         operation_key='role-command-'+job['digest'][7:],seconds=reserved,input_tokens=0,output_tokens=0,
         disk_bytes=step['maximum_evidence_bytes'])

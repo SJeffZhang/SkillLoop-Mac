@@ -78,7 +78,7 @@ def validate_dispatch_route(route):
             raise ValueError('campaign_role_command_bound')
         if action=='role_command':
             from skillloop.runtime.role_command_worker import ADMIN_PROXY_COMMANDS
-            allowed={'report'} if step['role']=='report' else set(ADMIN_PROXY_COMMANDS)|{'produce-candidate','produce-plan','produce-deployment'}
+            allowed={'report'} if step['role']=='report' else set(ADMIN_PROXY_COMMANDS)|{'produce-candidate','produce-plan','produce-deployment','import-lifecycle'}
             if step['role_command'] not in allowed:
                 raise ValueError('campaign_actual_role_command_provider_required')
         if action in {'campaign_gate','qualification_withdraw'} and (type(step['timeout_seconds']) is not int

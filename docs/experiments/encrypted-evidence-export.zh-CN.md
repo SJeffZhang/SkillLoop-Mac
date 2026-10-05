@@ -257,3 +257,12 @@ restart只能在原 removing 已存在时继续同一辅助进程的退休；实
 正式 semantic_discovery、campaign_gate、qualification_withdraw 已连续调用原辅助进程收尾。启动前提交原 step/config/UTC/完整预留；worker 成功后核验实际完整 OCI、原结果、原 Keeper，再提交 reviewed/removing。只删除精确停止成功的原容器，保留所有证据和共享卷。失败停止精确已观察进程并保存失败类型；创建未知不补发。restart仅恢复原删除意图后的收尾，不重复语义模型或签发资格。
 
 内部 route 冻结 closure_seconds、maximum_evidence_bytes 和独立 journal；语义发现逐请求 raw 的上界与完整阶段成本核对，最终 Gate 的原 spending snapshot包括角色创建和原worker/closure成本。生命周期 Gate 同时补计独立 role-create 的60秒总收尾窗口。所有这些是生产代码路径修复，不是实际生命周期/资格/容量通过；尚未启动整轮或组件实验。
+
+
+### 宿主原模型记录的生产与 Admin 导入
+
+NativeBackendSupervisor 新增 export_lifecycle：必须持有原开发/保护两个真实监督器对象，开发原进程及日志线程已退出，保护原进程仍存活，当前实际PID/start/PGID/listener与原记录匹配。导出完整 start/stop 原对象和逐字节原日志，不接受调用方给一份“已验证”字典。实际UTC、同campaign/epoch/source/model/tokenizer/deadline和完整日志摘要均约束导出；部分导出不自动重写。
+
+实际 Admin role_command import-lifecycle 消费可信部署转交到Admin专属目录的同字节文件。宿主UID只作为来源绑定，不充当Linux权限；输入必须21010:21010/0700、文件0600，输出为Admin→Gate的21010:21005只读授权。核验导出清单、完整记录/日志摘要、原UTC及容量后实际复制、分配输出块、fsync，再发布evidence。Controller只读不透明 imported状态，独立Gate仍必须重建真实隔离结论。部分导入保存intent/原件，禁止盲目重试。
+
+此源码已接统一Admin委托和原auxiliary成本/收尾。正式宿主启动调度及可信宿主→Admin卷传输生产配置仍待接通；未导出/导入任何真实记录、未启动新后端、未运行实验，不能把imported状态当独立隔离证明。

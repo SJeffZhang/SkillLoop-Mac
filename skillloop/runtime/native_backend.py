@@ -275,3 +275,97 @@ class NativeBackendSupervisor:
             'log_complete': not self.log_overflow and self.log_error is None,
             'log_overflow': self.log_overflow, 'log_error': self.log_error, 'stopped_at': _stamp(),
             'backend_log_digest': _digest(self.directory / 'backend.log', end)})
+
+    def export_lifecycle(self, *, protected, opaque_ref, output_directory):
+        """Export this original stopped dev process and live private successor.
+
+        This is the host producer for the trusted Admin import, not a Gate
+        conclusion. No arbitrary record dictionary can substitute for the two
+        supervisor-owned process objects or their preserved original journals.
+        """
+        if type(protected) is not NativeBackendSupervisor or protected is self:
+            raise PermissionError('native_lifecycle_original_supervisors_required')
+        if self.policy['phase']!='dev' or protected.policy['phase']!='protected':
+            raise ValueError('native_lifecycle_original_phase_order')
+        if (self.process is None or self.process.poll() is None or self.log_thread is None
+                or self.log_thread.is_alive() or not self.log.closed or self.log_overflow or self.log_error):
+            raise RuntimeError('native_lifecycle_original_development_not_closed')
+        protected.assert_live()
+        pins=('host_admin_uid','campaign_id','deployment_epoch','config_digest','source_index_digest',
+              'campaign_deadline','binary_digest','model_manifest_digest','model_files','tokenizer_hashes','model_id','backend_version')
+        if any(self.policy[k]!=protected.policy[k] for k in pins):
+            raise ValueError('native_lifecycle_successor_identity_changed')
+        if type(opaque_ref) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',opaque_ref):
+            raise ValueError('native_lifecycle_original_factory_reference')
+        root=Path(output_directory);_owned(root,os.geteuid(),0o700,directory=True)
+        if any(root.iterdir()):raise RuntimeError('native_lifecycle_original_export_no_reexecution')
+        deadline=min(self.deadline.timestamp(),protected.deadline.timestamp())-120
+        if time.time()>=deadline:raise TimeoutError('native_lifecycle_original_export_clock')
+        def record(manager,name):
+            path=manager.directory/(name+'.json');info=_owned(path,os.geteuid(),0o600)
+            if info.st_size>2097152:raise ValueError('native_lifecycle_record_capacity')
+            original=_digest(path,deadline)
+            fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+            with os.fdopen(fd,'rb') as stream:raw=stream.read(2097153)
+            if 'sha256:'+hashlib.sha256(raw).hexdigest()!=original:
+                raise ValueError('native_lifecycle_original_record_changed')
+            value=decode_json(raw)
+            if value.get('kind')!=name or value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+                raise ValueError('native_lifecycle_original_record_seal')
+            return value
+        def start(manager):
+            return {key:record(manager,name) for key,name in
+                    (('intent','NativeBackendStartIntent'),('created','NativeBackendProcessCreated'),('started','NativeBackendStarted'))}
+        evidence={'kind':'AdminNativeLifecycleEvidence','campaign_id':self.policy['campaign_id'],'opaque_ref':opaque_ref,
+            'development':{'start':start(self),'stop_intent':record(self,'NativeBackendStopIntent'),
+                           'stopped':record(self,'NativeBackendStopped')},'private':start(protected)}
+        if (evidence['development']['start']['created']['pid']!=self.process.pid
+                or evidence['development']['stopped']['pid']!=self.process.pid
+                or evidence['private']['created']['pid']!=protected.process.pid
+                or evidence['private']['created']['pgid']!=os.getpgid(protected.process.pid)):
+            raise ValueError('native_lifecycle_original_supervisor_process_binding')
+        inventory=protected._process_inventory(deadline)
+        root_process=[p for p in inventory if p['pid']==protected.process.pid]
+        original_process=[p for p in evidence['private']['started']['process_inventory'] if p['pid']==protected.process.pid]
+        if len(root_process)!=1 or len(original_process)!=1 or root_process[0]['started']!=original_process[0]['started']:
+            raise ValueError('native_lifecycle_successor_original_process_changed')
+        protected._listener_pids(deadline)
+        evidence['digest']=digest_jcs(evidence)
+        log=self.directory/'backend.log';_owned(log,os.geteuid(),0o600)
+        from skillloop.runtime.archive_files import open_original,require_unchanged
+        source=open_original(log)
+        try:
+            before=os.fstat(source)
+            if before.st_size>self.policy['maximum_log_bytes']:
+                raise ValueError('native_lifecycle_original_log_capacity')
+            target=os.open(root/'development-backend.log',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            with os.fdopen(target,'wb') as output,os.fdopen(source,'rb') as stream:
+                source=None;checksum=hashlib.sha256();size=0
+                for block in iter(lambda:stream.read(1048576),b''):
+                    if time.time()>=deadline:raise TimeoutError('native_lifecycle_original_export_clock')
+                    size+=len(block)
+                    if size>before.st_size:raise ValueError('native_lifecycle_original_log_changed')
+                    checksum.update(block);output.write(block)
+                require_unchanged(log,before,os.fstat(stream.fileno()))
+                if size!=before.st_size or 'sha256:'+checksum.hexdigest()!=evidence['development']['stopped']['backend_log_digest']:
+                    raise ValueError('native_lifecycle_original_log_digest')
+                output.flush();os.fsync(output.fileno())
+        finally:
+            if source is not None:os.close(source)
+        raw=canonical_json_line(evidence)
+        if len(raw)>8388608:raise ValueError('native_lifecycle_export_capacity')
+        fd=os.open(root/'evidence.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(fd,'wb') as output:output.write(raw);output.flush();os.fsync(output.fileno())
+        receipt={'kind':'NativeHostLifecycleExport','host_admin_uid':os.geteuid(),
+            'campaign_id':self.policy['campaign_id'],'deployment_epoch':self.policy['deployment_epoch'],
+            'deadline':self.policy['campaign_deadline'],'files':{
+                'evidence.json':{'bytes':len(raw),'digest':'sha256:'+hashlib.sha256(raw).hexdigest()},
+                'development-backend.log':{'bytes':size,'digest':'sha256:'+checksum.hexdigest()}},
+            'exported_at':_stamp(),'qualification_issued':False}
+        receipt['digest']=digest_jcs(receipt)
+        fd=os.open(root/'export.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(fd,'wb') as output:output.write(canonical_json_line(receipt));output.flush();os.fsync(output.fileno())
+        fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+        return receipt
