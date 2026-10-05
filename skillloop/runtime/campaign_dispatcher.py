@@ -504,7 +504,15 @@ class CampaignDispatcher:
                         raise ValueError('campaign_semantic_complete_coverage_required')
                     result=finish_auxiliary(step,actual,result,self.engine.inspect(deployment.provision()['keeper']['Id']),self.engine)
                 except BaseException as error:
-                    preserve_auxiliary_failure(step,self.engine,error);raise
+                    if not (Path(step['journal_directory'])/'created.json').exists():
+                        try:deployment.preserve_failed_role('model_gateway',request['operation_id']+'-semantic',
+                            module='skillloop.discovery.semantic_worker',closure_seconds=step['closure_seconds'])
+                        except BaseException as secondary:
+                            error.add_note('semantic_unknown_create_preservation:'+type(secondary).__name__)
+                    try:preserve_auxiliary_failure(step,self.engine,error)
+                    except BaseException as secondary:
+                        error.add_note('semantic_original_failure_preservation:'+type(secondary).__name__)
+                    raise
             elif step['action']=='native_gateway':
                 from skillloop.runtime.proposal_dispatch import dispatch_model_bridge
                 policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
@@ -636,7 +644,16 @@ class CampaignDispatcher:
                             raise ValueError('campaign_final_gate_actual_aggregate_required')
                         result=finish_auxiliary(step,actual,result,self.engine.inspect(deployment.provision()['keeper']['Id']),self.engine)
                     except BaseException as error:
-                        preserve_auxiliary_failure(step,self.engine,error);raise
+                        if not (Path(step['journal_directory'])/'created.json').exists():
+                            try:deployment.preserve_failed_role('gate',request['operation_id']+
+                                ('-withdraw' if withdrawing else '-campaign-gate'),module=module,
+                                closure_seconds=step['closure_seconds'])
+                            except BaseException as secondary:
+                                error.add_note('campaign_gate_unknown_create_preservation:'+type(secondary).__name__)
+                        try:preserve_auxiliary_failure(step,self.engine,error)
+                        except BaseException as secondary:
+                            error.add_note('campaign_gate_original_failure_preservation:'+type(secondary).__name__)
+                        raise
             elif step['action']=='registry_withdraw':
                 result=self.registry.withdraw_for_archive(withdrawal_path=step['withdrawal_path'],
                     qualification_path=step['qualification_path'],

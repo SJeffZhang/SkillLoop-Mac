@@ -61,6 +61,14 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
         # Stop only the exact observed worker. Never delete failed output or
         # treat an unknown create as a reason to launch another role process.
         retirement_error=None;stopped=None
+        if identifier is None:
+            try:
+                receipt=deployment.preserve_failed_role(step['role'],operation_id+'-'+step['role'],
+                    closure_seconds=step['closure_seconds'])
+                stopped=receipt['original_process_stopped']
+            except BaseException as cleanup_error:
+                retirement_error=type(cleanup_error).__name__
+                error.add_note('role_dispatch_unknown_create_preservation:'+retirement_error)
         if identifier is not None:
             try:
                 actual=engine.inspect(identifier)

@@ -575,3 +575,9 @@ Runtime、当前证据handoff与Evaluator/Gate session的create及created记录�
 Admin/Reporter正式role command和独立模型生命周期Gate的reserved_seconds现在严格等于原账本收费的timeout+closure，不再用额外60秒把超限收尾标通过。role command新增原spending持久receipt；恢复同时核对原operation key、原requested cost、原step和reserved时限。生命周期Gate恢复同样从原收费receipt核对时限，旧目录/时钟不改。原超过预算的清理仍可做资源保全，但不升级验收结果。
 
 仅源码AST和差异检查，无组件或整轮实验。第一整轮仍等待剩余生产连接与完整成本冻结。
+
+### 统一角色未知启动保全
+
+WholeRoleDeployment新增原角色失败保全调用，严格绑定原角色/operation唯一name、Admin完整配置、原create intent及实际账本cost，只GET和停止同一进程，不调用create/start、不删证据volume、不读取保护日志。Admin/Reporter、语义Gateway、campaign Gate/撤销Gate及生命周期Gate在启动未返回ID时使用该生产调用。404/未知停止/过期deadline保留原观测，不写成功阶段；保全写入失败附于原异常，避免丢失最初根因。
+
+源码跨调用和150份Python AST检查；没有组件实验。仍继续私有action/keeper/config、完整尝试catalog、共享实际容量及宿主正式连接等修复。

@@ -450,3 +450,68 @@ class WholeRoleDeployment:
             self.engine.start(identifier);actual=self.engine.inspect(identifier)
         return _save(self.root,completed.name,{'kind':'WholeRoleStartObserved','created_digest':created['digest'],
             'inspection':actual,'qualification_issued':False})
+
+    def preserve_failed_role(self,role,operation_id,*,module=None,closure_seconds):
+        """Contain a failed original role start, including a lost create ID.
+
+        This performs only inspection and stopping. It does not call create_role
+        or start_role and cannot convert an unknown worker into a success.
+        """
+        if (role not in {'admin','report','model_gateway','gate'}
+                or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',operation_id)
+                or type(closure_seconds) is not int or not 1<=closure_seconds<=120):
+            raise ValueError('whole_role_failure_exact_operation')
+        from skillloop.runtime.docker_api import DockerEngineError
+        filename='role-'+digest_jcs({'role':role,'operation':operation_id})[7:]+'.json'
+        intent=_controller_record(self.root/filename)
+        cost=_controller_record(self.root/(filename+'.cost'));config=self.role_config(role,module)
+        name='skillloop-'+role+'-'+digest_jcs(operation_id)[7:31]
+        if (intent.get('kind')!='WholeRoleCreateIntent' or intent.get('role')!=role
+                or intent.get('operation')!=operation_id or intent.get('configuration')!=config
+                or intent.get('container_name')!=name or intent.get('manifest_digest')!=self.plan['digest']
+                or cost.get('kind')!='WholeRoleCreateSpending'
+                or cost['spending'].get('operation_key')!='role-create-'+digest_jcs({'role':role,'operation':operation_id})[7:]
+                or cost['spending'].get('requested_cost')!={'seconds':60,'input_tokens':0,'output_tokens':0,'disk_bytes':2097152}):
+            raise ValueError('whole_role_failure_original_intent')
+        state=self.ledger.read()
+        if (cost['spending'] not in state.get('auxiliary_executions',[])
+                or state.get('campaign_started_at')!=self.ledger.campaign_started_at
+                or state.get('whole_round_binding')!={'manifest_digest':self.whole['digest'],'campaign':self.plan['campaign_digest']}):
+            raise ValueError('whole_role_failure_original_spending')
+        observation=next((filename+'.preserved-'+str(i).zfill(2) for i in range(16)
+                         if not os.path.lexists(self.root/(filename+'.preserved-'+str(i).zfill(2)))),None)
+        if observation is None:raise RuntimeError('whole_role_failure_observation_limit')
+        value={'kind':'WholeRoleOriginalFailurePreservation','intent_digest':intent['digest'],
+            'role':role,'operation':operation_id,'container_name':name,
+            'automatic_reexecution_allowed':False,'evidence_released':False,'qualification_issued':False}
+        try:actual=self.engine.inspect(name,timeout=5)
+        except DockerEngineError as error:
+            if error.status!=404:raise
+            value.update(actual_inspection_status=404,original_process_stopped=None,creation_status='unknown')
+        else:
+            identifier=actual['Id']
+            _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
+            began=datetime.fromisoformat(intent['recorded_at'])
+            created_at=datetime.fromisoformat(actual['Created'].replace('Z','+00:00'))
+            if (actual.get('Name')!='/'+name or began.tzinfo is None or created_at.tzinfo is None
+                    or not began<=created_at<=datetime.now(timezone.utc) or created_at>=self.deadline):
+                raise ValueError('whole_role_failure_original_creation_clock')
+            recorded=self.root/(filename+'.created')
+            if recorded.exists() and _controller_record(recorded).get('id')!=identifier:
+                raise ValueError('whole_role_failure_original_id_changed')
+            stop_error=None
+            if actual.get('State',{}).get('Running') is True:
+                try:self.engine.request('POST','/containers/'+identifier+'/stop?t='+str(closure_seconds),timeout=closure_seconds+1)
+                except BaseException as error:stop_error=type(error).__name__
+            try:
+                terminal=self.engine.inspect(identifier,timeout=5)
+                _verify_role_process(terminal,identifier,config,config['HostConfig']['Mounts'])
+                stopped=terminal.get('State',{}).get('Running') is False
+            except BaseException as error:
+                terminal=None;stopped=None;stop_error=stop_error or type(error).__name__
+            value.update(actual_inspection_status=200,inspection=actual,terminal_inspection=terminal,
+                original_process_stopped=stopped,stop_error_type=stop_error,creation_status='observed_original')
+        now=datetime.now(timezone.utc)
+        value.update(observed_at=now.isoformat(),original_deadline=self.plan['deadline'],
+            original_deadline_expired=now>=self.deadline,runtime_verified=False)
+        return _save(self.root,observation,value)

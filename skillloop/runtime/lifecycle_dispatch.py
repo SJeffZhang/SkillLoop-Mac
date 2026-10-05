@@ -56,10 +56,11 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
         seconds=policy['timeout_seconds']+policy['closure_seconds'],input_tokens=0,output_tokens=0,
         disk_bytes=policy['maximum_evidence_bytes'])
     _save(journal,'spending.json',{'kind':'ControllerNativeLifecycleGateSpending','spending':spending})
-    observed=deployment.start_role('gate','lifecycle-'+policy['digest'][7:],module='skillloop.protection.model_lifecycle_gate')
-    identifier=observed['inspection']['Id']
-    _save(journal,'process.json',{'kind':'ControllerNativeLifecycleGateProcess','inspection':observed['inspection']})
+    identifier=None
     try:
+        observed=deployment.start_role('gate','lifecycle-'+policy['digest'][7:],module='skillloop.protection.model_lifecycle_gate')
+        identifier=observed['inspection']['Id']
+        _save(journal,'process.json',{'kind':'ControllerNativeLifecycleGateProcess','inspection':observed['inspection']})
         wait=engine.wait(identifier,policy['timeout_seconds']);actual=engine.inspect(identifier)
         from skillloop.runtime.evaluation_dispatch import _verify_role_process
         _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
@@ -86,17 +87,23 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
         # Preserve the actual process and all role-owned bytes. Controller has
         # no mount/read grant for Gate's private diagnostics or original raw.
         try:
-            actual=engine.inspect(identifier)
-            from skillloop.runtime.evaluation_dispatch import _verify_role_process
-            _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
-            if actual['State']['Running']:
-                engine.request('POST','/containers/'+identifier+'/stop?t=1',timeout=5)
-            _save(journal,'failed-process.json',{'kind':'ControllerNativeLifecycleGateStoppedFailure',
-                'inspection':engine.inspect(identifier),'evidence_released':False})
+            if identifier is None:
+                deployment.preserve_failed_role('gate','lifecycle-'+policy['digest'][7:],
+                    module='skillloop.protection.model_lifecycle_gate',closure_seconds=policy['closure_seconds'])
+            else:
+                actual=engine.inspect(identifier)
+                from skillloop.runtime.evaluation_dispatch import _verify_role_process
+                _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
+                if actual['State']['Running']:
+                    engine.request('POST','/containers/'+identifier+'/stop?t=1',timeout=5)
+                _save(journal,'failed-process.json',{'kind':'ControllerNativeLifecycleGateStoppedFailure',
+                    'inspection':engine.inspect(identifier),'evidence_released':False})
         except BaseException as secondary:error.add_note('lifecycle_gate_original_custody:'+type(secondary).__name__)
-        _save(journal,'failure.json',{'kind':'ControllerNativeLifecycleGateFailure',
-            'error_type':type(error).__name__,'container_id':identifier,'automatic_reexecution_allowed':False,
-            'evidence_released':False,'qualification_issued':False})
+        try:
+            _save(journal,'failure.json',{'kind':'ControllerNativeLifecycleGateFailure',
+                'error_type':type(error).__name__,'container_id':identifier,'automatic_reexecution_allowed':False,
+                'evidence_released':False,'qualification_issued':False})
+        except BaseException as secondary:error.add_note('lifecycle_gate_failure_record:'+type(secondary).__name__)
         raise
 
 
