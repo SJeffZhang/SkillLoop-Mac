@@ -88,13 +88,16 @@ class ProtectedTaskCloser:
         with self.registry.private_scope(campaign=plan['campaign_digest']) as state:
             if state['gate_freeze']['deadline']!=plan['campaign_deadline']:
                 raise ValueError('protected_flow_current_frozen_registry_clock')
-        policies=[]
+        policies=[];producers=[]
         for step in plan['steps']:
             expected={'stage','policy_path','policy_digest','journal_directory','archive_mount_policy_path','archive_attestation_directory'}
-            if set(step)!=expected:raise ValueError('protected_flow_step_shape')
-            policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+            if set(step) not in (expected,expected|{'production'}):raise ValueError('protected_flow_step_shape')
+            declaration=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+            dynamic=declaration.get('kind')=='FrozenPrivateSessionProduction'
+            policy=declaration['dispatch_template'] if dynamic else declaration
             gate=step['stage'] in {'task_gate','archive_gate','retirement_gate'}
-            if (policy['digest']!=step['policy_digest'] or policy['campaign_digest']!=plan['campaign_digest']
+            if (declaration['digest']!=step['policy_digest'] or policy['campaign_digest']!=plan['campaign_digest']
+                    or dynamic and declaration.get('stage')!=step['stage']
                     or policy['campaign_deadline']!=plan['campaign_deadline']
                     or policy['whole_round_manifest_digest']!=self.whole['digest']
                     or policy['kind']!=('FrozenOpaquePrivateGateDispatch' if gate else 'FrozenOpaquePrivateSessionDispatch')
@@ -104,17 +107,35 @@ class ProtectedTaskCloser:
                     or (step['stage']=='archive')!=(step['archive_mount_policy_path'] is not None and step['archive_attestation_directory'] is not None)):
                 raise ValueError('protected_flow_exact_stage_policy')
             policies.append(policy)
-        journals=[s['journal_directory'] for s in plan['steps']]+[plan['retirement_journal'],plan['cleanup_journal'],str(self.root)]
+            production=step.get('production');producer=None
+            if production is not None:
+                if not dynamic or type(production) is not dict or set(production)!={'policy_path','policy_digest','journal_directory'}:
+                    raise ValueError('protected_flow_frozen_action_producer')
+                producer=read_owned(production['policy_path'],uid=21010,gid=21001,limit=2097152)
+                if (producer.get('kind')!='FrozenOpaquePrivateSessionDispatch'
+                        or producer['digest']!=production['policy_digest']
+                        or producer['campaign_digest']!=plan['campaign_digest']
+                        or producer['campaign_deadline']!=plan['campaign_deadline']
+                        or producer['whole_round_manifest_digest']!=self.whole['digest']
+                        or 'production_policy' not in producer['mounts']):
+                    raise ValueError('protected_flow_original_private_producer_scope')
+            producers.append(producer)
+        journals=[s['journal_directory'] for s in plan['steps']]+[
+            s['production']['journal_directory'] for s in plan['steps'] if s.get('production') is not None
+        ]+[plan['retirement_journal'],plan['cleanup_journal'],str(self.root)]
         if len(journals)!=len(set(journals)) or any(not Path(p).is_absolute() for p in journals):
             raise ValueError('protected_flow_distinct_absolute_operation_journals')
         scope=next((c for c in self.whole['campaigns'] if c['campaign_digest']==plan['campaign_digest']),None)
         if scope is None:raise ValueError('protected_flow_whole_campaign_scope')
         bound=scope['stages']['protected']
-        if any(p['timeout_seconds']+60>bound['seconds'] or p['maximum_evidence_bytes']>bound['disk_bytes'] for p in policies):
+        if any(p['timeout_seconds']+60>bound['seconds'] or p['maximum_evidence_bytes']>bound['disk_bytes']
+                for p in policies+[p for p in producers if p is not None]):
             raise ValueError('protected_flow_unreserved_complete_step_cost')
         remaining=[p for step,p in zip(plan['steps'],policies) if not (self.root/(step['stage']+'.done.json')).exists()]
         if ((deadline-datetime.now(timezone.utc)).total_seconds()<=
-                sum(p['timeout_seconds']+60 for p in remaining)+plan['retirement_seconds']+plan['cleanup_seconds']+120):
+                sum(p['timeout_seconds']+60 for p in remaining)+sum(p['timeout_seconds']+60
+                    for step,p in zip(plan['steps'],producers) if p is not None and not (self.root/(step['stage']+'.production.done.json')).exists())
+                +plan['retirement_seconds']+plan['cleanup_seconds']+120):
             raise TimeoutError('protected_flow_full_remaining_chain_not_admitted')
         if not (self.root/'flow-intent.json').exists():
             if any(p.name!='production.json' for p in self.root.iterdir()):
@@ -125,7 +146,34 @@ class ProtectedTaskCloser:
             raise ValueError('protected_flow_same_operation_changed_parameters')
         if (self.root/'flow-completion.json').exists():return _controller_record(self.root/'flow-completion.json')
         processes=[]
-        for step,policy in zip(plan['steps'],policies):
+        for step,producer in zip(plan['steps'],producers):
+            from skillloop.runtime.private_session_dispatch import resolve_session_policy,recover_session_completion
+            if producer is not None:
+                specification=step['production'];name=step['stage']+'.production'
+                done_production=self.root/(name+'.done.json');started_production=self.root/(name+'.started.json')
+                if done_production.exists():
+                    receipt=_controller_record(done_production)
+                    if receipt.get('policy_digest')!=producer['digest']:
+                        raise ValueError('protected_flow_changed_original_action_production')
+                    produced=receipt['completion']
+                else:
+                    if started_production.exists():
+                        if _controller_record(started_production).get('policy_digest')!=producer['digest']:
+                            raise ValueError('protected_flow_changed_started_action_production')
+                        produced=recover_session_completion(journal_directory=specification['journal_directory'],
+                            engine=self.engine,policy=producer)
+                        if produced is None:raise RuntimeError('protected_flow_original_action_production_unknown')
+                    else:
+                        _save(self.root,started_production.name,{'kind':'ProtectedClosingProductionStarted',
+                            'policy_digest':producer['digest'],'automatic_reexecution_allowed':False})
+                        produced=dispatch_session_action(policy=producer,journal_directory=specification['journal_directory'],
+                            engine=self.engine,ledger=self.ledger,registry=self.registry,whole_round_manifest_path=self.manifest_path)
+                    _save(self.root,done_production.name,{'kind':'ProtectedClosingProductionComplete',
+                        'policy_digest':producer['digest'],'completion':produced})
+                if produced.get('action_digest')!=producer['action_digest'] or produced.get('wait',{}).get('StatusCode')!=0:
+                    raise ValueError('protected_flow_original_action_production_completion')
+                processes.append(produced['inspection'])
+            policy=resolve_session_policy(step['policy_path'])
             stage=step['stage'];done=self.root/(stage+'.done.json');started=self.root/(stage+'.started.json')
             if done.exists():
                 result=_controller_record(done)

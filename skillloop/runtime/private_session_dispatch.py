@@ -18,6 +18,44 @@ from skillloop.repair.budget import SpendingLedger
 from skillloop.ci.campaign_registry import CampaignRegistry
 
 
+def resolve_session_policy(policy_path):
+    """Resolve a dispatch digest from the current Evaluator opaque receipt."""
+    if os.geteuid()!=21001:raise PermissionError('private_session_production_actual_controller')
+    from skillloop.discovery.formal_task_gate import read_owned
+    policy=read_owned(policy_path,uid=21010,gid=21001,limit=2097152)
+    if policy.get('kind')!='FrozenPrivateSessionProduction':return policy
+    fields={'kind','image','campaign_deadline','campaign_digest','whole_round_manifest_digest',
+        'maximum_evidence_bytes','timeout_seconds','keeper_id','mounts'}
+    if (set(policy)!={'kind','stage','production_policy_digest','dispatch_template','action_reference_path','runtime_reference_path','digest'}
+            or type(policy['dispatch_template']) is not dict or set(policy['dispatch_template'])!=fields):
+        raise ValueError('private_session_production_frozen_recipe')
+    template=policy['dispatch_template']
+    action=read_owned(policy['action_reference_path'],uid=21004,gid=21001,limit=262144)
+    reference=read_owned(policy['runtime_reference_path'],uid=21004,gid=21001,limit=262144)
+    gate=template['kind']=='FrozenOpaquePrivateGateDispatch'
+    if (template['kind'] not in {'FrozenOpaquePrivateGateDispatch','FrozenOpaquePrivateSessionDispatch'}
+            or set(action)!={'kind','campaign_id','deployment_epoch','reference_digest','stage','policy_digest',
+                'action_digest','assignment_filename','qualification_issued','digest'}
+            or action.get('kind')!='EvaluatorOpaqueClosingAction'
+            or action.get('stage')!=policy['stage']
+            or action.get('policy_digest')!=policy['production_policy_digest']
+            or policy['stage'] not in {'capture','evaluate','task_gate','session_complete','archive',
+                'archive_gate','terminal_authority_snapshot','retirement_gate'}
+            or action.get('qualification_issued') is not False
+            or action.get('assignment_filename')!=('assignment.json' if policy['stage'] in {'task_gate','archive_gate'} else 'action.json')
+            or action.get('campaign_id')!=template['campaign_digest']
+            or action.get('reference_digest')!=reference['digest']
+            or action.get('deployment_epoch')!=reference.get('deployment_epoch')
+            or reference.get('campaign_id')!=template['campaign_digest']
+            or reference.get('kind')!='EvaluatorOpaqueRunReference'
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',action.get('action_digest',''))
+            or gate!=(action.get('stage') in {'task_gate','archive_gate','retirement_gate'})):
+        raise ValueError('private_session_production_current_action')
+    resolved={**template,'action_digest':action['action_digest']}
+    resolved['digest']=digest_jcs(resolved)
+    return resolved
+
+
 def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,registry,whole_round_manifest_path,state,archive_mount_policy_path=None,archive_attestation_directory=None):
     if (os.geteuid() != 21001 or type(engine) is not DockerEngine
             or type(ledger) is not SpendingLedger or type(registry) is not CampaignRegistry):
@@ -64,6 +102,7 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
              base_mounts | {'private_receipts', 'private_launch_inbox'},
              base_mounts | {'private_started', 'runtime_current'},
              base_mounts | {'gate_authority'},
+             base_mounts | {'production_policy','current_reference','prepared_assignment','action_output','opaque_actions'},
              base_mounts | {'runtime_handoff','private_completion','private_raw','evaluation_assignment'},
              base_mounts | {'prepared_assignment','private_raw','task_snapshot','tokenizer'},
              base_mounts | {'prepared_assignment','private_raw','task_snapshot','archive_policy','archive_mount','archive_output'},
@@ -88,10 +127,13 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
         targets['private_started'] = '/private-started'
         targets['runtime_current'] = '/runtime-current'
     if 'gate_authority' in policy['mounts']:targets['gate_authority']='/gate-authority'
+    if 'production_policy' in policy['mounts']:
+        targets.update(production_policy='/production-policy',current_reference='/current-reference',
+            prepared_assignment='/prepared-assignment',action_output='/action-output',opaque_actions='/opaque-actions')
     if 'runtime_handoff' in policy['mounts']:
         targets.update(runtime_handoff='/runtime-handoff',private_completion='/private-completion',
                        private_raw='/private-raw',evaluation_assignment='/evaluation-assignment')
-    if 'prepared_assignment' in policy['mounts']:
+    if 'prepared_assignment' in policy['mounts'] and 'production_policy' not in policy['mounts']:
         targets.update(prepared_assignment='/evaluation-assignment',private_raw='/private-raw',
                        task_snapshot='/authority')
         if 'tokenizer' in policy['mounts']:targets['tokenizer']='/model'
@@ -114,9 +156,10 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
             raise ValueError('formal_session_volume_subpath')
         mounts.append({'Type':'volume', 'Source':pin['volume'], 'Target':target,
             'ReadOnly':key not in ({'retirement_grants'} if retirement else {'reviews'} if gate else
+                ({'private','projection','action_output','opaque_actions'} if 'production_policy' in policy['mounts'] else
                 ({'private','projection','archive_output'} if 'archive_output' in policy['mounts'] else
                 ({'private','projection','evaluation'} if 'prepared_assignment' in policy['mounts'] else
-                {'private','projection','private_task_inbox','private_launch_inbox','runtime_current','gate_authority','private_raw','evaluation_assignment'}))),
+                {'private','projection','private_task_inbox','private_launch_inbox','runtime_current','gate_authority','private_raw','evaluation_assignment'})))),
             'VolumeOptions':{'Subpath':pin['subpath']}})
     from skillloop.runtime.role_deployment import private_role_configuration
     groups=(['21001','21004'] if gate else ['21001'])

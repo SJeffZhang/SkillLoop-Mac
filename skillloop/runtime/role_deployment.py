@@ -30,7 +30,8 @@ def private_role_configuration(*,entry,image,deployment_epoch,action_digest,moun
     # Gate receives only read mounts except its own separately granted output.
     writable={'/reviews','/retirement-grants'} if role=='gate' else {
         '/private','/session-projection','/evaluation','/private-task-inbox',
-        '/private-launch-inbox','/runtime-current','/gate-authority','/private-raw','/evaluation-assignment','/archive'}
+        '/private-launch-inbox','/runtime-current','/gate-authority','/private-raw','/evaluation-assignment','/archive',
+        '/action-output','/opaque-actions'}
     for mount in mounts:
         if (set(mount)!={'Type','Source','Target','ReadOnly','VolumeOptions'} or mount['Type']!='volume'
                 or type(mount['ReadOnly']) is not bool or mount['Target'] not in writable and not mount['ReadOnly']):

@@ -18,10 +18,22 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
     if os.geteuid()!=21004 or 21001 not in set(os.getgroups())|{os.getegid()}:
         raise PermissionError('formal_session_actual_evaluator')
     # Full private assignments belong to Evaluator, never to Controller.
-    job=read_owned(assignment_path,uid=21004,gid=21004,limit=8388608)
+    owner=Path(assignment_path).parent.lstat().st_uid
+    if owner not in {21001,21004}:raise PermissionError('formal_session_original_assignment_owner')
+    job=read_owned(assignment_path,uid=owner,gid=21004,limit=8388608)
     if (not re.fullmatch(r'sha256:[0-9a-f]{64}',expected_action_digest)
             or job['digest']!=expected_action_digest):
         raise ValueError('formal_session_sealed_action_digest')
+    if owner==21001:
+        if (set(job)!={'kind','policy_digest','digest'} or job.get('kind')!='ControllerPrivateClosingActionProduction'):
+            raise PermissionError('formal_session_controller_opaque_production_only')
+        policy=read_owned('/production-policy/policy.json',uid=21010,gid=21004,limit=262144)
+        if policy['digest']!=job['policy_digest']:raise ValueError('formal_session_original_production_policy')
+        from skillloop.protection.closing_actions import produce_closing_action
+        authority=ProtectionAuthority(Path(private_directory)/'epoch-authority')
+        return produce_closing_action(authority=authority,policy_path='/production-policy/policy.json',
+            reference_path='/current-reference/reference.json',projection_directory=projection_directory,
+            assignment_directory='/prepared-assignment',output_directory='/action-output',opaque_directory='/opaque-actions')
     if job.get('kind') == 'FormalPrivateArchive':
         from skillloop.runtime.task_archive import archive_reviewed_task
         if set(job)!={'kind','session_key','assignment_digest','digest'}:
@@ -86,7 +98,8 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
             assignment_directory='/evaluation-assignment',maximum_bytes=int(capacity),maximum_files=4096,
             timeout_seconds=int(seconds))
     if job.get('kind') == 'FormalPrivateAuthoritySnapshot':
-        if set(job)!={'kind','campaign_id','opaque_ref','maximum_database_bytes','timeout_seconds','digest'}:
+        snapshot_fields={'kind','campaign_id','opaque_ref','maximum_database_bytes','timeout_seconds','digest'}
+        if set(job) not in (snapshot_fields,snapshot_fields|{'session_key'}):
             raise ValueError('formal_private_authority_snapshot_action')
         capacity=os.environ.get('SKILLLOOP_PRIVATE_MAX_EVIDENCE_BYTES','')
         seconds=os.environ.get('SKILLLOOP_PRIVATE_TIMEOUT_SECONDS','')
@@ -97,6 +110,14 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
                 or 2*job['maximum_database_bytes']+262144>int(capacity)):
             raise ValueError('formal_private_snapshot_complete_dispatch_reservation')
         authority=ProtectionAuthority(Path(private_directory)/'epoch-authority')
+        if 'session_key' in job:
+            pins=authority.formal_session_identity(job['session_key'])
+            with authority.connect() as db:
+                state=db.execute('SELECT state FROM sessions WHERE key=?',(job['session_key'],)).fetchone()
+            record=authority.resolve_formal_bundle(campaign=job['campaign_id'],opaque_ref=job['opaque_ref'])
+            if (state!=('complete',) or pins['campaign']!=job['campaign_id']
+                    or pins['private_record_digest']!=record['digest']):
+                raise ValueError('formal_private_snapshot_original_complete_session')
         return authority.export_gate_snapshot(campaign=job['campaign_id'],opaque_ref=job['opaque_ref'],
             output_directory='/gate-authority',maximum_bytes=job['maximum_database_bytes'],
             timeout_seconds=job['timeout_seconds'])

@@ -189,8 +189,8 @@ class CampaignDispatcher:
                     result=recover_private_runtime_completion(journal_directory=step['journal_directory'],
                         engine=self.engine,expected_campaign=campaign)
                 elif step['action']=='private_session':
-                    from skillloop.runtime.private_session_dispatch import recover_session_completion
-                    policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                    from skillloop.runtime.private_session_dispatch import recover_session_completion,resolve_session_policy
+                    policy=resolve_session_policy(step['policy_path'])
                     if policy.get('campaign_digest')!=campaign:
                         raise ValueError('campaign_private_recovery_original_session')
                     result=recover_session_completion(journal_directory=step['journal_directory'],
@@ -562,8 +562,8 @@ class CampaignDispatcher:
                     gate_freeze_path=step['gate_freeze_path'],journal_directory=step['journal_directory'],
                     whole_round_manifest_path=self.manifest_path,ledger=self.ledger,registry=self.registry,engine=self.engine)
             elif step['action']=='private_session':
-                from skillloop.runtime.private_session_dispatch import dispatch_session_action
-                result=dispatch_session_action(policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152),
+                from skillloop.runtime.private_session_dispatch import dispatch_session_action,resolve_session_policy
+                result=dispatch_session_action(policy=resolve_session_policy(step['policy_path']),
                     journal_directory=step['journal_directory'],engine=self.engine,ledger=self.ledger,registry=self.registry,
                     whole_round_manifest_path=self.manifest_path)
             elif step['action']=='private_start':

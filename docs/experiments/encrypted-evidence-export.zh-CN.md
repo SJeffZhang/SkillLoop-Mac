@@ -581,3 +581,9 @@ Admin/Reporter正式role command和独立模型生命周期Gate的reserved_secon
 WholeRoleDeployment新增原角色失败保全调用，严格绑定原角色/operation唯一name、Admin完整配置、原create intent及实际账本cost，只GET和停止同一进程，不调用create/start、不删证据volume、不读取保护日志。Admin/Reporter、语义Gateway、campaign Gate/撤销Gate及生命周期Gate在启动未返回ID时使用该生产调用。404/未知停止/过期deadline保留原观测，不写成功阶段；保全写入失败附于原异常，避免丢失最初根因。
 
 源码跨调用和150份Python AST检查；没有组件实验。仍继续私有action/keeper/config、完整尝试catalog、共享实际容量及宿主正式连接等修复。
+
+### 当前私有任务收尾动作生产
+
+Evaluator从原私有Authority、已投递session、当前launch映射和实际capture assignment生成8个收尾阶段的动作。Controller只接收当前reference、stage和action摘要的opaque receipt，不读取session key、entry、intent或逐题结果。独立Gate assignment仍由Evaluator产生；末尾快照绑定本任务已完成session，避免同campaign多个任务共用执行身份。原动作与opaque receipt按顺序独占发布，部分发布不得重新生成。
+
+ProtectedTaskCloser可在每个阶段先运行原Evaluator生产调用，再解析实际动作摘要并派发原收尾步骤；生产进程纳入原辅助预算、恢复及最终清理。started生产只恢复同一原进程结果，缺结果为unknown，不重发。仅151份生产Python AST及源码连接检查，无测试或实验。实际Controller委托job、Keeper身份和归档策略的未来摘要配置生产仍继续补齐；整轮未启动，完整验收未通过。
