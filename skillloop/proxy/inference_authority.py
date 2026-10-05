@@ -21,19 +21,19 @@ class RuntimeInferenceAuthority:
             db.execute('CREATE TABLE IF NOT EXISTS runtime_inference_schema('
                        'singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL) STRICT')
             version = db.execute('SELECT version FROM runtime_inference_schema WHERE singleton=1').fetchone()
-            if version is not None and version[0] != 1:
+            if version is not None and version[0] != 2:
                 raise ProxyError('unsupported_database_version')
             db.execute('CREATE TABLE IF NOT EXISTS runtime_inference_attempts('
                 'run_id TEXT NOT NULL REFERENCES runs(run_id),round_index INTEGER NOT NULL,'
                 'request_digest TEXT UNIQUE NOT NULL,reservation_json BLOB NOT NULL,'
-                'response_digest TEXT,completed_at TEXT,PRIMARY KEY(run_id,round_index)) STRICT')
-            expected = ['run_id','round_index','request_digest','reservation_json','response_digest','completed_at']
+                'response_digest TEXT,raw_response_digest TEXT,completed_at TEXT,PRIMARY KEY(run_id,round_index)) STRICT')
+            expected = ['run_id','round_index','request_digest','reservation_json','response_digest','raw_response_digest','completed_at']
             if [r[1] for r in db.execute('PRAGMA table_info(runtime_inference_attempts)')] != expected:
                 raise ProxyError('unsupported_database_version')
             if version is None:
                 if db.execute('SELECT 1 FROM runtime_inference_attempts LIMIT 1').fetchone():
                     raise ProxyError('unsupported_database_version')
-                db.execute('INSERT INTO runtime_inference_schema VALUES(1,1)')
+                db.execute('INSERT INTO runtime_inference_schema VALUES(1,2)')
 
     def reserve(self, request):
         fields = {'kind','deployment_epoch','campaign_id','config_digest','phase','run_id',
@@ -108,28 +108,28 @@ class RuntimeInferenceAuthority:
                 'phase':request['phase'],'deadline':_stamp(deadline),'reserved_at':_stamp(_now()),
                 'redispatch_allowed':False,'qualification_issued':False,'request':request}
             value['digest'] = digest_jcs(value)
-            db.execute('INSERT INTO runtime_inference_attempts VALUES(?,?,?,?,NULL,NULL)',
+            db.execute('INSERT INTO runtime_inference_attempts VALUES(?,?,?,?,NULL,NULL,NULL)',
                 (request['run_id'], request['round_index'], request['digest'], canonical_json_line(value)))
             return value
 
     def complete(self, request):
-        if (type(request) is not dict or set(request) != {'kind','request_digest','response_digest','deadline'}
+        if (type(request) is not dict or set(request) != {'kind','request_digest','response_digest','raw_response_digest','deadline'}
                 or request['kind'] != 'RuntimeInferenceCompletion'
                 or any(type(request[k]) is not str or not DIGEST.fullmatch(request[k])
-                       for k in ('request_digest','response_digest'))):
+                       for k in ('request_digest','response_digest','raw_response_digest'))):
             raise ProxyError('invalid_args')
         with self.store._transaction() as db:
-            row = self.store._one(db, 'SELECT response_digest FROM runtime_inference_attempts WHERE request_digest=?',
+            row = self.store._one(db, 'SELECT response_digest,raw_response_digest FROM runtime_inference_attempts WHERE request_digest=?',
                 (request['request_digest'],))
-            if row[0] is not None and row[0] != request['response_digest']:
+            if row[0] is not None and tuple(row) != (request['response_digest'],request['raw_response_digest']):
                 raise ProxyError('version_conflict')
             # Cancellation/revocation does not erase evidence of a response that
             # already happened; it prevents the next reserve and all late tools.
-            db.execute('UPDATE runtime_inference_attempts SET response_digest=?,completed_at=? '
+            db.execute('UPDATE runtime_inference_attempts SET response_digest=?,raw_response_digest=?,completed_at=? '
                 'WHERE request_digest=? AND response_digest IS NULL',
-                (request['response_digest'], _stamp(_now()), request['request_digest']))
+                (request['response_digest'],request['raw_response_digest'], _stamp(_now()), request['request_digest']))
             return {'kind':'ProxyRuntimeInferenceRecorded','request_digest':request['request_digest'],
-                    'response_digest':request['response_digest'],'redispatch_allowed':False}
+                    'response_digest':request['response_digest'],'raw_response_digest':request['raw_response_digest'],'redispatch_allowed':False}
 
     def reserve_proposal(self, request):
         """One Controller-budgeted development proposal, authorized live."""
@@ -174,9 +174,9 @@ class RuntimeInferenceAuthority:
             campaign=grant['campaign_id']
             db.execute('CREATE TABLE IF NOT EXISTS proposal_inference_attempts('
                 'grant_digest TEXT PRIMARY KEY,request_digest TEXT UNIQUE NOT NULL,campaign TEXT NOT NULL,'
-                'role_uid INTEGER NOT NULL,reservation_json BLOB NOT NULL,response_digest TEXT,completed_at TEXT) STRICT')
+                'role_uid INTEGER NOT NULL,reservation_json BLOB NOT NULL,response_digest TEXT,raw_response_digest TEXT,completed_at TEXT) STRICT')
             if [r[1] for r in db.execute('PRAGMA table_info(proposal_inference_attempts)')] != [
-                    'grant_digest','request_digest','campaign','role_uid','reservation_json','response_digest','completed_at']:
+                    'grant_digest','request_digest','campaign','role_uid','reservation_json','response_digest','raw_response_digest','completed_at']:
                 raise ProxyError('unsupported_database_version')
             prior=db.execute('SELECT request_digest FROM proposal_inference_attempts WHERE grant_digest=?',
                 (grant['digest'],)).fetchone()
@@ -222,21 +222,21 @@ class RuntimeInferenceAuthority:
             value={'kind':'ProxyProposalInferenceReserved','request_digest':request['digest'],'request':request,
                 'deadline':deadline.isoformat(),'reserved_at':_stamp(_now()),'redispatch_allowed':False,'qualification_issued':False}
             value['digest']=digest_jcs(value)
-            db.execute('INSERT INTO proposal_inference_attempts VALUES(?,?,?,?,?,NULL,NULL)',
+            db.execute('INSERT INTO proposal_inference_attempts VALUES(?,?,?,?,?,NULL,NULL,NULL)',
                 (grant['digest'],request['digest'],campaign,grant['role_uid'],canonical_json_line(value)))
             return value
 
     def complete_proposal(self, request):
-        if (type(request) is not dict or set(request)!={'kind','request_digest','response_digest','deadline'}
+        if (type(request) is not dict or set(request)!={'kind','request_digest','response_digest','raw_response_digest','deadline'}
                 or request['kind']!='ProposalInferenceCompletion'
-                or any(type(request[k]) is not str or not DIGEST.fullmatch(request[k]) for k in ('request_digest','response_digest'))):
+                or any(type(request[k]) is not str or not DIGEST.fullmatch(request[k]) for k in ('request_digest','response_digest','raw_response_digest'))):
             raise ProxyError('invalid_args')
         with self.store._transaction() as db:
-            row=self.store._one(db,'SELECT response_digest FROM proposal_inference_attempts WHERE request_digest=?',
+            row=self.store._one(db,'SELECT response_digest,raw_response_digest FROM proposal_inference_attempts WHERE request_digest=?',
                 (request['request_digest'],))
-            if row[0] is not None and row[0]!=request['response_digest']:raise ProxyError('version_conflict')
-            db.execute('UPDATE proposal_inference_attempts SET response_digest=?,completed_at=? '
+            if row[0] is not None and tuple(row)!=(request['response_digest'],request['raw_response_digest']):raise ProxyError('version_conflict')
+            db.execute('UPDATE proposal_inference_attempts SET response_digest=?,raw_response_digest=?,completed_at=? '
                 'WHERE request_digest=? AND response_digest IS NULL',
-                (request['response_digest'],_stamp(_now()),request['request_digest']))
+                (request['response_digest'],request['raw_response_digest'],_stamp(_now()),request['request_digest']))
             return {'kind':'ProxyProposalInferenceRecorded','request_digest':request['request_digest'],
-                    'response_digest':request['response_digest'],'redispatch_allowed':False}
+                    'response_digest':request['response_digest'],'raw_response_digest':request['raw_response_digest'],'redispatch_allowed':False}

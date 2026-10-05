@@ -151,6 +151,10 @@ def evaluate_capture(*, entry, intent, capture, run_directory, snapshot_director
         row=inference_attempts[index];reservation=decode_json(row['reservation_json']);request=reservation['request']
         context=decode_json((directory/'evidence'/'contexts'/event['context_digest'][7:]).read_bytes())
         backend=event['response']['backend_response']
+        backend_raw=base64.b64decode(event['response']['backend_response_raw_b64'],validate=True)
+        if (not 0<len(backend_raw)<=4194304 or decode_json(backend_raw)!=backend
+                or digest_bytes(backend_raw)!=event['response']['backend_response_bytes_digest']):
+            raise ValueError('formal_inference_original_response_bytes')
         native_payload={'model':config['model_id'],'messages':OllamaGateway._ollama_messages(context),
             'tools':tools,'stream':False,'think':False,'options':{'temperature':1.0,'top_p':0.95,
                 'num_ctx':16384,'num_predict':2048}}
@@ -173,7 +177,8 @@ def evaluate_capture(*, entry, intent, capture, run_directory, snapshot_director
                 or request['input_tokens']!=event['preflight_prompt_tokens']
                 or request['output_tokens']!=2048
                 or request['model_identity']!={k:config[k] for k in ('model_id','model_manifest_digest','tokenizer_hashes')}
-                or row['response_digest']!=digest_jcs(backend) or row['completed_at'] is None
+                or row['response_digest']!=digest_jcs(backend) or row['raw_response_digest']!=digest_bytes(backend_raw)
+                or row['completed_at'] is None
                 or reservation['redispatch_allowed'] is not False):
             raise ValueError('formal_inference_original_authority_binding')
     if len(inference_attempts)!=len(models) and observed['observation']['body']['evidence_complete']:

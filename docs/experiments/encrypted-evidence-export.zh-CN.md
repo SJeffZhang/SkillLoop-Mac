@@ -509,3 +509,9 @@ Admin部署生产者在发布新manifest之前，按Controller实际卷/subpath�
 部署生产核验Gateway只读proposal目录与Controller实际写入挂载指向同一subpath；Inference socket仍是独立Proxy-owned目录，Worker不获得它或业务库。原本的512/1024辅助输出配置暂保留，未擅改待决模型规范，也不宣称已实现冻结2048输出的infer_current_context合同。生成的grant及原响应规范化摘要在业务库和原派发journal中保留，后续完整尝试catalog/独立审查仍须覆盖失败和未知情况。
 
 仅源码、全生产AST及diff检查；没有模型、数据库或容器执行，没有组件实验，没有定时任务。完整公共推理票据、动态配置生产、全尝试catalog、共享物理租约、正式CI发布与新部署恢复继续修复，修复批次尚未完成。
+
+### 原生成功响应字节与独立推理审查
+
+OllamaGateway的正常结果保留实际收到的HTTP响应原字节及摘要，随后Runtime/Generator/Patcher原证据记录保留同一结果。Gateway→Proxy完成记录同时保存规范化响应摘要和原字节摘要；原Task Evaluator及独立Gate将实际raw字节解析结果、上下文、模型、token与一致Proxy snapshot逐轮比对，不能从重序列化后的JSON推断原始字节。响应丢失、解析失败或没有对应Runtime记录仍保留已花费/未知，不重投。
+
+新部署推理记录采用明确version2及严格列检查，拒绝已有不同版本，不迁移任何旧冻结库。新增原始响应副本需纳入之后完整recipe与证据峰值预算，未给现有预算扩容。仅AST及源码检查，无模型/数据库执行或实验，完整修复继续。

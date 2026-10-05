@@ -62,10 +62,10 @@ class RuntimeInferenceAuthorization:
         request = {'kind':'RuntimeInferenceCompletion',
             'deadline':(datetime.now(timezone.utc)+timedelta(seconds=min(9,seconds))).isoformat(),
             'request_digest':reservation['request_digest'],
-                   'response_digest':digest_jcs(decode_json(raw))}
+                   'response_digest':digest_jcs(decode_json(raw)),'raw_response_digest':digest_bytes(raw)}
         result = self._exchange(request, seconds)
         if result != {'kind':'ProxyRuntimeInferenceRecorded','request_digest':request['request_digest'],
-                      'response_digest':request['response_digest'],'redispatch_allowed':False}:
+                      'response_digest':request['response_digest'],'raw_response_digest':request['raw_response_digest'],'redispatch_allowed':False}:
             raise ValueError('runtime_inference_original_response_binding')
 
 
@@ -189,9 +189,9 @@ class ProposalInferenceAuthorization(RuntimeInferenceAuthorization):
 
     def complete(self,reservation,raw,seconds):
         request={'kind':'ProposalInferenceCompletion','request_digest':reservation['request_digest'],
-            'response_digest':digest_jcs(decode_json(raw)),
+            'response_digest':digest_jcs(decode_json(raw)),'raw_response_digest':digest_bytes(raw),
             'deadline':(datetime.now(timezone.utc)+timedelta(seconds=min(9,seconds))).isoformat()}
         result=self._exchange(request,seconds)
         if result!={'kind':'ProxyProposalInferenceRecorded','request_digest':request['request_digest'],
-                'response_digest':request['response_digest'],'redispatch_allowed':False}:
+                'response_digest':request['response_digest'],'raw_response_digest':request['raw_response_digest'],'redispatch_allowed':False}:
             raise ValueError('proposal_inference_original_response_binding')

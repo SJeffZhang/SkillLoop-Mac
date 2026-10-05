@@ -6,6 +6,7 @@ import json
 import base64
 import http.client
 import os
+import hashlib
 import socket
 import struct
 import select
@@ -506,5 +507,7 @@ class OllamaGateway:
                             "completion_tokens": output_tokens,
                             "total_tokens": prompt_tokens + output_tokens,
                             "reasoning_tokens": 0},
-                  "backend_response": parsed}
+                  "backend_response": parsed,
+                  "backend_response_raw_b64": base64.b64encode(raw).decode("ascii"),
+                  "backend_response_bytes_digest": "sha256:"+hashlib.sha256(raw).hexdigest()}
         return result, prompt_tokens, time.monotonic() - model_started

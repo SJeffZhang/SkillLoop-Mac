@@ -111,6 +111,6 @@ class PublicationSnapshot:
             if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_inference_schema'").fetchone():
                 raise ValueError('snapshot_inference_authority_missing')
             version=db.execute('SELECT version FROM runtime_inference_schema WHERE singleton=1').fetchone()
-            if version is None or version[0]!=1:raise ValueError('snapshot_inference_authority_version')
+            if version is None or version[0]!=2:raise ValueError('snapshot_inference_authority_version')
             return [dict(row) for row in db.execute('SELECT * FROM runtime_inference_attempts '
                 'WHERE run_id=? ORDER BY round_index',(run_id,))]
