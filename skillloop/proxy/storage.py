@@ -50,7 +50,8 @@ class FormalStorageStore(ProxyStore):
             db.execute('CREATE TABLE IF NOT EXISTS formal_storage_identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1),policy TEXT NOT NULL,page_limit INTEGER NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS campaign_storage_reservations(campaign TEXT PRIMARY KEY,plan TEXT NOT NULL,generation INTEGER NOT NULL,disk_bytes INTEGER NOT NULL,state TEXT NOT NULL,committed_at TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS formal_storage_emergency(singleton INTEGER PRIMARY KEY CHECK(singleton=1),normal_used_page_limit INTEGER NOT NULL,emergency_pages INTEGER NOT NULL)')
-            identity=digest_jcs({'epoch':deployment_epoch,'policy':policy,'campaigns':campaigns})
+            db.execute('CREATE TABLE IF NOT EXISTS formal_campaign_cancellations(campaign TEXT PRIMARY KEY,operation_id TEXT NOT NULL,request_digest TEXT NOT NULL,committed_at TEXT NOT NULL)')
+            identity=digest_jcs({'epoch':deployment_epoch,'policy':policy,'campaigns':campaigns,'cancellation_version':1})
             prior=db.execute('SELECT policy,page_limit FROM formal_storage_identity WHERE singleton=1').fetchone()
             if prior and prior!=(identity,self.maximum_pages):raise ProxyError('storage_identity_changed')
             self._floor(policy['database_wal_reserve_bytes'] if prior is None else 0)
@@ -186,10 +187,70 @@ class FormalStorageStore(ProxyStore):
                         if primary is None:raise
                         primary.add_note('live_authority_sync_incomplete:'+type(error).__name__)
 
-    def cancel_run(self,*args,**kwargs):
+    def cancel_run(self,run_id,expected_fence,*,operation_id,request_digest):
         token=self._emergency.set(True)
-        try:return super().cancel_run(*args,**kwargs)
+        try:
+            with self._transaction() as db:
+                previous=self._operation_replay(db,operation_id,request_digest)
+                if previous is not None:return previous
+                run=self._one(db,'SELECT * FROM runs WHERE run_id=?',(run_id,))
+                cancelled=db.execute('SELECT committed_at FROM formal_campaign_cancellations WHERE campaign=?',
+                    (run['campaign_id'],)).fetchone()
+                if cancelled and run['state']=='cancelled' and run['fence']==expected_fence+1:
+                    # Original worker retirement after Admin cancellation only
+                    # observes that exact already committed business fence.
+                    # It cannot revive a run, advance a second fence, or admit
+                    # stale tooling. The immutable Admin event stays intact.
+                    event=digest_jcs({'run_id':run_id,'fence':run['fence'],'state':'cancelled'})
+                    row=db.execute("SELECT committed_at FROM accepted_events WHERE run_id=? AND event_type='run_cancelled' AND event_digest=?",(run_id,event)).fetchall()
+                    if len(row)!=1:raise ProxyError('denied')
+                    result={'run_id':run_id,'fence':run['fence'],'committed_at':row[0][0],
+                            'campaign_id':run['campaign_id']}
+                    self._record_operation(db,operation_id,'controller',run_id,request_digest,'cancel_run',result)
+                    return result
+                return self._cancel_run_in_transaction(db,run_id,expected_fence,
+                    operation_id=operation_id,request_digest=request_digest)
         finally:self._emergency.reset(token)
+
+    def cancel_campaign_run(self,campaign,run_id,expected_fence,*,operation_id,request_digest):
+        """Delegate Admin campaign cancellation through authenticated cancel_run.
+
+        Fence all original runs and deny future starts in the same business
+        commit. Ordinary worker retirement continues to cancel only its run.
+        No lost response is replayed with a new identity.
+        """
+        if campaign not in self.capacity_campaigns:raise ProxyError('denied')
+        token=self._emergency.set(True)
+        try:
+            with self._transaction() as db:
+                prior=self._operation_replay(db,operation_id,request_digest)
+                if prior is not None:return prior
+                run=self._one(db,'SELECT * FROM runs WHERE run_id=?',(run_id,))
+                if run['campaign_id']!=campaign:raise ProxyError('denied')
+                result=self._cancel_run_in_transaction(db,run_id,expected_fence,
+                    operation_id=operation_id,request_digest=request_digest)
+                now=result['committed_at']
+                db.execute('INSERT OR IGNORE INTO formal_campaign_cancellations VALUES(?,?,?,?)',
+                    (campaign,operation_id,request_digest,now))
+                # Any concurrently admitted run committed before this writer
+                # fence also becomes unusable; later starts see the tombstone.
+                for other in db.execute("SELECT run_id,fence FROM runs WHERE campaign_id=? AND run_id!=? AND state IN ('active','finalizing')",(campaign,run_id)).fetchall():
+                    fence=other['fence']+1
+                    db.execute("UPDATE runs SET state='cancelled',fence=? WHERE run_id=?",(fence,other['run_id']))
+                    event=digest_jcs({'run_id':other['run_id'],'fence':fence,'state':'cancelled'})
+                    db.execute("INSERT INTO accepted_events(run_id,event_type,event_digest,committed_at) VALUES(?,'run_cancelled',?,?)",(other['run_id'],event,now))
+                return result
+        finally:self._emergency.reset(token)
+
+    @staticmethod
+    def _require_uncancelled_campaign(db,campaign):
+        if db.execute('SELECT 1 FROM formal_campaign_cancellations WHERE campaign=?',(campaign,)).fetchone():
+            raise ProxyError('cancelled')
+
+    def _active_run(self,db,run_id,fence):
+        result=super()._active_run(db,run_id,fence)
+        self._require_uncancelled_campaign(db,result[0]['campaign_id'])
+        return result
 
     def revoke_approval(self,*args,**kwargs):
         token=self._emergency.set(True)
@@ -213,6 +274,7 @@ class FormalStorageStore(ProxyStore):
         with self._transaction() as db:
             old=self._operation_replay(db,operation_id,request_digest)
             if old is not None:return old
+            self._require_uncancelled_campaign(db,campaign)
             head=db.execute('SELECT plan FROM controller_plan_heads WHERE campaign=?',(campaign,)).fetchone()
             if head is None or head[0]!=plan:raise ProxyError('version_conflict')
             previous=db.execute('SELECT plan,generation,disk_bytes,state FROM campaign_storage_reservations WHERE campaign=?',(campaign,)).fetchone()
@@ -230,6 +292,7 @@ class FormalStorageStore(ProxyStore):
             return result
 
     def _admit_start_capacity(self, db, task):
+        self._require_uncancelled_campaign(db,task['campaign_id'])
         pins=self.capacity_campaigns.get(task['campaign_id'])
         if pins is None:raise ProxyError('denied')
         reservation=db.execute('SELECT plan,generation,disk_bytes,state FROM campaign_storage_reservations WHERE campaign=?',(task['campaign_id'],)).fetchone()

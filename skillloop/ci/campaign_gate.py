@@ -207,7 +207,7 @@ def review_campaign():
         config_digest=record['config_digest'],trust_revision=record['trust_revision'])
     chains={};reductions=[];reviewed={};subjects=bindings['subjects']
     with current_authority('/authority-projection',epoch=record['deployment_epoch'],config_digest=record['config_digest'],
-            trust_revision=record['trust_revision'],approval_digests=record['approval_digests']) as live:
+            trust_revision=record['trust_revision'],approval_digests=record['approval_digests'],campaign=campaign) as live:
         admitted={a['subject_digest']:a for a in live.get('source_admissions',[]) if a['campaign_id']==campaign}
         if archived_sources!=admitted:raise ValueError('campaign_gate_source_history_not_current_authority')
         if not set(record['approval_digests'])<={a['approval_digest'] for a in source_history['approvals']}:

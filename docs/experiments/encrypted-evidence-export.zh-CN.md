@@ -200,3 +200,11 @@ Controller 的 Docker socket 增加显式 engine_socket_gid 绑定；只有 Cont
 Operator 将普通串行执行与取消/撤销控制分开。控制 route 在服务准入时必须只有一条 proxy_controller 步骤，并严格匹配冻结 cancel_run/revoke_approval；只有实际 Admin 可以提交。控制通道最多一个待处理/运行操作，不占用16个普通操作的队列，不能派发模型或 campaign。两个通道的 claim 和状态历史仍用同一个权威 SQLite 事务，普通实验仍只有一个 running。
 
 关闭服务后若原 worker 未完成，保留 service lock fd 到进程退出，防止 endpoint 关闭后新服务误以为已清理而并行接管原 Runtime。tokenizer 和原证据继续保留。上述源代码检查不等同于并发/满队列/取消实测，完整物理紧急容量仍需整链接通。
+
+### Campaign 取消与资格消费的共同业务 fence
+
+正式 Admin cancel 经实际 Admin→Controller→冻结 cancel_run 委托，使用 Controller 自己保存的原 Lease/业务 closure 元数据解析 run 和实际已知 fence；不读取私有题库。内部 reason 明确绑定目标 campaign，Proxy 在同一 SQLite 事务保存 campaign cancellation、递增原 run fence，并取消其他已准入 active/finalizing run。普通任务停止仍只作用于自身，不把每个正常任务收尾误当 campaign 取消。未来 reserve/start 和业务工具均拒绝已取消 campaign。
+
+Proxy 的只读 live authority 投影携带实际取消记录。私有 Factory/session/当前任务交接、名单 Gate、campaign Gate、资格签发和资格消费均必须提供精确 campaign 身份；取消后不签发、不消费。Controller 的生产 route 增加内部 campaign_digest 绑定，派发新步骤前检查实际投影；证据保全、撤销、归档和已提交结果读取继续可用。原任务在 Admin 已提交取消后收尾，只复用完全匹配的原 run_cancelled 事件，不重复递增 fence。
+
+没有原 Lease（包括启动投递未知）的情况不能伪造 run 或 CancellationResult；当前明确阻断，尚需补齐启动前取消生产连接。并发 fence 变化仍以 CAS 拒绝处理，不自动创建第二次请求。取消时原 OCI/辅助进程的立即停止和完整资源释放仍需统一调度整链接通。仅做 AST、调用方和 diff 检查；未运行取消竞态、模型或完整轮次，不能宣布运行验收。

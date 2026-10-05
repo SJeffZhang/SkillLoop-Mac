@@ -119,7 +119,7 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
     # consuming its result with live Proxy approval/plan-head publication too.
     with current_authority(authority_directory,epoch=state['bindings']['deployment_epoch'],
             config_digest=state['bindings']['config_digest'],trust_revision=state['bindings']['trust_revision'],
-            approval_digests=job['approval_digests']) as authority:
+            approval_digests=job['approval_digests'],campaign=policy['campaign_digest']) as authority:
         heads=[h for h in authority.get('plan_heads',[]) if h['campaign_id']==policy['campaign_digest']]
         if len(heads)!=1 or heads[0]['plan_digest']!=job['plan']['digest']:
             raise ValueError('roster_dispatch_proxy_plan_changed_before_consumption')

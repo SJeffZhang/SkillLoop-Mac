@@ -113,9 +113,15 @@ class LiveAuthorityProjection:
                         'source_snapshot_digest':pins['source_snapshot_digest'],
                         'skill_manifest_digest':pins['skill_manifest_digest'],'admission_digest':admission,
                         'authorization_digest':grant['digest'],'git_provenance':pins['git_provenance']})
+            cancelled=[]
+            if 'formal_campaign_cancellations' in tables:
+                rows=db.execute('SELECT campaign,operation_id,request_digest,committed_at FROM formal_campaign_cancellations ORDER BY campaign LIMIT 4').fetchall()
+                if len(rows)>3:raise ValueError('live_authority_campaign_cancellation_capacity')
+                cancelled=[{'campaign_id':r[0],'operation_id':r[1],'request_digest':r[2],'committed_at':r[3]} for r in rows]
+            else:complete=False
             value={'kind':'LiveQualificationAuthority','deployment_epoch':self.epoch,
                 'trust_revision':identity[1],'complete':complete,'approvals':approvals,
-                'plan_heads':heads,'source_admissions':sources,
+                'plan_heads':heads,'source_admissions':sources,'cancelled_campaigns':cancelled,
                 'observed_at':datetime.now(timezone.utc).isoformat()}
             value['digest']=digest_jcs(value)
         self._write('current.pending',canonical_json_line(value))
@@ -125,7 +131,7 @@ class LiveAuthorityProjection:
 
 
 @contextmanager
-def current_authority(directory,*,epoch,config_digest,trust_revision,approval_digests):
+def current_authority(directory,*,epoch,config_digest,trust_revision,approval_digests,campaign):
     # The protected Evaluator also needs the effective approval guard while
     # committing its fresh Factory epoch. This is read-only metadata, not a
     # grant to the business database or another role's private cases.
@@ -141,6 +147,12 @@ def current_authority(directory,*,epoch,config_digest,trust_revision,approval_di
                 or value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'})
                 or value.get('deployment_epoch')!=epoch or value.get('trust_revision')!=trust_revision):
             raise ValueError('qualification_authority_changed')
+        if type(campaign) is not str or not campaign.startswith('sha256:') or len(campaign)!=71:
+            raise ValueError('qualification_exact_campaign_required')
+        cancellations=value.get('cancelled_campaigns')
+        if type(cancellations) is not list:raise ValueError('qualification_cancellation_authority_missing')
+        if any(row['campaign_id']==campaign for row in cancellations):
+            raise ValueError('qualification_campaign_cancelled')
         rows={a['approval_digest']:a for a in value['approvals']}
         if not approval_digests:raise ValueError('qualification_actual_approval_missing')
         now=datetime.now(timezone.utc)
@@ -154,6 +166,30 @@ def current_authority(directory,*,epoch,config_digest,trust_revision,approval_di
                     date=datetime.fromisoformat(expiry.replace('Z','+00:00'))
                     if date.tzinfo is None or date<=now:raise ValueError('consumption_expired')
         yield value
+    finally:os.close(fd)
+
+
+def require_campaign_not_cancelled(directory,*,epoch,campaign):
+    """Controller pre-dispatch metadata check; never grants a private read.
+
+    The business transaction remains the final fence against racing starts and
+    tools. Do not hold this shared lock across inference: Admin must be able
+    to commit cancellation while the original worker is running.
+    """
+    if os.geteuid()!=21001:raise PermissionError('campaign_dispatch_controller')
+    root=_directory(directory);fd=_open(root,'guard',os.O_RDONLY)
+    try:
+        _lock(fd,fcntl.LOCK_SH)
+        if os.path.lexists(root/'pending.json'):raise ValueError('campaign_authority_sync_incomplete')
+        value_fd=_open(root,'current.json',os.O_RDONLY)
+        with os.fdopen(value_fd,'rb') as stream:value=decode_json(stream.read(2097153))
+        if (value.get('kind')!='LiveQualificationAuthority' or value.get('deployment_epoch')!=epoch
+                or value.get('complete') is not True
+                or value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'})
+                or type(value.get('cancelled_campaigns')) is not list):
+            raise ValueError('campaign_original_authority_required')
+        if any(row['campaign_id']==campaign for row in value['cancelled_campaigns']):
+            raise ValueError('campaign_cancelled_no_new_actions')
     finally:os.close(fd)
 
 

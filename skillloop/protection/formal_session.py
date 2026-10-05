@@ -146,7 +146,7 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
         raise ValueError('formal_session_committed_bundle_identity')
     with current_authority(authority_directory,epoch=record['deployment_epoch'],
             config_digest=record['config_digest'],trust_revision=record['trust_revision'],
-            approval_digests=set(record['approval_digests'])) as live:
+            approval_digests=set(record['approval_digests']),campaign=record['campaign_id']) as live:
         heads=[row for row in live.get('plan_heads',[]) if row['campaign_id']==record['campaign_id']]
         if len(heads)!=1 or heads[0]['plan_digest']!=record['development_plan_digest']:
             raise ValueError('formal_session_frozen_development_head_changed')

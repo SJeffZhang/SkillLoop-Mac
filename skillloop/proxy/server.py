@@ -248,8 +248,17 @@ class ProxyServer:
             return self.store.start_run(params["run_request_digest"], params["task_binding_digest"],
                 operation_id=opid, request_digest=digest)
         if method == "cancel_run":
-            result = self.store.cancel_run(params["run_id"], params["expected_fence"],
-                operation_id=opid, request_digest=digest)
+            prefix='admin campaign cancellation:'
+            if params['reason'].startswith(prefix):
+                # This method is already restricted to the kernel-authenticated
+                # Controller. Its Admin delegation pins the exact campaign.
+                from skillloop.proxy.storage import FormalStorageStore
+                if not isinstance(self.store,FormalStorageStore):raise ProxyError('denied')
+                result=self.store.cancel_campaign_run(params['reason'][len(prefix):],
+                    params['run_id'],params['expected_fence'],operation_id=opid,request_digest=digest)
+            else:
+                result = self.store.cancel_run(params["run_id"], params["expected_fence"],
+                    operation_id=opid, request_digest=digest)
             if self.on_cancel is not None:
                 self.on_cancel()
             return make_control("CancellationResult", {"campaign_public_ref": result["campaign_id"],

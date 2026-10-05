@@ -23,7 +23,7 @@ def register_campaign(*,registration_path,authority_directory,registry,ledger,wh
             or whole['deployment_epoch']!=job['deployment_epoch'] or ledger.campaign_started_at is None):
         raise ValueError('campaign_registration_original_manifest_scope')
     with current_authority(authority_directory,epoch=job['deployment_epoch'],config_digest=job['config_digest'],
-            trust_revision=job['trust_revision'],approval_digests=job['approval_digests']) as authority:
+            trust_revision=job['trust_revision'],approval_digests=job['approval_digests'],campaign=predicted) as authority:
         admitted={s['subject_digest']:s for s in authority.get('source_admissions',[]) if s['campaign_id']==predicted}
         if any(subject not in admitted for subject in job['subjects'].values()):
             raise ValueError('campaign_registration_proxy_source_grant_missing')

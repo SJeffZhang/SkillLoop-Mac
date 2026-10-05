@@ -43,6 +43,14 @@ def validate_dispatch_route(route):
     """
     if type(route.get('steps')) is not list or not 1<=len(route['steps'])<=2048:
         raise ValueError('campaign_bounded_complete_route')
+    campaign=route.get('campaign_digest')
+    if campaign is not None and (type(campaign) is not str or len(campaign)!=71
+            or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
+        raise ValueError('campaign_route_exact_campaign')
+    producing={'register_campaign','development','roster_freeze','private_factory','private_session',
+        'private_start','private_runtime','semantic_discovery','proposal','application_gate','campaign_gate','promote'}
+    if any(step.get('action') in producing for step in route['steps']) and campaign is None:
+        raise ValueError('campaign_route_work_requires_campaign_binding')
     journals={route['journal_directory']}
     for step in route['steps']:
         if type(step) is not dict:raise ValueError('campaign_step_shape')
@@ -222,6 +230,9 @@ class CampaignDispatcher:
             if any(saved.get(k)!=v for k,v in identity.items()):raise ValueError('campaign_original_route_identity')
         else:_save(journal,'identity.json',identity)
         stage_receipts=[]
+        campaign=route['campaign_digest']
+        if campaign is not None and campaign not in {c['campaign_digest'] for c in self.phase.round_manifest['campaigns']}:
+            raise ValueError('campaign_route_original_whole_manifest_scope')
         for index,step in enumerate(route['steps']):
             token=str(index).zfill(4)
             finished=journal/(token+'.completed.json')
@@ -232,6 +243,15 @@ class CampaignDispatcher:
                 result=saved['result'];stage_receipts.append(digest_jcs(result));continue
             if (journal/(token+'.started.json')).exists():
                 raise RuntimeError('campaign_started_stage_unknown_no_reexecution')
+            # Evidence preservation/withdrawal remains available after cancel.
+            # No new model, task, candidate, qualification or promotion may
+            # start from this route after the actual Proxy cancellation commit.
+            if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze',
+                    'private_factory','private_session','private_start','private_runtime','semantic_discovery',
+                    'proposal','application_gate','campaign_gate','promote','static_scan'} or (
+                    campaign is not None and step['action']=='role_command' and step['role']=='admin'):
+                from skillloop.proxy.qualification_authority import require_campaign_not_cancelled
+                require_campaign_not_cancelled('/authority-projection',epoch=self.controller.epoch,campaign=campaign)
             _save(journal,token+'.started.json',{'kind':'CampaignStageStarted',
                 'step_digest':digest_jcs(step),'request_digest':request['digest']})
             if step['action']=='import_source':
@@ -285,11 +305,21 @@ class CampaignDispatcher:
                     raise PermissionError('operator_controller_delegation_scope')
                 directory=_directory(step['journal_directory'],21001,21001,0o700)
                 if any(directory.iterdir()):raise RuntimeError('operator_original_control_response_requires_recovery')
+                params=step['rpc_params']
+                if request['command']=='admin cancel':
+                    if set(request['parameters'])!={'campaign'} or request['parameters']['campaign']!=campaign:
+                        raise ValueError('admin_cancel_exact_campaign')
+                    params=self.controller.campaign_cancellation_params(request['parameters']['campaign'])
                 message=make_control('ControlRequest',{'operation_id':request['operation_id'],
                     'deadline':(datetime.now(timezone.utc)+timedelta(seconds=9)).isoformat().replace('+00:00','Z'),
-                    'method':step['method'],'params':step['rpc_params']})
+                    'method':step['method'],'params':params})
                 _save(directory,'request.json',{'kind':'DelegatedControllerRequest','request':message})
                 result=self.controller.client._send('control.sock',message)['result'];validate_control(result)
+                if request['command']=='admin cancel' and (result['kind']!='CancellationResult'
+                        or result['body']['campaign_public_ref']!=request['parameters']['campaign']
+                        or result['body']['run_id']!=params['run_id']
+                        or result['body']['effective_fence']!=params['expected_fence']+1):
+                    raise ValueError('admin_cancel_original_authority_result')
                 _save(directory,'response.json',{'kind':'DelegatedControllerResponse','result':result})
             elif step['action']=='development':
                 phase=read_owned(step['plan_path'],uid=21010,gid=21001,limit=8388608)

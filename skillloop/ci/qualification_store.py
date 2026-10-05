@@ -267,7 +267,7 @@ class QualificationIssuer:
         proof['digest'] = digest_jcs(proof)
         from skillloop.proxy.qualification_authority import current_authority
         with current_authority(self.authority_directory,epoch=self.epoch,config_digest=self.config,
-                trust_revision=trust_revision,approval_digests={a for refs in approval_bindings.values() for a in refs}) as authority, closing(self.connect()) as db:
+                trust_revision=trust_revision,approval_digests={a for refs in approval_bindings.values() for a in refs},campaign=campaign) as authority, closing(self.connect()) as db:
             admitted={row['subject_digest']:row for row in authority.get('source_admissions',[])
                 if row['campaign_id']==campaign}
             if any(subject not in admitted for subject in subjects.values()):
@@ -397,7 +397,7 @@ def current_qualification(path, *, campaign, expected_bindings, subject_role, au
         from skillloop.proxy.qualification_authority import current_authority
         with current_authority(authority_directory,epoch=expected_bindings['deployment_epoch'],
                 config_digest=expected_bindings['config_digest'],trust_revision=expected_bindings['trust_revision'],
-                approval_digests={a for refs in approvals.values() for a in refs}) as authority:
+                approval_digests={a for refs in approvals.values() for a in refs},campaign=campaign) as authority:
             admitted={a['subject_digest']:a for a in authority.get('source_admissions',[]) if a['campaign_id']==campaign}
             if (any(subject not in admitted for subject in expected_bindings['subjects'].values())
                     or admitted[expected_bindings['subjects']['submitted']]['source_snapshot_digest']!=expected_bindings['source_snapshot_digest']):

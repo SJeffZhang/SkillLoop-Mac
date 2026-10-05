@@ -274,7 +274,7 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
             'semantic_evidence_digest':semantic_digest}
     if set(scans)!=set(final_subjects.values()):raise ValueError('roster_gate_final_subject_scan_missing')
     with current_authority(authority_directory,epoch=bindings['deployment_epoch'],
-            config_digest=config_digest,trust_revision=bindings['trust_revision'],approval_digests=job['approval_digests']) as authority:
+            config_digest=config_digest,trust_revision=bindings['trust_revision'],approval_digests=job['approval_digests'],campaign=bindings['campaign']) as authority:
         heads=[h for h in authority.get('plan_heads',[]) if h['campaign_id']==bindings['campaign']]
         if len(heads)!=1 or heads[0]['plan_digest']!=plan['digest']:
             raise ValueError('roster_gate_actual_proxy_plan_head_changed')

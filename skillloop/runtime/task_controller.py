@@ -144,6 +144,42 @@ class FormalTaskController:
         _sync(self.journal)
         return result
 
+    def campaign_cancellation_params(self,campaign):
+        """Use only original opaque Lease/closure receipts, never private plans.
+
+        A missing/unknown original Lease cannot be invented to satisfy the
+        frozen CancellationResult contract. A concurrent fence change is an
+        explicit CAS failure, never an automatic second cancellation.
+        """
+        if os.geteuid()!=21001:raise PermissionError('campaign_cancel_controller')
+        receipts=list(self.journal.iterdir())
+        if len(receipts)>4096:raise ValueError('campaign_cancel_original_journal_capacity')
+        leases={};fences={}
+        for path in receipts:
+            if not path.name.endswith(('.lease.json','.lease-observed.json','.closed.json','.cancelled-before-runtime.json','.pre-dispatch-cancelled.json')):
+                continue
+            value=decode_json(_read(path,21001,21001,0o600,262144))
+            if value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+                raise ValueError('campaign_cancel_original_receipt_seal')
+            lease=value if value.get('kind')=='Lease' else value.get('lease')
+            if lease is not None:
+                validate_envelope(lease)
+                if lease['kind']!='Lease':raise ValueError('campaign_cancel_original_lease_kind')
+                body=lease['body']
+                if body['campaign_id']==campaign:
+                    run=body['run_id'];leases[run]=body
+                    fences[run]=max(fences.get(run,0),body['fencing_token'])
+            cancellation=value if value.get('kind')=='CancellationResult' else value.get('cancellation',value.get('result'))
+            if type(cancellation) is dict and cancellation.get('kind')=='CancellationResult':
+                from skillloop.proxy.wire import validate_control
+                validate_control(cancellation);body=cancellation['body']
+                if body['campaign_public_ref']==campaign:
+                    run=body['run_id'];fences[run]=max(fences.get(run,0),body['effective_fence'])
+        if not leases:raise RuntimeError('campaign_cancel_original_lease_unavailable')
+        run=max(leases,key=lambda key:(leases[key]['expires_at'],key))
+        return {'run_id':run,'expected_fence':fences[run],
+                'reason':'admin campaign cancellation:'+campaign}
+
     def start(self, intent, *, operation_id):
         admission = self.admission(intent)
         if admission is None:

@@ -111,7 +111,7 @@ def create_private_epoch(*,assignment_path,whole_round_manifest_path,tokenizer_p
     # a seed or replace an already-created epoch under the same campaign.
     _save(private/(job['campaign_id'][7:]+'.generation-intent.json'),intent)
     with current_authority(authority_directory,epoch=whole['deployment_epoch'],config_digest=config_digest,
-            trust_revision=job['trust_revision'],approval_digests=set(job['approval_digests'])) as live:
+            trust_revision=job['trust_revision'],approval_digests=set(job['approval_digests']),campaign=job['campaign_id']) as live:
         heads=[row for row in live.get('plan_heads',[]) if row['campaign_id']==job['campaign_id']]
         if len(heads)!=1 or heads[0]['plan_digest']!=freeze['development_plan_digest']:
             raise ValueError('private_factory_actual_frozen_development_head')

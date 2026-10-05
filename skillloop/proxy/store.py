@@ -812,19 +812,24 @@ class ProxyStore:
             previous = self._operation_replay(db, operation_id, request_digest)
             if previous is not None:
                 return previous
-            run = self._one(db, "SELECT * FROM runs WHERE run_id=?", (run_id,))
-            if run["fence"] != expected_fence:
-                raise ProxyError("stale_fence")
-            new_fence = expected_fence + 1
-            now = _stamp(_now())
-            db.execute("UPDATE runs SET state='cancelled', fence=? WHERE run_id=?", (new_fence, run_id))
-            event = digest_jcs({"run_id": run_id, "fence": new_fence, "state": "cancelled"})
-            db.execute("INSERT INTO accepted_events(run_id,event_type,event_digest,committed_at) VALUES (?, 'run_cancelled', ?, ?)",
-                       (run_id, event, now))
-            result = {"run_id": run_id, "fence": new_fence, "committed_at": now,
-                      "campaign_id": run["campaign_id"]}
-            self._record_operation(db, operation_id, "controller", run_id, request_digest, "cancel_run", result)
-            return result
+            return self._cancel_run_in_transaction(db,run_id,expected_fence,
+                operation_id=operation_id,request_digest=request_digest)
+
+    def _cancel_run_in_transaction(self,db,run_id,expected_fence,*,operation_id,request_digest):
+        """The authenticated caller owns the original SQLite transaction."""
+        run = self._one(db, "SELECT * FROM runs WHERE run_id=?", (run_id,))
+        if run["fence"] != expected_fence:
+            raise ProxyError("stale_fence")
+        new_fence = expected_fence + 1
+        now = _stamp(_now())
+        db.execute("UPDATE runs SET state='cancelled', fence=? WHERE run_id=?", (new_fence, run_id))
+        event = digest_jcs({"run_id": run_id, "fence": new_fence, "state": "cancelled"})
+        db.execute("INSERT INTO accepted_events(run_id,event_type,event_digest,committed_at) VALUES (?, 'run_cancelled', ?, ?)",
+                   (run_id, event, now))
+        result = {"run_id": run_id, "fence": new_fence, "committed_at": now,
+                  "campaign_id": run["campaign_id"]}
+        self._record_operation(db, operation_id, "controller", run_id, request_digest, "cancel_run", result)
+        return result
 
     def recover_tool(self, run_id: str, tool: str, idempotency_key: str) -> dict[str, Any]:
         if tool not in TOOL_NAMES or not idempotency_key:

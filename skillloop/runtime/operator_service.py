@@ -27,7 +27,7 @@ class OperatorService:
         self.routes={}
         for path in cfg['routes']:
             route=read_owned(path,uid=21010,gid=21001,limit=2097152)
-            expected={'kind','command','parameters_digest','result_kind','deadline','steps','result_path','result_binding_path','result_uid','journal_directory','digest'}
+            expected={'kind','campaign_digest','command','parameters_digest','result_kind','deadline','steps','result_path','result_binding_path','result_uid','journal_directory','digest'}
             if set(route)!=expected or type(route['steps']) is not list or not route['steps']:
                 raise ValueError('operator_complete_route_shape')
             import json

@@ -135,7 +135,7 @@ def prepare_and_deliver(*, authority, action_path, policy_path, lifecycle_review
     entry['digest'] = digest_jcs(entry)
     with current_authority(authority_directory, epoch=record['deployment_epoch'],
             config_digest=record['config_digest'], trust_revision=record['trust_revision'],
-            approval_digests=set(record['approval_digests'])) as live:
+            approval_digests=set(record['approval_digests']),campaign=record['campaign_id']) as live:
         heads = [h for h in live.get('plan_heads', []) if h['campaign_id'] == record['campaign_id']]
         if len(heads) != 1 or heads[0]['plan_digest'] != record['development_plan_digest']:
             raise ValueError('private_current_task_development_head_changed')
@@ -289,7 +289,7 @@ def prepare_runtime_request(*, authority, action, projection_directory, private_
         raise PermissionError('private_runtime_current_read_group')
     with current_authority(authority_directory, epoch=intent['deployment_epoch'],
             config_digest=digest_jcs(config), trust_revision=started['trust_revision'],
-            approval_digests={started['approval_digest']}) as live:
+            approval_digests={started['approval_digest']},campaign=intent['campaign_id']) as live:
         heads = [h for h in live.get('plan_heads', []) if h['campaign_id'] == intent['campaign_id']]
         with authority.connect() as db:
             row = db.execute('SELECT record FROM formal_private_bundles WHERE campaign=?', (pins['campaign'],)).fetchone()
