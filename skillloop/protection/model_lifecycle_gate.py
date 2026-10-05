@@ -60,7 +60,7 @@ def _start(raw, phase, record):
     return policy, created, started, roots[0]
 
 
-def review_lifecycle(*, assignment_path, private_authority_directory, output_directory, gateway_output_directory=None):
+def review_lifecycle(*, assignment_path, private_authority_directory, output_directory, gateway_output_directory=None, opaque_output_directory=None):
     if os.geteuid() != 21005 or 21004 not in set(os.getgroups()) | {os.getegid()}:
         raise PermissionError('lifecycle_independent_gate_actual_uid')
     job = read_owned(assignment_path, uid=21010, gid=21005, limit=8388608)
@@ -168,6 +168,16 @@ def review_lifecycle(*, assignment_path, private_authority_directory, output_dir
         fd = os.open(gateway_output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try: os.fsync(fd)
         finally: os.close(fd)
+    if opaque_output_directory is not None:
+        from skillloop.protection.current_task import _directory,_publish
+        # Controller receives no host PID, private evidence digest, Factory
+        # seed, task plan, gateway grant or per-case result.
+        projection=_directory(opaque_output_directory,21005,21001,0o750)
+        completion={'kind':'OpaqueNativeLifecycleReviewCompletion',
+            'campaign_public_ref':record['campaign_id'],'deployment_epoch':record['deployment_epoch'],
+            'aggregate_status':'reviewed','qualification_issued':False}
+        completion['digest']=digest_jcs(completion)
+        _publish(projection/'completion.json',completion,21001)
     return value
 
 
@@ -175,7 +185,7 @@ def main():
     os.umask(0o077)
     review_lifecycle(assignment_path='/lifecycle/evidence.json',
         private_authority_directory='/private-authority', output_directory='/reviews',
-        gateway_output_directory='/gateway-review')
+        gateway_output_directory='/gateway-review',opaque_output_directory='/public-lifecycle')
 
 
 if __name__ == '__main__':

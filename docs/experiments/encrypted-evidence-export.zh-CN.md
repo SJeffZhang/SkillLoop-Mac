@@ -208,3 +208,9 @@ Operator 将普通串行执行与取消/撤销控制分开。控制 route 在服
 Proxy 的只读 live authority 投影携带实际取消记录。私有 Factory/session/当前任务交接、名单 Gate、campaign Gate、资格签发和资格消费均必须提供精确 campaign 身份；取消后不签发、不消费。Controller 的生产 route 增加内部 campaign_digest 绑定，派发新步骤前检查实际投影；证据保全、撤销、归档和已提交结果读取继续可用。原任务在 Admin 已提交取消后收尾，只复用完全匹配的原 run_cancelled 事件，不重复递增 fence。
 
 没有原 Lease（包括启动投递未知）的情况不能伪造 run 或 CancellationResult；当前明确阻断，尚需补齐启动前取消生产连接。并发 fence 变化仍以 CAS 拒绝处理，不自动创建第二次请求。取消时原 OCI/辅助进程的立即停止和完整资源释放仍需统一调度整链接通。仅做 AST、调用方和 diff 检查；未运行取消竞态、模型或完整轮次，不能宣布运行验收。
+
+### 正式 campaign 调用独立模型生命周期 Gate
+
+增加 lifecycle_review 调度步骤，使用统一11角色部署中的真实 Gate 入口 review_lifecycle。Controller 只读 Admin 的调度政策和 Gate 的 OpaqueNativeLifecycleReviewCompletion；Admin 的原宿主 start/stop/log、Evaluator 私有 Factory 库、完整生命周期 review 与 Gateway grant 均不跨入 Controller。Gate 必须先独立完成原进程、真实 UTC、空缓存、完整日志及开发停止→保护全新启动核验，才发布不透明完成状态。
+
+生命周期 Gate 的原创建、预算、进程和 reviewed/removing 记录进入 Controller 私有 journal。成功后只删除已经停止的 Gate 容器，明确保留共享持久证据卷和 Keeper；删除响应丢失只能凭原 removing 与完整 reviewed 身份继续清理，不能再次审查或启动模型。原开始时间、截止和预留不重置，超时仍 inconclusive。失败只停止精确原 Gate 并保全私有诊断。此连接还需要正式 Admin 宿主生命周期生产/导入及完整部署包配置，不能以其源码存在宣布整链就绪。未启动 Gate、模型或实验。

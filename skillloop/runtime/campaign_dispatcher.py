@@ -20,6 +20,7 @@ ACTION_FIELDS={
     'proxy_controller':{'method','rpc_params','journal_directory'},
     'development':{'plan_path'},
     'roster_freeze':{'policy_path','assignment_directory','roster_directory','journal_directory','authority_directory'},
+    'lifecycle_review':{'policy_path','manifest_path','deployment_journal','journal_directory','result_path'},
     'private_factory':{'policy_path','assignment_directory','projection_directory','gate_freeze_path','journal_directory'},
     'private_session':{'policy_path','journal_directory'},
     'private_start':{'reference_path','minimum_remaining_seconds','evaluator_directory'},
@@ -48,7 +49,7 @@ def validate_dispatch_route(route):
             or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
         raise ValueError('campaign_route_exact_campaign')
     producing={'register_campaign','development','roster_freeze','private_factory','private_session',
-        'private_start','private_runtime','semantic_discovery','proposal','application_gate','campaign_gate','promote'}
+        'private_start','private_runtime','lifecycle_review','semantic_discovery','proposal','application_gate','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
     journals={route['journal_directory']}
@@ -132,6 +133,17 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action']=='lifecycle_review':
+                # A raw review without a recorded removal is not retryable.
+                removing=Path(step['journal_directory'])/'removing.json'
+                if not removing.exists():return
+                from skillloop.runtime.lifecycle_dispatch import recover_lifecycle_retirement
+                policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=262144)
+                result=recover_lifecycle_retirement(journal_directory=step['journal_directory'],
+                    policy_digest=policy['digest'],engine=self.engine)
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action']!='archive_close':return
             # Presence and custody of the original intent is checked before the
             # caller, so recovery cannot initialize a new cleanup operation.
@@ -247,7 +259,7 @@ class CampaignDispatcher:
             # No new model, task, candidate, qualification or promotion may
             # start from this route after the actual Proxy cancellation commit.
             if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze',
-                    'private_factory','private_session','private_start','private_runtime','semantic_discovery',
+                    'private_factory','private_session','private_start','private_runtime','lifecycle_review','semantic_discovery',
                     'proposal','application_gate','campaign_gate','promote','static_scan'} or (
                     campaign is not None and step['action']=='role_command' and step['role']=='admin'):
                 from skillloop.proxy.qualification_authority import require_campaign_not_cancelled
@@ -365,6 +377,12 @@ class CampaignDispatcher:
                     assignment_directory=step['assignment_directory'],roster_directory=step['roster_directory'],
                     journal_directory=step['journal_directory'],authority_directory=step['authority_directory'],
                     whole_round_manifest_path=self.manifest_path,registry=self.registry,ledger=self.ledger,engine=self.engine)
+            elif step['action']=='lifecycle_review':
+                from skillloop.runtime.lifecycle_dispatch import dispatch_lifecycle_review
+                result=dispatch_lifecycle_review(policy_path=step['policy_path'],manifest_path=step['manifest_path'],
+                    deployment_journal=step['deployment_journal'],journal_directory=step['journal_directory'],
+                    result_path=step['result_path'],whole_round_manifest_path=self.manifest_path,
+                    ledger=self.ledger,engine=self.engine)
             elif step['action']=='private_factory':
                 from skillloop.runtime.factory_dispatch import dispatch_private_factory
                 result=dispatch_private_factory(policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152),
