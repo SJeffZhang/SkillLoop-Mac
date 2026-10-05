@@ -15,6 +15,57 @@ from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
 
 
+def development_inference_history(db,*,campaign,epoch,config_digest,budget):
+    """Read all original reservations, including unanswered ones, in this tx.
+
+    Only public development request metadata is exported to Gate. Protected
+    runs and task resources never enter this source-history projection.
+    """
+    tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'runtime_inference_attempts' not in tables:
+        raise ValueError('source_archive_actual_inference_authority_missing')
+    rows=db.execute('SELECT run_id,round_index,request_digest,reservation_json,response_digest,raw_response_digest,completed_at '
+        'FROM runtime_inference_attempts ORDER BY run_id,round_index LIMIT 6145').fetchall()
+    if len(rows)>6144:raise ValueError('source_archive_original_inference_history_capacity')
+    runtime=[];proposals=[]
+    for run,ordinal,request_digest,raw,response,raw_response,completed in rows:
+        budget();reserved=decode_json(raw);request=reserved['request']
+        if request['campaign_id']!=campaign or request['phase']!='dev':continue
+        if (reserved.get('kind')!='ProxyRuntimeInferenceReserved'
+                or reserved.get('digest')!=digest_jcs({k:v for k,v in reserved.items() if k!='digest'})
+                or request['digest']!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
+                or request['digest']!=request_digest or request['run_id']!=run or request['round_index']!=ordinal
+                or request['deployment_epoch']!=epoch or request['config_digest']!=config_digest):
+            raise ValueError('source_archive_actual_runtime_reservation_binding')
+        runtime.append({'run_id':run,'round_index':ordinal,'request_digest':request_digest,'reservation':reserved,
+            'response_digest':response,'raw_response_digest':raw_response,'completed_at':completed,
+            'status':'unknown' if response is None else 'recorded','redispatch_allowed':False})
+    if 'proposal_inference_attempts' in tables:
+        rows=db.execute('SELECT grant_digest,request_digest,role_uid,reservation_json,response_digest,raw_response_digest,completed_at '
+            'FROM proposal_inference_attempts WHERE campaign=? ORDER BY grant_digest LIMIT 129',(campaign,)).fetchall()
+        if len(rows)>128:raise ValueError('source_archive_original_proposal_history_capacity')
+        for grant_digest,request_digest,uid,raw,response,raw_response,completed in rows:
+            budget();reserved=decode_json(raw);request=reserved['request'];grant=request['grant']
+            if (reserved.get('kind')!='ProxyProposalInferenceReserved'
+                    or reserved.get('digest')!=digest_jcs({k:v for k,v in reserved.items() if k!='digest'})
+                    or request['digest']!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
+                    or grant['digest']!=digest_jcs({k:v for k,v in grant.items() if k!='digest'})
+                    or request['digest']!=request_digest or grant['digest']!=grant_digest
+                    or grant['role_uid']!=uid or grant['campaign_id']!=campaign
+                    or grant['deployment_epoch']!=epoch or grant['config_digest']!=config_digest):
+                raise ValueError('source_archive_actual_proposal_reservation_binding')
+            proposals.append({'grant_digest':grant_digest,'request_digest':request_digest,'role_uid':uid,'reservation':reserved,
+                'response_digest':response,'raw_response_digest':raw_response,'completed_at':completed,
+                'status':'unknown' if response is None else 'recorded','redispatch_allowed':False})
+    value={'kind':'ProxyDevelopmentInferenceHistory','campaign':campaign,'deployment_epoch':epoch,
+        'config_digest':config_digest,'runtime_attempts':runtime,'proposal_attempts':proposals,
+        'unknown_count':sum(row['status']=='unknown' for row in runtime+proposals),
+        'catalog_scope':'runtime_dev_and_generator_patcher_reservations',
+        'all_development_attempt_history_complete':False,'private_resources_disclosed':False}
+    value['digest']=digest_jcs(value)
+    return value
+
+
 class SourceArchiveInbox:
     def __init__(self,*,store,admission,authority,directory):
         if os.geteuid()!=21003 or 21005 not in set(os.getgroups())|{os.getegid()}:
@@ -100,6 +151,8 @@ class SourceArchiveInbox:
                 revisions=db.execute('SELECT authorization,receipt FROM controller_plan_revisions WHERE campaign=? ORDER BY digest',(campaign,)).fetchall()
                 frozen_plan=db.execute('SELECT protected_plan FROM evaluator_protected_campaigns WHERE campaign=?',(campaign,)).fetchone()
                 if frozen_plan is None:raise ValueError('source_archive_original_private_plan_fence_lost')
+                inference_history=development_inference_history(db,campaign=campaign,epoch=identity[0],
+                    config_digest=request['config_digest'],budget=budget)
                 value={'kind':'ProxyCampaignSourceAuthoritySnapshot','producer_uid':21003,'reader_gid':21005,
                     'request_digest':request['digest'],'campaign':campaign,'deployment_epoch':identity[0],
                     'config_digest':request['config_digest'],'trust_revision':identity[1],
@@ -111,6 +164,7 @@ class SourceArchiveInbox:
                     'catalog':[{'category':key[0],'digest':key[1],'value':decode_json(raw)} for key,raw in sorted(self.authority.catalog.items())],
                     'plan_head':list(head) if head else None,
                     'plan_revisions':[{'authorization':decode_json(r[0]),'receipt':decode_json(r[1])} for r in revisions],
+                    'development_inference_history':inference_history,
                     'exported_at':datetime.now(timezone.utc).isoformat(),
                     'task_resources_disclosed':False,'qualification_issued':False}
                 value['digest']=digest_jcs(value)
@@ -122,6 +176,60 @@ class SourceArchiveInbox:
                 raise ValueError('source_archive_original_publication_conflict')
         else:_publish(target,value,21005)
         return value
+
+
+def verify_development_inference_history(value,*,campaign,epoch,config_digest):
+    fields={'kind','campaign','deployment_epoch','config_digest','runtime_attempts','proposal_attempts',
+        'unknown_count','catalog_scope','all_development_attempt_history_complete','private_resources_disclosed','digest'}
+    if (type(value) is not dict or set(value)!=fields or value['kind']!='ProxyDevelopmentInferenceHistory'
+            or value['digest']!=digest_jcs({k:v for k,v in value.items() if k!='digest'})
+            or value['campaign']!=campaign or value['deployment_epoch']!=epoch or value['config_digest']!=config_digest
+            or value['catalog_scope']!='runtime_dev_and_generator_patcher_reservations'
+            or value['all_development_attempt_history_complete'] is not False
+            or value['private_resources_disclosed'] is not False
+            or type(value['runtime_attempts']) is not list or len(value['runtime_attempts'])>2048
+            or type(value['proposal_attempts']) is not list or len(value['proposal_attempts'])>128):
+        raise ValueError('archive_actual_development_inference_history')
+    seen=set();rounds={};unknown=0
+    for runtime,rows in ((True,value['runtime_attempts']),(False,value['proposal_attempts'])):
+        specific={'run_id','round_index'} if runtime else {'grant_digest','role_uid'}
+        for row in rows:
+            if type(row) is not dict or set(row)!=specific|{'request_digest','reservation','response_digest',
+                    'raw_response_digest','completed_at','status','redispatch_allowed'}:
+                raise ValueError('archive_development_inference_attempt_shape')
+            reserved=row['reservation'];request=reserved['request']
+            if (reserved.get('kind')!=('ProxyRuntimeInferenceReserved' if runtime else 'ProxyProposalInferenceReserved')
+                    or reserved.get('digest')!=digest_jcs({k:v for k,v in reserved.items() if k!='digest'})
+                    or request['digest']!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
+                    or reserved['request_digest']!=request['digest'] or request['digest']!=row['request_digest']
+                    or row['request_digest'] in seen or row['redispatch_allowed'] is not False):
+                raise ValueError('archive_development_inference_original_request')
+            seen.add(row['request_digest'])
+            binding=request if runtime else request['grant']
+            if (binding['campaign_id']!=campaign or binding['deployment_epoch']!=epoch or binding['config_digest']!=config_digest):
+                raise ValueError('archive_development_inference_original_scope')
+            if runtime:
+                if (request['phase']!='dev' or row['run_id']!=request['run_id']
+                        or row['round_index']!=request['round_index'] or type(row['round_index']) is not int
+                        or not 0<=row['round_index']<16):
+                    raise ValueError('archive_development_runtime_phase_and_round')
+                rounds.setdefault(row['run_id'],[]).append(row['round_index'])
+            elif (binding['digest']!=digest_jcs({k:v for k,v in binding.items() if k!='digest'})
+                    or binding['digest']!=row['grant_digest'] or binding['role_uid']!=row['role_uid']
+                    or row['role_uid'] not in {21006,21007}):
+                raise ValueError('archive_development_proposal_original_grant')
+            if row['response_digest'] is None:
+                if row['status']!='unknown' or row['raw_response_digest'] is not None or row['completed_at'] is not None:
+                    raise ValueError('archive_development_unanswered_attempt_preserved')
+                unknown+=1
+            elif (row['status']!='recorded' or not re.fullmatch(r'sha256:[0-9a-f]{64}',row['response_digest'])
+                    or type(row['raw_response_digest']) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',row['raw_response_digest'])
+                    or type(row['completed_at']) is not str
+                    or datetime.fromisoformat(row['completed_at'].replace('Z','+00:00')).tzinfo is None):
+                raise ValueError('archive_development_original_response_pins')
+    if any(sorted(indices)!=list(range(len(indices))) for indices in rounds.values()) or value['unknown_count']!=unknown:
+        raise ValueError('archive_development_attempt_gap_or_unknown_count')
+    return value
 
 
 def verify_source_history(value,*,campaign,epoch,config_digest,trust_revision):
@@ -136,6 +244,8 @@ def verify_source_history(value,*,campaign,epoch,config_digest,trust_revision):
             or value.get('trust_revision')!=trust_revision or value.get('task_resources_disclosed') is not False
             or value.get('development_source_admission_closed') is not True):
         raise ValueError('archive_source_authority_identity')
+    verify_development_inference_history(value.get('development_inference_history'),
+        campaign=campaign,epoch=epoch,config_digest=config_digest)
     sources=value['sources']
     if not 1<=len(sources)<=4 or len({r['subject'] for r in sources})!=len(sources):
         raise ValueError('archive_source_authority_unique_grants')

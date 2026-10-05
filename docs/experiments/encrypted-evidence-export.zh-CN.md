@@ -637,3 +637,9 @@ Factory仅新增同原opaque commitment字节的固定commit.json普通文件，
 ### 保护计划封存后拒绝迟到开发推理
 
 Proxy实际runtime inference reserve事务在读取原run和授权后，同时核对evaluator_protected_campaigns。当前campaign已封存保护计划时，旧dev run不能再预留新模型请求，稳定返回已有denied代码；不删除原请求、不阻止原完成证据记账、不回收unknown槽。与现有候选/proposal封存拒绝保持同一实际权威边界。仅源码检查，完整失败/unknown尝试catalog仍未闭合，未修改development all_attempt_history_complete=false。
+
+### Proxy权威开发推理尝试原始库存接入归档Gate
+
+source-authority导出在原同一SQLite事务中读取完整Runtime dev及Generator/Patcher reservation表，保存原reservation/request、响应摘要、完成时间和未响应unknown；不读入保护请求或业务资源字节。原128×16×三campaign上界及proposal128上界超出即拒绝，独立Gate核对身份、封装摘要、逐run连续round、response pins及unknown计数，最后campaign Gate将已观测unknown加入incomplete原因。
+
+此库存只证明权威推理预留范围，尚未覆盖全部scanner/semantic/Controller辅助尝试及失败前未取得Proxy预留的操作；all_development_attempt_history_complete仍false，不用库存或0unknown直接签资格。原导出partial/预算/一致事务和immutable保存不变。仅156份AST和源码接口审查，无SQLite或模型实测。

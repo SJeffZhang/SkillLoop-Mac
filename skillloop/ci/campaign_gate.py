@@ -232,6 +232,8 @@ def review_campaign():
             incomplete=[]
             if development.get('all_attempt_history_complete') is not True:
                 incomplete.append('development_attempt_history_incomplete')
+            if source_history['development_inference_history']['unknown_count']:
+                incomplete.append('development_inference_unknown')
             context=make_envelope('GateContext',{'contract_approved':True,'approval_digest':next(iter(approvals)),
                 'runtime_verified':True,'source_immutable':True,'scanner_complete':True,
                 'authorization_verified':True,'evidence_verified':True,'unresolved_high_findings':high,
