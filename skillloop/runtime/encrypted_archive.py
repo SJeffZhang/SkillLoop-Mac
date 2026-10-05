@@ -37,7 +37,21 @@ def _hash(path,budget):
 def _inventory(policy,budget):
     rows=[];count=0;total=0;roots=policy['sources']
     if type(roots) is not list or not 1<=len(roots)<=32:raise ValueError('archive_declared_source_roots')
-    aliases=set()
+    # A file must have exactly one source owner and one byte charge. Reject
+    # nested or aliased roots before reading any original evidence or writing
+    # an export intent; a second alias cannot stand in for missing evidence.
+    canonical_roots=[]
+    for root in roots:
+        if type(root) is not dict or type(root.get('path')) is not str:
+            raise ValueError('archive_declared_source_root_path')
+        base=Path(root['path'])
+        if not base.is_absolute() or '..' in base.parts or str(base)!=root['path']:
+            raise ValueError('archive_canonical_source_root')
+        if any(base==other or base.is_relative_to(other) or other.is_relative_to(base)
+               for other in canonical_roots):
+            raise ValueError('archive_source_roots_must_be_disjoint')
+        canonical_roots.append(base)
+    aliases=set();physical_roots=set();physical_files=set()
     for root in roots:
         if (type(root) is not dict or set(root)!={'alias','path','uid','gid','mode'}
                 or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',root['alias']) or root['alias'] in aliases
@@ -46,6 +60,9 @@ def _inventory(policy,budget):
             raise ValueError('archive_original_private_source_custody')
         aliases.add(root['alias']);base=_directory(root['path'],root['uid'],root['gid'],root['mode'])
         if '..' in base.parts or any(p.is_symlink() for p in base.parents):raise ValueError('archive_source_parent_symlink')
+        root_info=base.lstat();root_inode=(root_info.st_dev,root_info.st_ino)
+        if root_inode in physical_roots:raise ValueError('archive_source_physical_root_alias')
+        physical_roots.add(root_inode)
         pending=[base]
         while pending:
             budget();parent=pending.pop();before_directory=parent.lstat()
@@ -66,6 +83,10 @@ def _inventory(policy,budget):
                     digest,actual=_hash(path,budget)
                     if identity(actual)!=identity(meta):
                         raise ValueError('archive_source_changed_before_inventory')
+                    inode=(actual.st_dev,actual.st_ino)
+                    if inode in physical_files:
+                        raise ValueError('archive_source_physical_file_alias')
+                    physical_files.add(inode)
                     relative=path.relative_to(base).as_posix()
                     if len(relative)>1024 or '..' in PurePosixPath(relative).parts:raise ValueError('archive_relative_path_capacity')
                     rows.append({'path':root['alias']+'/'+relative,'bytes':meta.st_size,'digest':digest,
