@@ -411,3 +411,9 @@ Runtime、Generator、Patcher、Scanner和Gateway禁止挂载其他角色拥有�
 冻结ControlRequest经server派发时将原UTC截止和单调剩余窗口绑定当前请求上下文，实际SQLite连接、写锁等待、取得事务后及COMMIT前均复核该窗口。busy timeout取原剩余值，SQL progress callback不允许长查询以每条SQL重新取得窗口；正式storage外层写锁也沿同一检查。上下文按线程请求隔离并在退出时恢复，不改变其它新部署初始化或内部可信生产操作的时钟。
 
 提交前到期回滚原事务；取消/撤销/工具副作用和operation仍在同一库中提交。COMMIT的实际fsync或随后回复可能跨过截止，此时绝不能将expired/丢失响应解释为未提交，仍需原operation权威恢复。过期progress回调在ROLLBACK前解除，防止它阻止回滚；原故障/未知保全规则继续适用。未运行SQLite或事务实验，仅AST及调用路径检查。
+
+### 原提案已投递与未知跨进程保护
+
+Generator/Patcher在保存新intent前，于原spending锁内逐项读取当前session的连续原请求与响应，核验真实所有者、权限、inode/时间稳定性、policy及slot绑定。原request缺response、存在unknown、孤立response或编号缺口均阻断后续模型投递；相同messages已经完成也拒绝再次投递，调用者必须恢复原proposal/operation而不是再调用模型。请求和响应文件不会删除或补写，max_requests与原时钟不变。
+
+该保护由正式NativeProposalSession.complete直接执行，覆盖新进程接回同session时仅凭request数量继续dispatch的漏洞。它不是完整失败/未知candidate清单或独立Gate，后者仍要接入整链。仅源码/AST检查，未调用模型或重跑原任务。

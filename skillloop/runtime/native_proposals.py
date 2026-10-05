@@ -83,6 +83,45 @@ class NativeProposalSession:
         try:os.fsync(fd)
         finally:os.close(fd)
 
+    def _original(self, name):
+        path=self.root/name
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        with os.fdopen(fd,'rb') as stream:
+            before=os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid!=os.geteuid()
+                    or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600
+                    or not 0<before.st_size<=8388608):
+                raise PermissionError('native_proposal_original_record_custody')
+            raw=stream.read(8388609);after=os.fstat(stream.fileno());current=path.lstat()
+        identity=lambda info:(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+        if len(raw)!=before.st_size or identity(before)!=identity(after) or identity(before)!=identity(current):
+            raise ValueError('native_proposal_original_record_changed')
+        return decode_json(raw)
+
+    def _next_slot(self,messages):
+        names={p.name for p in self.root.iterdir()}
+        requests={name for name in names if name.startswith('request-')}
+        if requests!={'request-'+str(i)+'.json' for i in range(len(requests))}:
+            raise ValueError('native_proposal_noncontiguous_original_attempts')
+        for slot in range(len(requests)):
+            intent=self._original('request-'+str(slot)+'.json')
+            if (type(intent) is not dict or intent.get('kind')!='NativeProposalIntent'
+                    or intent.get('policy_digest')!=self.policy['digest'] or intent.get('slot')!=slot):
+                raise ValueError('native_proposal_original_attempt_identity')
+            response_name='response-'+str(slot)+'.json'
+            if response_name not in names or 'response-'+str(slot)+'-unknown.json' in names:
+                raise RuntimeError('native_proposal_original_attempt_unknown_no_dispatch')
+            response=self._original(response_name)
+            if (type(response) is not dict or response.get('policy_digest')!=self.policy['digest']
+                    or response.get('spent') is not True or type(response.get('response')) is not dict):
+                raise ValueError('native_proposal_original_response_identity')
+            if intent.get('messages')==messages:
+                raise RuntimeError('native_proposal_original_completed_request_no_redelivery')
+        responses={name for name in names if name.startswith('response-')}
+        if responses!={'response-'+str(i)+'.json' for i in range(len(requests))}:
+            raise RuntimeError('native_proposal_unmatched_original_response_no_dispatch')
+        return len(requests)
+
     def complete(self, messages):
         left=(self.deadline-datetime.now(timezone.utc)).total_seconds()
         timeout=self.policy['request_timeout_seconds']
@@ -93,9 +132,8 @@ class NativeProposalSession:
             if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o077:
                 raise PermissionError('native_proposal_spending_owner')
             fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            spent=list(self.root.glob('request-*.json'))
-            if len(spent)>=self.policy['max_requests']:raise ValueError('native_proposal_reserved_budget_exhausted')
-            slot=len(spent)
+            slot=self._next_slot(messages)
+            if slot>=self.policy['max_requests']:raise ValueError('native_proposal_reserved_budget_exhausted')
             self._save(self.root/('request-'+str(slot)+'.json'), {'kind':'NativeProposalIntent',
                 'policy_digest':self.policy['digest'],'slot':slot,'messages':messages,
                 'reserved_input_tokens':self.gateway.max_context_tokens-self.gateway.max_output_tokens,
