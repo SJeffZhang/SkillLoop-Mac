@@ -152,7 +152,9 @@ def produce_deployment(policy_path):
         routes.append(route)
     from skillloop.runtime.operator_routes import validate_operator_routes
     validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
-    evaluation=next(route for route in routes if route['command']=='evaluate')
+    evaluations=[route for route in routes if route['command']=='evaluate']
+    if len(evaluations)!=1:raise ValueError('whole_one_original_evaluation_route')
+    evaluation=evaluations[0]
     archive_step=next(step for step in evaluation['steps'] if step['action']=='operation_archive')
     archive_policy=documents.get(archive_step['policy_path'])
     if (type(archive_policy) is not dict or archive_policy.get('kind')!='FrozenControllerOperationArchive'

@@ -230,38 +230,43 @@ def review_campaign_inventory(*,policy,inventory,budget):
     load(row,limit=268435456,decode=False)
     history_candidates=[(row,value) for candidates in objects.values() for row,value in candidates
         if value.get('kind')=='ControllerOperationHistorySnapshot' and value.get('campaign')==policy['campaign']]
-    if len(history_candidates)!=1:raise ValueError('campaign_archive_actual_operation_history_required')
-    history_row,history=history_candidates[0]
-    if (history_row['uid']!=21001 or history_row['gid']!=21005
-            or history.get('deployment_epoch')!=policy['deployment_epoch']
-            or history.get('config_digest')!=evidence['bindings']['config_digest']
-            or history['spending_state']['whole_round_binding']!=facts['spending']['state']['whole_round_binding']
-            or history['spending_state']['campaign_started_at']!=facts['spending']['state']['campaign_started_at']):
-        raise ValueError('campaign_archive_original_operation_history_binding')
-    for pin in [history['database'],*history['files']]:
-        budget()
-        if Path(pin['name']).name!=pin['name']:raise ValueError('campaign_archive_history_snapshot_path')
-        locator=str(PurePosixPath(history_row['path']).parent/pin['name']);row=rows.get(locator)
-        if (row is None or row['uid']!=21001 or row['gid']!=21005 or row['mode']!=0o640
-                or row['bytes']!=pin['bytes'] or row['digest']!=pin['digest']):
-            raise ValueError('campaign_archive_operation_original_bytes_missing')
-        load(row,limit=268435456,decode=False)
-    locator=str(PurePosixPath(history_row['path']).parent/history['database']['name'])
-    alias,relative=locator.split('/',1);database=roots[alias]/relative
-    with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
-        db.set_progress_handler(lambda:(budget() or 0),1000)
-        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,policy['deployment_epoch'])]:
-            raise ValueError('campaign_archive_actual_operation_store_integrity')
-        from skillloop.runtime.operation_store import verify_operation_transitions
-        operation_history=verify_operation_transitions(db,policy['deployment_epoch'],budget=budget)
-        for request,route,ticket,state,result,error in db.execute('SELECT request,route,ticket,state,result,error FROM operations'):
-            for raw in (request,route,ticket):
-                value=decode_json(raw)
-                if value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
-                    raise ValueError('campaign_archive_original_operation_object_seal')
-            if state not in {'accepted','running','completed','failed'}:
-                raise ValueError('campaign_archive_original_operation_state')
-            if result is not None:decode_json(result)
+    if not history_candidates or len(history_candidates)>4:
+        raise ValueError('campaign_archive_actual_operation_history_required')
+    if sum(value['digest']==attempt_audit['snapshot_digest'] for _,value in history_candidates)!=1:
+        raise ValueError('campaign_archive_original_prequalification_history_missing')
+    operation_histories=[]
+    for history_row,history in sorted(history_candidates,key=lambda item:item[1]['digest']):
+        if (history_row['uid']!=21001 or history_row['gid']!=21005
+                or history.get('deployment_epoch')!=policy['deployment_epoch']
+                or history.get('config_digest')!=evidence['bindings']['config_digest']
+                or history['spending_state']['whole_round_binding']!=facts['spending']['state']['whole_round_binding']
+                or history['spending_state']['campaign_started_at']!=facts['spending']['state']['campaign_started_at']):
+            raise ValueError('campaign_archive_original_operation_history_binding')
+        for pin in [history['database'],*history['files']]:
+            budget()
+            if Path(pin['name']).name!=pin['name']:raise ValueError('campaign_archive_history_snapshot_path')
+            locator=str(PurePosixPath(history_row['path']).parent/pin['name']);row=rows.get(locator)
+            if (row is None or row['uid']!=21001 or row['gid']!=21005 or row['mode']!=0o640
+                    or row['bytes']!=pin['bytes'] or row['digest']!=pin['digest']):
+                raise ValueError('campaign_archive_operation_original_bytes_missing')
+            load(row,limit=268435456,decode=False)
+        locator=str(PurePosixPath(history_row['path']).parent/history['database']['name'])
+        alias,relative=locator.split('/',1);database=roots[alias]/relative
+        with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
+            db.set_progress_handler(lambda:(budget() or 0),1000)
+            if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,policy['deployment_epoch'])]:
+                raise ValueError('campaign_archive_actual_operation_store_integrity')
+            from skillloop.runtime.operation_store import verify_operation_transitions
+            operation_history=verify_operation_transitions(db,policy['deployment_epoch'],budget=budget)
+            for request,route,ticket,state,result,error in db.execute('SELECT request,route,ticket,state,result,error FROM operations'):
+                for raw in (request,route,ticket):
+                    value=decode_json(raw)
+                    if value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+                        raise ValueError('campaign_archive_original_operation_object_seal')
+                if state not in {'accepted','running','completed','failed'}:
+                    raise ValueError('campaign_archive_original_operation_state')
+                if result is not None:decode_json(result)
+        operation_histories.append({'snapshot_digest':history['digest'],'transition_history':operation_history})
     # This preserves the actual recovery store and declared source bytes, but
     # it cannot infer physical evidence leases or an exhaustive model attempt
     # catalog from Controller metadata alone.
@@ -360,8 +365,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
         'withdrawn_issuer_databases_verified':True,'issuer_snapshot_digest':issuer_snapshot['digest'],
         'withdrawn_registry_database_verified':True,'registry_snapshot_digest':registry_snapshot['digest'],
-        'operation_transition_history_verified':operation_history,
-        'operation_history_original_bytes_verified':True,'operation_history_snapshot_digest':history['digest'],
+        'operation_transition_histories_verified':operation_histories,
+        'operation_history_original_bytes_verified':True,
         'missing_categories':[c for c in UNBOUND_CATEGORIES if c!='qualification_and_registry_snapshots'],'campaign_coverage_complete':False,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)
