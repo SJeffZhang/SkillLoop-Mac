@@ -55,20 +55,46 @@ def finish_auxiliary(step,inspection,result,keeper,engine):
 
 
 def preserve_auxiliary_failure(step,engine,error):
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('campaign_auxiliary_failure_actual_controller')
     root=_directory(step['journal_directory'],21001,21001,0o700)
     intent=_controller_record(root/'intent.json')
+    if (intent.get('kind')!='CampaignAuxiliaryIntent'
+            or intent.get('step_digest')!=digest_jcs(step)):
+        raise ValueError('campaign_auxiliary_failure_original_binding')
+    retirement_error=None
+    stopped=None
     if (root/'created.json').exists():
         created=_controller_record(root/'created.json');identifier=created['inspection']['Id']
         try:
+            if created.get('kind')!='CampaignAuxiliaryCreated':
+                raise ValueError('campaign_auxiliary_failure_created_binding')
             observed=engine.inspect(identifier);config=intent['configuration']
             _verify_role_process(observed,identifier,config,config['HostConfig']['Mounts'])
             if observed['State']['Running'] is True:
                 engine.request('POST','/containers/'+identifier+'/stop?t='+str(step['closure_seconds']),
                                timeout=step['closure_seconds']+1)
-            _save(root,'failed-process.json',{'kind':'CampaignAuxiliaryFailedProcess','inspection':engine.inspect(identifier)})
-        except BaseException:pass
+            observed=engine.inspect(identifier)
+            _verify_role_process(observed,identifier,config,config['HostConfig']['Mounts'])
+            stopped=observed['State']['Running'] is False
+            if not (root/'failed-process.json').exists():
+                _save(root,'failed-process.json',{'kind':'CampaignAuxiliaryFailedProcess',
+                    'inspection':observed,'step_digest':digest_jcs(step),
+                    'evidence_released':False})
+            if not stopped:raise RuntimeError('campaign_auxiliary_failure_process_still_running')
+        except BaseException as cleanup_error:
+            retirement_error=type(cleanup_error).__name__
+            if not (root/'failure-retirement-error.json').exists():
+                _save(root,'failure-retirement-error.json',{
+                    'kind':'CampaignAuxiliaryFailureRetirementError',
+                    'step_digest':digest_jcs(step),'container_id':identifier,
+                    'error_type':retirement_error,'original_process_stopped':stopped,
+                    'automatic_reexecution_allowed':False,'evidence_released':False})
+            error.add_note('campaign_auxiliary_retirement_unconfirmed:'+retirement_error)
     if not (root/'failure.json').exists():
         _save(root,'failure.json',{'kind':'CampaignAuxiliaryFailure','error_type':type(error).__name__,
+            'step_digest':digest_jcs(step),'original_process_stopped':stopped,
+            'retirement_error_type':retirement_error,
             'automatic_reexecution_allowed':False,'evidence_released':False})
 
 

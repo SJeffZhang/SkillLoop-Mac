@@ -59,16 +59,32 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
     except BaseException as error:
         # Stop only the exact observed worker. Never delete failed output or
         # treat an unknown create as a reason to launch another role process.
+        retirement_error=None;stopped=None
         if identifier is not None:
             try:
                 actual=engine.inspect(identifier)
                 _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
                 if actual['State']['Running'] is True:
                     engine.request('POST','/containers/'+identifier+'/stop?t='+str(step['closure_seconds']),timeout=step['closure_seconds']+1)
-                _save(journal,'failed-process.json',{'kind':'ControllerRoleCommandFailedProcess','inspection':engine.inspect(identifier)})
-            except BaseException:pass
+                actual=engine.inspect(identifier)
+                _verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'])
+                stopped=actual['State']['Running'] is False
+                if not (journal/'failed-process.json').exists():
+                    _save(journal,'failed-process.json',{'kind':'ControllerRoleCommandFailedProcess',
+                        'inspection':actual,'step_digest':digest_jcs(step),'evidence_released':False})
+                if not stopped:raise RuntimeError('role_dispatch_failure_process_still_running')
+            except BaseException as cleanup_error:
+                retirement_error=type(cleanup_error).__name__
+                if not (journal/'failure-retirement-error.json').exists():
+                    _save(journal,'failure-retirement-error.json',{
+                        'kind':'ControllerRoleCommandRetirementError','container_id':identifier,
+                        'step_digest':digest_jcs(step),'error_type':retirement_error,
+                        'original_process_stopped':stopped,'evidence_released':False})
+                error.add_note('role_dispatch_retirement_unconfirmed:'+retirement_error)
         if not (journal/'failure.json').exists():
             _save(journal,'failure.json',{'kind':'ControllerRoleCommandFailure','error_type':type(error).__name__,
+                'step_digest':digest_jcs(step),'original_process_stopped':stopped,
+                'retirement_error_type':retirement_error,
                 'evidence_released':False,'automatic_reexecution_allowed':False})
         raise
 

@@ -429,3 +429,9 @@ Gate preserve_reviewed_raw的实际目标复制也先物理分配；没有另建
 Gate从原Patcher intent/response独立核对15360输入、1024输出和原request timeout预留，拒绝bool冒充token计数、非有限或超过原窗口的latency；原backend必须明确done=true并以stop结束。仅凭派发端曾接受响应不能替代独立完成核验。原失败或不完整记录保持不变，不发起模型重试。
 
 该修复接入正式候选Application Gate；仅AST和源码差异检查，未执行模型或组件实验。共享资源租约、每次推理权威授权及完整配置生产仍待整链接通。
+
+### 辅助和委托角色失败收尾的原身份取证
+
+语义/Gate辅助进程及Admin/Reporter委托命令失败后，Controller核对原step和实际配置，停止后再次核验原容器身份及Running状态。停止、inspect或取证失败不再被吞掉：另存原container/step绑定的收尾错误，并在原异常上记录收尾未确认；failure摘要保留停止是否确认，未知不能标关闭或释放。成功或失败输出、Keeper与原资源均不因这些记录被删除或重跑。
+
+该修复由正式campaign及角色命令错误路径实际调用；仅AST/源码检查，未运行容器。全容量所有权和完整新部署恢复仍须接齐。
