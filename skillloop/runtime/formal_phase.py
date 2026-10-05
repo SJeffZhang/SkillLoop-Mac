@@ -306,8 +306,12 @@ class FormalPhaseExecutor:
         reservation=self.controller.reserve_campaign(plan['body']['campaign_id'],plan['digest'])
         self._save(phase_root/'storage-admission.json', {'kind':'FormalPhaseStorageAdmission',
             'phase_digest':phase['digest'],'reservation':reservation})
-        completed=list(carried);problems=[]
+        completed=list(carried);problems=[];visited=0
         for unit in entries:
+            # Parent completions are part of the cumulative plan, not indices
+            # into this revision's new task list. Record the current frontier
+            # even if a task fails before admission or a model dispatch.
+            visited+=1
             entry=unit['entry'];key=entry['entry_id'];capture=None
             try:
                 if (deadline-datetime.now(timezone.utc)).total_seconds()<=phase['terminal_seconds']:
@@ -389,7 +393,7 @@ class FormalPhaseExecutor:
                 break
         summary={'kind':'FormalPhaseExecutionSummary','phase_digest':phase['digest'],
             'completed':completed,'problems':problems,
-            'unexecuted_entry_digests':[u['entry']['digest'] for u in entries[len(completed)+len(problems):]],
+            'unexecuted_entry_digests':[u['entry']['digest'] for u in entries[visited:]],
             'campaign_started_at':original,'finished_at':datetime.now(timezone.utc).isoformat(),
             'complete':not problems and len(completed)==len(required),'qualification_issued':False}
         self._save(phase_root/'summary.json',summary)
