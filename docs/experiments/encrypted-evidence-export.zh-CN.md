@@ -243,3 +243,10 @@ Evaluator/Gate 与重启恢复共同检查导出方法、原页容量、峰值�
 统一 campaign 的 role_command 现在先消费对应阶段的完整 worker/收尾/证据槽，另保留原部署 role-create 的60秒成本，然后发布真实委托、启动原 Admin/Reporter、读取原结果并核验原 OCI 配置和停止状态。只有结果文件与实际成功退出一致、Keeper仍存活，才提交 reviewed/removing 并删除原停止容器；共享证据卷和Keeper不删除。Controller journal记录原开始/截止/总预留及清理结论。
 
 restart只能在原 removing 已存在时继续同一辅助进程的退休；实际404必须有原删除意图，Config/Image/HostConfig/Mounts及原结果全部核对。投递、创建或执行未知不能重跑命令。原终端空间或时间超限保留 inconclusive，失败只停止精确已观察原进程并保全输出。内部route增加closure_seconds/maximum_evidence_bytes/journal_directory以冻结成本和恢复位置，公共17 CLI/RPC/权限不变。仅源码、AST和diff检查，未启动辅助进程或实验。
+
+
+### 同一部署内的冻结角色入口
+
+11角色UID和权限保持固定。统一生产者可以为同一角色一次性冻结 entry_variants：每项具有明确允许的生产模块、完整OCI配置、只读/写挂载和配置环境。所有变体逐项应用原完整身份、cap、网络和私有卷边界审查；未知模块或改变角色UID均拒绝。生命周期 Gate、最终 campaign Gate、资格撤销和语义发现已改为选择精确已冻结入口。未冻结所需入口时阻断，不重写原部署或目录。
+
+同一 role/operation 已有创建记录时，要求原 create intent 的完整配置与当前精确入口一致，再核验实际 OCI；不能把旧入口容器冒充另一个入口。原 provision completion 必须匹配同一 manifest，原 Keeper实际身份及存活状态也要一致。各入口仍独立消费原创建/worker/收尾槽，没有增加模型并发或替换未知投递。此连接只做跨调用与AST检查，完整配置包及实际部署验收仍未开始。

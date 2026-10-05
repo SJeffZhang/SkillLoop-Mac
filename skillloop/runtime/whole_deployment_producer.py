@@ -23,8 +23,8 @@ def produce_deployment(policy_path):
             or type(policy['role_requests']) is not dict or set(policy['role_requests'])!=set(ROLES)):
         raise ValueError('whole_role_complete_production_policy')
     roles={}
-    for role,uid in ROLES.items():
-        request=policy['role_requests'][role]
+    def template(role,request):
+        uid=ROLES[role]
         if (type(request) is not dict or set(request)!=
                 {'module','environment','mounts','groups','memory_bytes','private_read_scope','image'}):
             raise ValueError('whole_role_production_declaration')
@@ -55,7 +55,22 @@ def produce_deployment(policy_path):
                 'Ulimits':[{'Name':'nofile','Soft':128,'Hard':128}],
                 'RestartPolicy':{'Name':'no'},'LogConfig':{'Type':'none','Config':{}},
                 'Tmpfs':{'/tmp':'rw,nosuid,nodev,size=64m'},'Mounts':request['mounts']}}
-        roles[role]={'config':config,'private_read_scope':request['private_read_scope']}
+        return {'config':config,'private_read_scope':request['private_read_scope']}
+    for role in ROLES:
+        request=policy['role_requests'][role]
+        if type(request) is not dict:raise ValueError('whole_role_production_declaration')
+        variants=request.get('entry_variants',{})
+        if type(variants) is not dict or len(variants)>len(MODULES.get(role,set())):
+            raise ValueError('whole_role_production_entry_variants')
+        base={k:v for k,v in request.items() if k!='entry_variants'}
+        roles[role]=template(role,base)
+        entries={}
+        for module,variant in variants.items():
+            if (module not in MODULES.get(role,set()) or type(variant) is not dict
+                    or variant.get('module')!=module or module==base['module']):
+                raise ValueError('whole_role_production_exact_entry_variant')
+            entries[module]=template(role,variant)
+        if entries:roles[role]['entry_variants']=entries
     value={'kind':'FrozenWholeRoleDeployment',**{k:policy[k] for k in MANIFEST_FIELDS},'roles':roles}
     value['digest']=digest_jcs(value)
     WholeRoleDeployment.validate_roles_manifest(value)

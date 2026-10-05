@@ -30,7 +30,7 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
             or deadline.timestamp()!=ledger.campaign_started_at+28800
             or (deadline-datetime.now(timezone.utc)).total_seconds()<=policy['timeout_seconds']+policy['closure_seconds']):
         raise ValueError('lifecycle_dispatch_source_epoch_original_clock')
-    config=plan['roles']['gate']['config']
+    config=deployment.role_config('gate','skillloop.protection.model_lifecycle_gate')
     if config['Cmd']!=['-m','skillloop.protection.model_lifecycle_gate']:
         raise ValueError('lifecycle_dispatch_independent_gate_entry')
     if not {'21001','21004','21011'}<=set(config['HostConfig']['GroupAdd']):
@@ -56,7 +56,7 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
         seconds=policy['timeout_seconds']+policy['closure_seconds'],input_tokens=0,output_tokens=0,
         disk_bytes=policy['maximum_evidence_bytes'])
     _save(journal,'spending.json',{'kind':'ControllerNativeLifecycleGateSpending','spending':spending})
-    observed=deployment.start_role('gate','lifecycle-'+policy['digest'][7:])
+    observed=deployment.start_role('gate','lifecycle-'+policy['digest'][7:],module='skillloop.protection.model_lifecycle_gate')
     identifier=observed['inspection']['Id']
     _save(journal,'process.json',{'kind':'ControllerNativeLifecycleGateProcess','inspection':observed['inspection']})
     try:

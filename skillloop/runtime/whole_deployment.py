@@ -56,6 +56,31 @@ class WholeRoleDeployment:
 
     @staticmethod
     def validate_roles_manifest(plan):
+        # A role keeps one UID/authority boundary while using separately frozen
+        # entries for lifecycle review, task Gate and campaign Gate. Changing
+        # templates after bootstrap previously required reprovisioning the same
+        # volume, which correctly refused to overwrite existing directories.
+        variants=[]
+        for role,template in plan['roles'].items():
+            if 'entry_variants' not in template:continue
+            declared=template['entry_variants']
+            if (set(template)!={'config','private_read_scope','entry_variants'}
+                    or type(declared) is not dict or len(declared)>len(MODULES.get(role,set()))):
+                raise ValueError('whole_role_frozen_entry_variants')
+            for module,entry in declared.items():
+                if (module not in MODULES.get(role,set()) or type(entry) is not dict
+                        or set(entry)!={'config','private_read_scope'}
+                        or entry['config'].get('Cmd')!=['-m',module]
+                        or entry['config']['Cmd']==template['config'].get('Cmd')):
+                    raise ValueError('whole_role_exact_frozen_entry_variant')
+                variants.append((role,entry))
+        if any('entry_variants' in t for t in plan['roles'].values()):
+            base={**plan,'roles':{role:{k:v for k,v in entry.items() if k!='entry_variants'}
+                                for role,entry in plan['roles'].items()}}
+            WholeRoleDeployment.validate_roles_manifest(base)
+            for role,entry in variants:
+                WholeRoleDeployment.validate_roles_manifest({**base,'roles':{**base['roles'],role:entry}})
+            return
         from skillloop.runtime.deployment_bootstrap import validate_directory_manifest
         validate_directory_manifest(plan)
         directories={d['path']:d for d in plan['directories']}
@@ -147,7 +172,16 @@ class WholeRoleDeployment:
                 if not mount['ReadOnly'] and directory['uid']!=uid:raise PermissionError('whole_role_cross_owner_write')
     def provision(self):
         p=self.plan
-        if (self.root/'provisioned.json').exists():return _controller_record(self.root/'provisioned.json')
+        if (self.root/'provisioned.json').exists():
+            original=_controller_record(self.root/'provisioned.json')
+            if (original.get('kind')!='WholeRoleProvisionCompletion' or original.get('manifest_digest')!=p['digest']
+                    or original.get('role_uids')!=ROLES or original.get('storage_backend')!='local_persistent'):
+                raise ValueError('whole_deployment_original_provision_identity')
+            keeper=self.engine.inspect(original['keeper']['Id'])
+            if (any(keeper.get(k)!=original['keeper'].get(k) for k in ('Id','Image','Config','HostConfig','Mounts'))
+                    or keeper.get('State',{}).get('Running') is not True):
+                raise RuntimeError('whole_deployment_original_keeper_unavailable')
+            return original
         if any(self.root.iterdir()):raise RuntimeError('whole_deployment_original_bootstrap_recovery_required')
         if self.deadline.tzinfo is None or (self.deadline-datetime.now(timezone.utc)).total_seconds()<=p['bootstrap_seconds']+120:
             raise TimeoutError('whole_deployment_original_clock')
@@ -196,19 +230,31 @@ class WholeRoleDeployment:
             'keeper':self.engine.inspect(keeper),'bootstrap':actual,'role_uids':ROLES,
             'storage_backend':'local_persistent','campaign_capacity_verified':False,
             'runtime_acceptance_complete':False,'qualification_issued':False})
-    def create_role(self,role,operation_id):
+    def role_config(self,role,module=None):
+        if role not in ROLES:raise ValueError('whole_role_identity_required')
+        template=self.plan['roles'][role]
+        if module is None or template['config']['Cmd']==['-m',module]:return template['config']
+        variant=template.get('entry_variants',{}).get(module)
+        if variant is None:raise ValueError('whole_role_entry_variant_not_frozen')
+        return variant['config']
+
+    def create_role(self,role,operation_id,*,module=None):
         if role not in ROLES or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',operation_id):raise ValueError('whole_role_operation')
+        config=self.role_config(role,module)
         provisioned=self.provision();live=self.engine.inspect(provisioned['keeper']['Id'])
         if live['State']['Running'] is not True:raise RuntimeError('whole_role_keeper_expired')
         filename='role-'+digest_jcs({'role':role,'operation':operation_id})[7:]+'.json'
         if (self.root/(filename+'.created')).exists():
             original=_controller_record(self.root/(filename+'.created'))
+            intent=_controller_record(self.root/filename)
+            if intent.get('configuration')!=config or intent.get('role')!=role:
+                raise ValueError('whole_role_original_entry_variant_changed')
             actual=self.engine.inspect(original['id'])
+            _verify_role_process(actual,original['id'],config,config['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
             if actual.get('Config')!=original['inspection'].get('Config') or actual.get('Image')!=original['inspection'].get('Image'):
                 raise ValueError('whole_role_original_created_identity_changed')
             return original
         if (self.root/filename).exists():raise RuntimeError('whole_role_original_create_requires_recovery')
-        config=self.plan['roles'][role]['config']
         _save(self.root,filename,{'kind':'WholeRoleCreateIntent','role':role,'operation':operation_id,'configuration':config})
         spending=self.ledger.consume_auxiliary(manifest=self.whole,campaign=self.plan['campaign_digest'],
             stage='approval_deployment',operation_key='role-create-'+digest_jcs({'role':role,'operation':operation_id})[7:],
@@ -218,12 +264,19 @@ class WholeRoleDeployment:
         actual=self.engine.inspect(identifier);_verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
         return _save(self.root,filename+'.created',{'kind':'WholeRoleCreated','role':role,'id':identifier,'inspection':actual})
 
-    def start_role(self,role,operation_id):
-        created=self.create_role(role,operation_id);identifier=created['id']
+    def start_role(self,role,operation_id,*,module=None):
+        created=self.create_role(role,operation_id,module=module);identifier=created['id']
         token=digest_jcs({'role':role,'operation':operation_id})[7:]
         completed=self.root/('start-'+token+'.complete.json')
         intent=self.root/('start-'+token+'.intent.json')
-        if completed.exists():return _controller_record(completed)
+        if completed.exists():
+            observed=_controller_record(completed)
+            if (observed.get('kind')!='WholeRoleStartObserved' or observed.get('created_digest')!=created['digest']
+                    or observed['inspection']['Id']!=identifier
+                    or observed['inspection']['Config']!=created['inspection']['Config']
+                    or observed['inspection']['Image']!=created['inspection']['Image']):
+                raise ValueError('whole_role_original_start_completion_identity')
+            return observed
         if intent.exists():
             actual=self.engine.inspect(identifier)
             original=created['inspection']

@@ -338,14 +338,14 @@ class CampaignDispatcher:
                     raise ValueError('campaign_semantic_original_assignment')
                 deployment=WholeRoleDeployment(manifest_path=step['manifest_path'],journal_directory=step['deployment_journal'],
                     engine=self.engine,ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
-                if deployment.plan['roles']['model_gateway']['config']['Cmd']!=['-m','skillloop.discovery.semantic_worker']:
+                if deployment.role_config('model_gateway','skillloop.discovery.semantic_worker')['Cmd']!=['-m','skillloop.discovery.semantic_worker']:
                     raise ValueError('campaign_semantic_fixed_gateway_entry')
                 cost=self.ledger.consume_auxiliary(manifest=deployment.whole,campaign=job['campaign_digest'],
                     stage='import_scan',operation_key='semantic-'+job['digest'][7:],seconds=job['worker_seconds']+60,
                     input_tokens=job['model_policy']['max_chat_requests']*16384,
                     output_tokens=job['model_policy']['max_chat_requests']*job['model_policy']['max_output_tokens'],
                     disk_bytes=67108864+job['model_policy']['max_chat_requests']*14680064)
-                observed=deployment.start_role('model_gateway',request['operation_id']+'-semantic')
+                observed=deployment.start_role('model_gateway',request['operation_id']+'-semantic',module='skillloop.discovery.semantic_worker')
                 identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
                 actual=self.engine.inspect(identifier)
                 if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
@@ -419,11 +419,11 @@ class CampaignDispatcher:
                 withdrawing=step['action']=='qualification_withdraw'
                 module='skillloop.ci.qualification_withdrawal' if withdrawing else 'skillloop.ci.campaign_gate'
                 expected_kind='FormalQualificationWithdrawalAssignment' if withdrawing else 'FormalCampaignGateAssignment'
-                if deployment.plan['roles']['gate']['config']['Cmd']!=['-m',module]:
+                if deployment.role_config('gate',module)['Cmd']!=['-m',module]:
                     raise ValueError('campaign_final_gate_fixed_role_entry')
                 if not withdrawing:
                     expected='SKILLLOOP_RAW_HISTORY_MAX_BYTES='+str(step['maximum_evidence_bytes'])
-                    configured=[e for e in deployment.plan['roles']['gate']['config']['Env']
+                    configured=[e for e in deployment.role_config('gate',module)['Env']
                                 if e.startswith('SKILLLOOP_RAW_HISTORY_MAX_BYTES=')]
                     if configured!=[expected]:
                         raise ValueError('campaign_final_gate_original_raw_capacity_config')
@@ -439,12 +439,12 @@ class CampaignDispatcher:
                         disk_bytes=step['maximum_evidence_bytes'])
                     # Actual role creation is charged before taking this ledger
                     # snapshot; starting this same created container adds no slot.
-                    deployment.create_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'))
+                    deployment.create_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'),module=module)
                     spending={'kind':'CampaignGateSpendingSnapshot','assignment_digest':job['digest'],'state':self.ledger.read()}
                     spending['digest']=digest_jcs(spending)
                     directory=_directory(step['assignment_directory'],21001,21005,0o750)
                     _publish(directory/'spending.json',spending,21005)
-                    observed=deployment.start_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'))
+                    observed=deployment.start_role('gate',request['operation_id']+('-withdraw' if withdrawing else '-campaign-gate'),module=module)
                     identifier=observed['inspection']['Id'];wait=self.engine.wait(identifier,step['timeout_seconds'])
                     actual=self.engine.inspect(identifier)
                     if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
