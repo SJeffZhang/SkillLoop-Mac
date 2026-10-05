@@ -378,17 +378,89 @@ def close_model_bridge(*,dispatch_journal,journal_directory,engine,expected_camp
     if not within:raise TimeoutError('native_gateway_original_close_expired')
     return result
 
+
+def produce_native_proposal_dispatch(*,recipe,journal_directory,whole_round_manifest_path,ledger,engine):
+    """Resolve the original live Gateway ID into an Admin-frozen template."""
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.protection.current_task import _directory
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine or type(ledger) is not SpendingLedger:
+        raise PermissionError('native_proposal_production_actual_controller')
+    fields={'kind','dispatch_template','gateway_journal_directory','digest'}
+    if (type(recipe) is not dict or set(recipe)!=fields or recipe['kind']!='FrozenNativeProposalProduction'
+            or recipe['digest']!=digest_jcs({k:v for k,v in recipe.items() if k!='digest'})
+            or type(recipe['dispatch_template']) is not dict
+            or 'gateway_container_id' in recipe['dispatch_template']
+            or 'digest' in recipe['dispatch_template']
+            or type(recipe['gateway_journal_directory']) is not str
+            or not Path(recipe['gateway_journal_directory']).is_absolute()
+            or '..' in Path(recipe['gateway_journal_directory']).parts):
+        raise ValueError('native_proposal_production_original_recipe')
+    template=recipe['dispatch_template']
+    required={'kind','campaign_digest','role_uid','assignment_digest','proposal_policy_digest',
+        'image','whole_round_manifest_digest','campaign_deadline','timeout_seconds',
+        'maximum_evidence_bytes','gateway_policy_digest','mounts','config_digest','plan_digest',
+        'source_subject_digest','inference_authority_directory'}
+    if (set(template)!=required or template['kind']!='FrozenNativeProposalDispatch'
+            or template['role_uid'] not in {21006,21007}):
+        raise ValueError('native_proposal_production_exact_template')
+    whole=read_round_manifest(whole_round_manifest_path)
+    _,gateway_intent,ready=_original_model_bridge(recipe['gateway_journal_directory'])
+    if (template['campaign_digest']!=gateway_intent['campaign_digest']
+            or template['gateway_policy_digest']!=ready['gateway_policy_digest']
+            or template['whole_round_manifest_digest']!=whole['digest']
+            or template['image']!=whole['image']
+            or template['campaign_deadline']!=gateway_intent['campaign_deadline']
+            or gateway_intent['protected'] is not False):
+        raise ValueError('native_proposal_production_current_gateway_binding')
+    actual=engine.inspect(ready['container_id']);config=gateway_intent['configuration']
+    _verify_role_process(actual,ready['container_id'],config,config['HostConfig']['Mounts'])
+    if actual['State']['Running'] is not True:
+        raise RuntimeError('native_proposal_production_gateway_not_running')
+    policy={**template,'gateway_container_id':ready['container_id']};policy['digest']=digest_jcs(policy)
+    root=_directory(journal_directory,21001,21001,0o700)
+    original=root/'policy-production.json'
+    if original.exists():
+        receipt=_controller_record(original)
+        if (receipt.get('kind')!='ControllerNativeProposalPolicyProduced'
+                or receipt['recipe_digest']!=recipe['digest']
+                or receipt['gateway_ready_digest']!=ready['digest'] or receipt['policy']!=policy
+                or receipt['budget_closure']!='within_original_budget'):
+            raise ValueError('native_proposal_original_production_conflict')
+        return policy
+    if any(root.iterdir()):raise RuntimeError('native_proposal_partial_production_unknown')
+    started=time.monotonic();deadline=datetime.fromisoformat(template['campaign_deadline'].replace('Z','+00:00'))
+    if (deadline.tzinfo is None or ledger.campaign_started_at is None
+            or deadline.timestamp()!=ledger.campaign_started_at+28800
+            or (deadline-datetime.now(timezone.utc)).total_seconds()<=30):
+        raise ValueError('native_proposal_production_original_clock')
+    spending=ledger.consume_auxiliary(manifest=whole,campaign=template['campaign_digest'],
+        stage='development' if template['role_uid']==21006 else 'repair_pairing',
+        operation_key='proposal-policy-'+recipe['digest'][7:],seconds=30,
+        input_tokens=0,output_tokens=0,disk_bytes=1048576)
+    elapsed=time.monotonic()-started;within=elapsed<=30 and datetime.now(timezone.utc)<deadline
+    _save(root,'policy-production.json',{'kind':'ControllerNativeProposalPolicyProduced',
+        'recipe_digest':recipe['digest'],'gateway_ready_digest':ready['digest'],
+        'policy':policy,'spending':spending,'elapsed_seconds':elapsed,
+        'budget_closure':'within_original_budget' if within else 'inconclusive_expired_budget_closure'})
+    if not within:raise TimeoutError('native_proposal_production_budget_expired')
+    return policy
+
 def dispatch_proposal(*, assignment_directory, evidence_directory, policy,
                       journal_directory,whole_round_manifest_path,ledger,engine,registry):
     from skillloop.ci.campaign_registry import CampaignRegistry
-    if type(registry) is not CampaignRegistry:
+    if type(registry) is not CampaignRegistry or type(policy) is not dict:
         raise ValueError('native_proposal_current_campaign_registry_required')
-    with registry.development_scope(campaign=policy['campaign_digest']) as admitted:
-        if (admitted['deadline']!=policy['campaign_deadline']
-                or admitted['bindings']['config_digest']!=policy.get('config_digest')):
+    template=policy.get('dispatch_template') if policy.get('kind')=='FrozenNativeProposalProduction' else policy
+    if type(template) is not dict:raise ValueError('native_proposal_original_dispatch_template')
+    with registry.development_scope(campaign=template['campaign_digest']) as admitted:
+        if (admitted['deadline']!=template['campaign_deadline']
+                or admitted['bindings']['config_digest']!=template.get('config_digest')):
             raise ValueError('native_proposal_original_registry_clock_changed')
-        if policy['role_uid']==21006 and policy.get('source_subject_digest')!=admitted['bindings']['subjects']['submitted']:
+        if template['role_uid']==21006 and template.get('source_subject_digest')!=admitted['bindings']['subjects']['submitted']:
             raise ValueError('native_generator_original_submitted_source')
+        if policy.get('kind')=='FrozenNativeProposalProduction':
+            policy=produce_native_proposal_dispatch(recipe=policy,journal_directory=journal_directory,
+                whole_round_manifest_path=whole_round_manifest_path,ledger=ledger,engine=engine)
         return _dispatch_proposal_open(assignment_directory=assignment_directory,
             evidence_directory=evidence_directory,policy=policy,journal_directory=journal_directory,
             whole_round_manifest_path=whole_round_manifest_path,ledger=ledger,engine=engine)
