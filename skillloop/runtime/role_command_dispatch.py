@@ -30,12 +30,13 @@ def dispatch_role_command(*,step,operation_id,whole_round_manifest_path,ledger,e
     _save(journal,'intent.json',{'kind':'ControllerRoleCommandIntent','step_digest':digest_jcs(step),
         'job_digest':job['digest'],'role_uid':uid,'result_path':step['result_path'],
         'started_at':datetime.now(timezone.utc).isoformat(),'deadline':deadline.isoformat(),
-        'reserved_seconds':reserved+60,'maximum_evidence_bytes':step['maximum_evidence_bytes']})
+        'reserved_seconds':reserved,'maximum_evidence_bytes':step['maximum_evidence_bytes']})
     stage='private_factory_lifecycle' if step['role_command']=='import-lifecycle' else ('gate_qualification_report' if uid==21009 else (
         'repair_pairing' if step['role_command'] in {'produce-candidate','produce-plan'} else 'approval_deployment'))
-    ledger.consume_auxiliary(manifest=deployment.whole,campaign=deployment.plan['campaign_digest'],stage=stage,
+    spending=ledger.consume_auxiliary(manifest=deployment.whole,campaign=deployment.plan['campaign_digest'],stage=stage,
         operation_key='role-command-'+job['digest'][7:],seconds=reserved,input_tokens=0,output_tokens=0,
         disk_bytes=step['maximum_evidence_bytes'])
+    _save(journal,'spending.json',{'kind':'ControllerRoleCommandSpending','spending':spending})
     _publish(assignment/'job.json',job,uid)
     config=deployment.plan['roles'][step['role']]['config'];identifier=None
     try:
@@ -94,6 +95,13 @@ def recover_role_command_retirement(*,step,engine):
         raise PermissionError('role_retirement_actual_controller')
     journal=_directory(step['journal_directory'],21001,21001,0o700)
     intent=_controller_record(journal/'intent.json');reviewed=_controller_record(journal/'reviewed.json')
+    spending=_controller_record(journal/'spending.json')
+    if (spending.get('kind')!='ControllerRoleCommandSpending'
+            or spending['spending']['operation_key']!='role-command-'+intent['job_digest'][7:]
+            or spending['spending']['requested_cost']!={'seconds':step['timeout_seconds']+step['closure_seconds'],
+                'input_tokens':0,'output_tokens':0,'disk_bytes':step['maximum_evidence_bytes']}
+            or intent['reserved_seconds']!=spending['spending']['requested_cost']['seconds']):
+        raise ValueError('role_retirement_original_charged_budget')
     removing=_controller_record(journal/'removing.json')
     original=reviewed['inspection'];identifier=original['Id']
     if (intent.get('kind')!='ControllerRoleCommandIntent' or reviewed.get('kind')!='ControllerRoleCommandReviewed'

@@ -569,3 +569,9 @@ Runtime、当前证据handoff与Evaluator/Gate session的create及created记录�
 统一campaign恢复接通private_runtime/private_session/protected_close。原完整receipt只核对同一停止进程、原账本、handoff和存活Keeper后恢复元数据发布；缺完成记录仅停止保全，不写成功阶段。ProtectedTaskCloser原started步骤复用同一session恢复调用，不重启action；可证明尚未启动的收尾tail继续用原plan和预算。session正常返回统一为持久sealed completion，避免响应丢失后恢复对象与原返回形状不同。
 
 仅150份skillloop Python AST和调用/差异审查，未运行模型、OCI、数据库或测试。元数据保全也必须计入第一整轮全成本；共享物理容量、完整attempt catalog和其余正式配置生产仍未闭合，不能将本修改称为运行通过。
+
+### 原辅助预算与成功恢复一致
+
+Admin/Reporter正式role command和独立模型生命周期Gate的reserved_seconds现在严格等于原账本收费的timeout+closure，不再用额外60秒把超限收尾标通过。role command新增原spending持久receipt；恢复同时核对原operation key、原requested cost、原step和reserved时限。生命周期Gate恢复同样从原收费receipt核对时限，旧目录/时钟不改。原超过预算的清理仍可做资源保全，但不升级验收结果。
+
+仅源码AST和差异检查，无组件或整轮实验。第一整轮仍等待剩余生产连接与完整成本冻结。

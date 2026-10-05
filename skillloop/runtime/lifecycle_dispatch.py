@@ -28,7 +28,7 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
             or policy['deployment_epoch']!=whole['deployment_epoch'] or policy['campaign']!=plan['campaign_digest']
             or deadline.tzinfo is None or ledger.campaign_started_at is None
             or deadline.timestamp()!=ledger.campaign_started_at+28800
-            or (deadline-datetime.now(timezone.utc)).total_seconds()<=policy['timeout_seconds']+policy['closure_seconds']+60):
+            or (deadline-datetime.now(timezone.utc)).total_seconds()<=policy['timeout_seconds']+policy['closure_seconds']):
         raise ValueError('lifecycle_dispatch_source_epoch_original_clock')
     config=deployment.role_config('gate','skillloop.protection.model_lifecycle_gate')
     if config['Cmd']!=['-m','skillloop.protection.model_lifecycle_gate']:
@@ -49,7 +49,7 @@ def dispatch_lifecycle_review(*,policy_path,manifest_path,deployment_journal,jou
     if any(journal.iterdir()):raise RuntimeError('lifecycle_dispatch_started_gate_no_reexecution')
     _save(journal,'intent.json',{'kind':'ControllerNativeLifecycleGateIntent','policy_digest':policy['digest'],
         'deployment_digest':plan['digest'],'started_at':datetime.now(timezone.utc).isoformat(),
-        'deadline':policy['deadline'],'reserved_seconds':policy['timeout_seconds']+policy['closure_seconds']+60,
+        'deadline':policy['deadline'],'reserved_seconds':policy['timeout_seconds']+policy['closure_seconds'],
         'automatic_reexecution_allowed':False})
     spending=ledger.consume_auxiliary(manifest=whole,campaign=policy['campaign'],stage='private_factory_lifecycle',
         operation_key='lifecycle-gate-'+policy['digest'][7:],
@@ -108,6 +108,11 @@ def recover_lifecycle_retirement(*,journal_directory,policy_digest,engine):
         raise PermissionError('lifecycle_retirement_actual_controller')
     journal=_directory(journal_directory,21001,21001,0o700)
     intent=_controller_record(journal/'intent.json')
+    spending=_controller_record(journal/'spending.json')
+    if (spending.get('kind')!='ControllerNativeLifecycleGateSpending'
+            or spending['spending']['operation_key']!='lifecycle-gate-'+policy_digest[7:]
+            or intent['reserved_seconds']!=spending['spending']['requested_cost']['seconds']):
+        raise ValueError('lifecycle_retirement_original_charged_budget')
     reviewed=_controller_record(journal/'reviewed.json')
     removing=_controller_record(journal/'removing.json')
     actual_original=reviewed['inspection'];identifier=actual_original['Id']
