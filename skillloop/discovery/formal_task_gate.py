@@ -138,6 +138,54 @@ def review_archive(*,archive_directory,original_review_directory,output_director
         raise ValueError('formal_archive_original_gate_binding')
     if receipt.get('policy_digest')!=original.get('archive_policy_digest'):
         raise ValueError('formal_archive_original_frozen_policy')
+    if owner==21004:
+        from skillloop.runtime.task_archive import resolve_private_archive_policy,validate_controller_archive_reference
+        declaration=receipt.get('private_archive_declaration');policy=receipt.get('private_archive_policy')
+        attestation=receipt.get('private_archive_mount_attestation')
+        original_attestation=read_owned('/archive-mount/mount.json',uid=21001,gid=21004,limit=2097152)
+        if (type(declaration) is not dict or type(policy) is not dict or type(attestation) is not dict
+                or attestation!=original_attestation
+                or declaration.get('digest')!=receipt['policy_digest']
+                or declaration['digest']!=digest_jcs({k:v for k,v in declaration.items() if k!='digest'})
+                or attestation.get('kind')!='PrivateArchiveMountAttestation'
+                or attestation.get('digest')!=digest_jcs({k:v for k,v in attestation.items() if k!='digest'})
+                or attestation.get('policy_digest')!=policy.get('digest')
+                or attestation.get('deployment_epoch')!=original.get('deployment_epoch')):
+            raise ValueError('formal_archive_private_policy_and_mount_proof')
+        actual=attestation.get('inspection',{});volume=attestation.get('volume',{})
+        action=actual.get('Config',{}).get('Labels',{}).get('skillloop.action','')
+        if (policy!=resolve_private_archive_policy(declaration,action_digest=action)
+                or policy.get('digest')!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
+                or policy.get('controller_container_id')!='action-'+action
+                or policy.get('deployment_epoch')!=original.get('deployment_epoch')
+                or policy.get('image')!=original.get('image')
+                or policy.get('campaign_deadline')!=campaign_deadline
+                or type(policy.get('maximum_bytes')) is not int or policy['maximum_bytes']>maximum_bytes
+                or type(policy.get('maximum_files')) is not int or policy['maximum_files']>maximum_files
+                or policy.get('archive_volume')!=receipt.get('archive_volume')):
+            raise ValueError('formal_archive_private_actual_action_binding')
+        validate_controller_archive_reference(policy,private=True)
+        config=actual.get('Config',{});host=actual.get('HostConfig',{})
+        if (not re.fullmatch(r'[0-9a-f]{64}',actual.get('Id',''))
+                or actual.get('Image')!=policy['image'] or config.get('User')!='21004:21004'
+                or config.get('Entrypoint')!=['python'] or config.get('Cmd')!=['-m','skillloop.protection.formal_session']
+                or config.get('Labels',{}).get('skillloop.deployment_epoch')!=policy['deployment_epoch']
+                or config.get('Labels',{}).get('skillloop.role')!='private_session'
+                or actual.get('State',{}).get('Running') is not False
+                or host.get('NetworkMode')!='none' or host.get('ReadonlyRootfs') is not True
+                or host.get('CapDrop')!=['ALL'] or host.get('LogConfig',{}).get('Type')!='none'
+                or not {'21001','21005'}<=set(host.get('GroupAdd',[]))
+                or 'no-new-privileges' not in host.get('SecurityOpt',[])
+                or volume.get('Name')!=policy['archive_volume'] or volume.get('Driver')!='local'
+                or volume.get('Options') not in (None,{})
+                or volume.get('Labels',{}).get('skillloop.deployment_epoch')!=policy['deployment_epoch']
+                or len([m for m in actual.get('Mounts',[]) if m.get('Type')=='volume'
+                    and m.get('Name')==policy['archive_volume'] and m.get('Destination')==policy['archive_root']
+                    and m.get('RW') is True])!=1
+                or len([m for m in host.get('Mounts',[]) if m.get('Type')=='volume'
+                    and m.get('Source')==policy['archive_volume'] and m.get('Target')==policy['archive_root']
+                    and m.get('ReadOnly') is False])!=1):
+            raise ValueError('formal_archive_private_original_persistent_process')
     creation=receipt.get('controller_creation_evidence')
     if creation is not None:
         from skillloop.runtime.task_archive import validate_controller_archive_reference

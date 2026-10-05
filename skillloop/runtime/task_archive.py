@@ -17,6 +17,22 @@ from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
 from skillloop.runtime.archive_files import open_original,identity,require_unchanged,allocate_output
 
 
+def resolve_private_archive_policy(declaration,*,action_digest):
+    """Bind an Admin template to the actual current Evaluator action."""
+    if declaration.get('kind')!='FrozenPrivateTaskArchiveProduction':return declaration
+    fields={'kind','deployment_epoch','image','archive_volume','archive_root',
+        'maximum_bytes','maximum_files','timeout_seconds','campaign_deadline'}
+    if (set(declaration)!={'kind','archive_template','digest'}
+            or declaration.get('digest')!=digest_jcs({k:v for k,v in declaration.items() if k!='digest'})
+            or type(declaration['archive_template']) is not dict or set(declaration['archive_template'])!=fields
+            or declaration['archive_template']['kind']!='FrozenDurableTaskArchive'
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',action_digest)):
+        raise ValueError('private_archive_original_admin_template')
+    policy={**declaration['archive_template'],'controller_container_id':'action-'+action_digest}
+    policy['digest']=digest_jcs(policy)
+    return policy
+
+
 def validate_controller_archive_reference(policy,*,private=False):
     """Freeze a creation operation before Docker assigns its actual ID."""
     reference=policy.get('controller_container_id')
@@ -44,12 +60,13 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
     private=entry.get('kind')=='protected'
     owner=21004 if private else 21001
     if os.geteuid()!=owner:raise PermissionError('task_archive_actual_custodian_required')
-    policy=read_owned(policy_path,uid=21010,gid=owner,limit=262144)
+    declaration=read_owned(policy_path,uid=21010,gid=owner,limit=262144)
+    policy=resolve_private_archive_policy(declaration,action_digest=os.environ.get('SKILLLOOP_PRIVATE_ACTION_DIGEST','')) if private else declaration
     fields={'kind','deployment_epoch','image','controller_container_id','archive_volume',
             'archive_root','maximum_bytes','maximum_files','timeout_seconds','campaign_deadline','digest'}
     creation=validate_controller_archive_reference(policy,private=private)
     if (set(policy)!=fields|({'controller_creation'} if creation is not None else set()) or policy['kind']!='FrozenDurableTaskArchive'
-            or policy['digest']!=entry['config'].get('durable_task_archive_policy_digest')
+            or declaration['digest']!=entry['config'].get('durable_task_archive_policy_digest')
             or policy['deployment_epoch']!=intent['deployment_epoch']
             or policy['image']!=entry['config']['mac_runtime_image']
             or type(policy['maximum_bytes']) is not int or not 1<=policy['maximum_bytes']<=2147483648
@@ -71,7 +88,7 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
     if private:
         if engine is not None or mount_attestation_path is None:
             raise PermissionError('private_archive_no_engine_access')
-        attestation=read_owned(mount_attestation_path,uid=owner,gid=21004,limit=2097152)
+        attestation=read_owned(mount_attestation_path,uid=21001,gid=21004,limit=2097152)
         if (attestation.get('kind')!='PrivateArchiveMountAttestation'
                 or attestation.get('policy_digest')!=policy['digest']
                 or attestation.get('deployment_epoch')!=intent['deployment_epoch']):
@@ -215,13 +232,17 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
             or databases[0]['bytes']!=authority.get('database_size_bytes')):
         raise ValueError('task_archive_reviewed_bytes_changed_after_gate')
     receipt={'kind':'DurableReviewedTaskArchive','intent_digest':intent['digest'],
-        'entry_digest':entry['digest'],'review_digest':review['digest'],'policy_digest':policy['digest'],
+        'entry_digest':entry['digest'],'review_digest':review['digest'],'policy_digest':declaration['digest'],
         'archive_volume':volume['Name'],'archive_directory':str(target),'files':inventory,'total_bytes':total,
         'persistent_disk_bytes_verified':True,'independent_archive_review_complete':False,
         'qualification_issued':False,'elapsed_seconds':time.monotonic()-started}
     if creation_evidence is not None:
         receipt['controller_creation_evidence']=creation_evidence
         receipt['controller_archive_policy']=policy
+    if private:
+        receipt['private_archive_declaration']=declaration
+        receipt['private_archive_policy']=policy
+        receipt['private_archive_mount_attestation']=attestation
     receipt['digest']=digest_jcs(receipt);budget()
     fd=os.open(target/'archive-receipt.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as stream:

@@ -39,7 +39,7 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
             reference_path='/current-reference/reference.json',projection_directory=projection_directory,
             assignment_directory='/prepared-assignment',output_directory='/action-output',opaque_directory='/opaque-actions')
     if job.get('kind') == 'FormalPrivateArchive':
-        from skillloop.runtime.task_archive import archive_reviewed_task
+        from skillloop.runtime.task_archive import archive_reviewed_task,resolve_private_archive_policy
         if set(job)!={'kind','session_key','assignment_digest','digest'}:
             raise ValueError('private_archive_action_shape')
         authority=ProtectionAuthority(Path(private_directory)/'epoch-authority')
@@ -51,7 +51,8 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
             raise ValueError('private_archive_original_session_binding')
         intent=assignment['intent']
         review=read_owned(Path('/reviews')/(intent['digest'][7:]+'.json'),uid=21005,gid=21004,limit=262144)
-        policy=read_owned('/archive-policy/policy.json',uid=21010,gid=21004,limit=262144)
+        policy=resolve_private_archive_policy(read_owned('/archive-policy/policy.json',uid=21010,gid=21004,limit=262144),
+            action_digest=job['digest'])
         bound=os.environ.get('SKILLLOOP_PRIVATE_MAX_EVIDENCE_BYTES','')
         seconds=os.environ.get('SKILLLOOP_PRIVATE_TIMEOUT_SECONDS','')
         if (not bound.isdecimal() or not seconds.isdecimal()

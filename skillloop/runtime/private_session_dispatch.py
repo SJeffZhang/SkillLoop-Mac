@@ -95,7 +95,7 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
         raise PermissionError('formal_session_fresh_controller_journal')
     gate=policy['kind']=='FrozenOpaquePrivateGateDispatch'
     retirement_mounts={'assignment','private_authority','session_projection','private_completion','task_reviews','archive_reviews','retirement_grants'}
-    archive_gate_mounts={'assignment','archive','original_reviews','reviews'}
+    archive_gate_mounts={'assignment','archive','original_reviews','reviews','archive_mount'}
     base_mounts = {'assignment', 'private', 'projection', 'evaluation', 'reviews', 'authority'}
     if (type(policy['mounts']) is not dict or set(policy['mounts']) not in
             (base_mounts, base_mounts | {'private_task_inbox', 'private_policy', 'tokenizer'},
@@ -141,7 +141,8 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
         targets.update(archive_policy='/archive-policy',archive_mount='/archive-mount',archive_output='/archive')
     if gate:targets={'assignment':'/assignment','runtime':'/raw','snapshot':'/authority',
                      'evaluation':'/evaluation','reviews':'/reviews','tokenizer':'/model'}
-    if archive_gate:targets={'assignment':'/assignment','archive':'/archive','original_reviews':'/original-reviews','reviews':'/reviews'}
+    if archive_gate:targets={'assignment':'/assignment','archive':'/archive','original_reviews':'/original-reviews',
+        'reviews':'/reviews','archive_mount':'/archive-mount'}
     if retirement:targets={'assignment':'/assignment','private_authority':'/private-authority',
         'session_projection':'/session-projection','private_completion':'/private-completion',
         'task_reviews':'/task-reviews','archive_reviews':'/archive-reviews','retirement_grants':'/retirement-grants'}
@@ -200,10 +201,11 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
         keeper()
         if 'archive_output' in policy['mounts']:
             from skillloop.discovery.formal_task_gate import read_owned
-            from skillloop.runtime.task_archive import attest_private_archive_mount
+            from skillloop.runtime.task_archive import attest_private_archive_mount,resolve_private_archive_policy
             if archive_mount_policy_path is None or archive_attestation_directory is None:
                 raise ValueError('private_archive_original_mount_attestation_required')
-            archive_policy=read_owned(archive_mount_policy_path,uid=21010,gid=21001,limit=262144)
+            archive_policy=resolve_private_archive_policy(read_owned(archive_mount_policy_path,uid=21010,gid=21001,limit=262144),
+                action_digest=policy['action_digest'])
             if (archive_policy['controller_container_id']!='action-'+policy['action_digest']
                     or archive_policy['image']!=policy['image']
                     or archive_policy['archive_volume']!=policy['mounts']['archive_output']['volume']):

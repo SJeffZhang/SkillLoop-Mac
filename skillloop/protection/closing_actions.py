@@ -22,12 +22,12 @@ def produce_closing_action(*,authority,policy_path,reference_path,projection_dir
     policy=read_owned(policy_path,uid=21010,gid=21004,limit=262144)
     fields={'kind','campaign_id','deployment_epoch','config_digest','campaign_deadline','stage',
         'maximum_database_bytes','snapshot_wait_seconds','maximum_archive_bytes','maximum_archive_files','digest'}
-    if (set(policy)!=fields or policy['kind']!='AdminPrivateClosingActionProduction'
+    if (set(policy)!=fields or policy['kind']!='FrozenPrivateClosingActionProduction'
             or policy['stage'] not in STAGES
             or type(policy['maximum_database_bytes']) is not int or not 1<=policy['maximum_database_bytes']<=536870912
             or type(policy['snapshot_wait_seconds']) is not int or not 1<=policy['snapshot_wait_seconds']<=60
             or type(policy['maximum_archive_bytes']) is not int or not 1<=policy['maximum_archive_bytes']<=2147483648
-            or type(policy['maximum_archive_files']) is not int or not 1<=policy['maximum_archive_files']<=65536):
+            or type(policy['maximum_archive_files']) is not int or not 1<=policy['maximum_archive_files']<=4096):
         raise ValueError('private_closing_production_frozen_policy')
     reference=read_owned(reference_path,uid=21004,gid=21001,limit=262144)
     if (reference.get('kind')!='EvaluatorOpaqueRunReference'
