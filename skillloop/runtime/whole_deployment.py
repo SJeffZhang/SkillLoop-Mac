@@ -194,6 +194,9 @@ class WholeRoleDeployment:
                         raise PermissionError('whole_role_cross_owner_write')
             if set(scope)!=observed_private:
                 raise PermissionError('whole_role_private_scope_actual_mount_mismatch')
+        from skillloop.runtime.inference_authorization import validate_inference_transport_manifest
+        validate_inference_transport_manifest(plan)
+
     def bootstrap_config(self):
         p=self.plan
         mounts=[{'Type':'volume','Source':p['volume'],'Target':'/deployment-data','ReadOnly':False},

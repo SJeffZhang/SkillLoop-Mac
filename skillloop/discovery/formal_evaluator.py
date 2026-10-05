@@ -141,6 +141,43 @@ def evaluate_capture(*, entry, intent, capture, run_directory, snapshot_director
     finally:counter.close()
     store=PublicationSnapshot(snapshot_directory,epoch=config['deployment_epoch'],intent=intent,
         maximum_bytes=maximum_database_bytes)
+    inference_attempts=store.inspect_inference_attempts(intent['binding']['body']['run_id'])
+    from skillloop.runtime.gateway import OllamaGateway
+    if [row['round_index'] for row in inference_attempts] != list(range(len(inference_attempts))):
+        raise ValueError('formal_inference_attempt_frontier')
+    if len(inference_attempts)>16 or len(inference_attempts)<len(models):
+        raise ValueError('formal_inference_attempt_coverage')
+    for index,event in enumerate(models):
+        row=inference_attempts[index];reservation=decode_json(row['reservation_json']);request=reservation['request']
+        context=decode_json((directory/'evidence'/'contexts'/event['context_digest'][7:]).read_bytes())
+        backend=event['response']['backend_response']
+        native_payload={'model':config['model_id'],'messages':OllamaGateway._ollama_messages(context),
+            'tools':tools,'stream':False,'think':False,'options':{'temperature':1.0,'top_p':0.95,
+                'num_ctx':16384,'num_predict':2048}}
+        if (reservation.get('kind')!='ProxyRuntimeInferenceReserved'
+                or reservation.get('digest')!=digest_jcs({k:v for k,v in reservation.items() if k!='digest'})
+                or request.get('digest')!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
+                or row['request_digest']!=request['digest'] or reservation['request_digest']!=request['digest']
+                or request['run_request_digest']!=intent['run_request']['digest']
+                or request['task_binding_digest']!=intent['binding']['digest']
+                or request['deployment_epoch']!=config['deployment_epoch']
+                or request['config_digest']!=digest_jcs(config)
+                or request['campaign_id']!=intent['campaign_id']
+                or request['run_id']!=intent['binding']['body']['run_id']
+                or request['fencing_token']!=capture['lease']['body']['fencing_token']
+                or request['payload_digest']!=digest_bytes(canonical_json_line(native_payload))
+                or request['phase']!=('protected' if private else 'dev')
+                or request['round_index']!=index or event['turn']!=index
+                or request['messages_digest']!=digest_jcs(OllamaGateway._ollama_messages(context))
+                or request['tools_digest']!=digest_jcs(tools)
+                or request['input_tokens']!=event['preflight_prompt_tokens']
+                or request['output_tokens']!=2048
+                or request['model_identity']!={k:config[k] for k in ('model_id','model_manifest_digest','tokenizer_hashes')}
+                or row['response_digest']!=digest_jcs(backend) or row['completed_at'] is None
+                or reservation['redispatch_allowed'] is not False):
+            raise ValueError('formal_inference_original_authority_binding')
+    if len(inference_attempts)!=len(models) and observed['observation']['body']['evidence_complete']:
+        raise ValueError('formal_inference_spent_or_unknown_not_complete')
     if store.manifest['approval_digest']!=capture['approval_digest']:
         raise ValueError('formal_evaluation_actual_approval_mismatch')
     if store.manifest['cancellation_fence']!=closure['cancellation']['body']['effective_fence']:
@@ -179,6 +216,7 @@ def evaluate_capture(*, entry, intent, capture, run_directory, snapshot_director
         'deployment_epoch':config['deployment_epoch'],
         'source_snapshot_digest':entry['source_admission']['source_snapshot']['digest'],
         'runtime_capture_digest':capture['digest'],'authority_snapshot_digest':store.manifest['digest'],
+        'inference_attempts_digest':digest_jcs([{**row,'reservation_json':decode_json(row['reservation_json'])} for row in inference_attempts]),
         'run_request':intent['run_request'],'task_binding':intent['binding'],'result':result,
         'evidence_index':evidence,'execution_record':record,'trusted_events':events,'summary':summary,
         'evaluator_uid':21004,'independent_gate_complete':False,'qualification_issued':False}

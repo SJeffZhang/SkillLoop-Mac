@@ -101,3 +101,16 @@ class PublicationSnapshot:
                 return None
             value=db.execute('SELECT * FROM terminal_outputs WHERE run_id=?',(run_id,)).fetchone()
             return dict(value) if value else None
+
+
+    def inspect_inference_attempts(self, run_id):
+        """Original identity-only ledger in the same consistent authority export."""
+        with closing(self.connect()) as db:
+            run=db.execute('SELECT task_instance_id FROM runs WHERE run_id=?',(run_id,)).fetchone()
+            if run is None or run[0]!=self.task:raise PermissionError('snapshot_foreign_inference')
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_inference_schema'").fetchone():
+                raise ValueError('snapshot_inference_authority_missing')
+            version=db.execute('SELECT version FROM runtime_inference_schema WHERE singleton=1').fetchone()
+            if version is None or version[0]!=1:raise ValueError('snapshot_inference_authority_version')
+            return [dict(row) for row in db.execute('SELECT * FROM runtime_inference_attempts '
+                'WHERE run_id=? ORDER BY round_index',(run_id,))]

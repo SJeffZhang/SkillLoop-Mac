@@ -54,6 +54,10 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     gateway_policy=read_owned(Path(gateway_policy_directory)/'policy.json',uid=21010,gid=21011,limit=262144)
     deadline=datetime.fromisoformat(policy['campaign_deadline'].replace('Z','+00:00'))
     protected=gateway_policy.get('kind')=='ProtectedNativeModelBridgePolicy'
+    if (gateway_policy.get('allowed_client_uid') == 21002 and (
+            gateway_policy.get('campaign_id') != policy['campaign_digest']
+            or gateway_policy.get('deployment_epoch') != whole['deployment_epoch'])):
+        raise ValueError('runtime_gateway_dispatch_authority_binding')
     if (protected and (gateway_policy.get('allowed_client_uid')!=21002
             or gateway_policy.get('campaign_id')!=policy['campaign_digest']
             or gateway_policy.get('deployment_epoch')!=whole['deployment_epoch'])):
@@ -84,6 +88,7 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
     targets={'gateway_policy':'/gateway-policy','whole_round':'/whole-round',
              'tokenizer':'/model','model_bridge':'/model-bridge'}
     if protected:targets['lifecycle_review']='/lifecycle-review'
+    if uid == 21002:targets['inference_authority']='/inference-authority'
     if type(policy['mounts']) is not dict or set(policy['mounts'])!=set(targets):
         raise ValueError('native_gateway_mount_set')
     for key,target in targets.items():

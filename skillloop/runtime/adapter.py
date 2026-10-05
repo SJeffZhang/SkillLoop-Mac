@@ -187,8 +187,14 @@ class AgentAdapter:
             for turn in range(16):
                 rounds = turn + 1
                 context_digest = trace.context(messages)
+                inference_options = {}
+                if isinstance(self.gateway, OllamaGateway) and self.gateway.expected_server_uid == 21011:
+                    inference_options['inference_context'] = {
+                        'run_id':run_id,'fencing_token':fence,'run_request_digest':run_request['digest'],
+                        'task_binding_digest':task_binding['digest'],'round_index':turn}
                 response, prompt_tokens, latency = self.gateway.complete(
-                    messages, tools, remaining_seconds=deadline_seconds - (time.monotonic() - started))
+                    messages, tools, remaining_seconds=deadline_seconds - (time.monotonic() - started),
+                    **inference_options)
                 if rendered_mutation is not None and mutation_reads > exposed_reads:
                     exposed = True
                     exposed_reads = mutation_reads

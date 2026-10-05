@@ -493,3 +493,11 @@ Admin部署生产者在发布新manifest之前，按Controller实际卷/subpath�
 部分phase、未知任务、缺少审查、账本不符或部分发布都不能继续；已有完整生产receipt只返回原job，不新投递/新预留/续时钟。独立Gate仍重新验证任务、源、扫描、补丁历史和完整配对，生产者不设置qualification或all_attempt_history_complete。旧精确assignment策略保持支持；新策略必须由当前整轮配置显式选择，旧冻结根不改。
 
 该连接由campaign dispatcher传入同一个正式phase executor，无人工私有脚本接力。仅146份生产Python的AST与源码审查，未执行数据库、Gate、模型或实验；完整recipe/费用配置和全尝试历史仍需修复。
+
+### Runtime逐次推理与业务权威记录接通
+
+正式Runtime→Gateway现在传原run、fence、RunRequest、TaskBinding和round身份；Gateway在本次上下文预检后，经独立Proxy→Gateway socket领取一次性预留。Proxy在原业务SQLite事务中核对真实active/取消/fence/批准及Lease截止、原配置与Admin已准入模型/tokenizer、实际Evaluator任务交接所确定的dev/protected域，并持久记录16轮以内连续尝试。相同预留不能再次领取；前次没有完整响应记录时禁止下一次推理。结果响应的规范化摘要在回复Runtime之前持久记录，丢失ACK仍不能重投；撤销和取消不删除已经发生的响应证据。
+
+该内部交接仅传身份和上下文摘要，不新增冻结工具或RPC枚举，不给Gateway业务库、完整私有计划或工具socket。11角色部署审查核对双方实际卷/subpath、Proxy所有权、Gateway专属组、只读挂载和独立无私有子目录的socket根；新Runtime Gateway配置必须声明当前campaign/config/epoch及此挂载，旧冻结活动不迁移。Evaluator及独立Task Gate从一致业务快照重建逐次预留，比较真实原上下文、模型响应、token、fence与配置；未知或缺失记录不能变成完整任务。
+
+仅149份Python AST及源码差异检查，未运行数据库、模型、容器或测试。此为Runtime内部授权链源码连接；冻结infer_current_context公共OperationTicket/MessageBundle服务和Generator/Patcher实时上下文发行仍需接通，不能将内部预留宣称为完整推理合同验收。完整recipe、所有尝试历史、共享campaign容量及新部署恢复继续修复，第一整轮未启动。

@@ -62,13 +62,18 @@ class HostModelBridge:
                  model_id: str = "Qwen/Qwen3.8-27B-FP8", backend: str = "sglang",
                  native_chat: bool = False, tokenizer=None, allowed_client_uid=None,
                  temperature=1.0, top_p=0.95, max_output_tokens=2048,
-                 request_timeout_seconds=600, campaign_deadline=None, semantic_scope_digest=None, evidence_observer=None):
+                 request_timeout_seconds=600, campaign_deadline=None, semantic_scope_digest=None, evidence_observer=None, inference_authority=None):
         if model_host not in {"127.0.0.1", "localhost", "host.docker.internal"}:
             raise ValueError("model_endpoint_must_be_loopback")
         if backend not in {"sglang", "ollama"}:
             raise ValueError("unknown_model_backend")
         self.semantic_scope_digest=semantic_scope_digest
         self.evidence_observer=evidence_observer
+        self.inference_authority=inference_authority
+        if allowed_client_uid == 21002 and inference_authority is None:
+            raise ValueError("runtime_bridge_live_inference_authority_required")
+        if inference_authority is not None and allowed_client_uid != 21002:
+            raise ValueError("runtime_bridge_authority_exact_role")
         if semantic_scope_digest is not None:
             import re
             if allowed_client_uid!=21011 or not re.fullmatch(r"sha256:[0-9a-f]{64}",semantic_scope_digest) or evidence_observer is None:
@@ -213,6 +218,16 @@ class HostModelBridge:
                             'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':parsed['message']['content']}}],
                             'usage':{'prompt_tokens':parsed['prompt_eval_count'],'completion_tokens':parsed['eval_count'],
                                      'total_tokens':parsed['prompt_eval_count']+parsed['eval_count']}}).encode()
+                    if method == 'POST' and bridge.inference_authority is not None:
+                        if (status != 200 or not isinstance(parsed, dict) or parsed.get('done') is not True
+                                or parsed.get('done_reason') != 'stop' or parsed.get('message',{}).get('thinking')
+                                or type(parsed.get('eval_count')) is not int
+                                or not 0 <= parsed['eval_count'] <= bridge.max_output_tokens):
+                            self._model_failure('runtime_model_terminal_incomplete',payload,status);return
+                        # Persist the original response digest before returning it.
+                        # If either ACK is lost, the reservation stays spent.
+                        bridge.inference_authority.complete(self.inference_reservation, payload,
+                            self.request_end-time.monotonic())
                     self.send_response(status)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(payload)))
@@ -262,6 +277,7 @@ class HostModelBridge:
                     value = json.loads(data)
                     if type(value) is not dict or value.get("model") != bridge.model_id:
                         raise ValueError("model_identity")
+                    runtime_context = value.pop("skillloop_runtime_context", None)
                     if bridge.semantic_scope_digest is not None and value.get("tools"):
                         raise ValueError("semantic_analyzer_has_no_tools")
                     if native:
@@ -301,6 +317,22 @@ class HostModelBridge:
                     if bridge.inference_unresolved.is_set():
                         self.send_error(409, 'original_inference_unresolved_no_dispatch')
                         return
+                    with bridge._lock:
+                        if bridge.max_chat_requests is not None and bridge.chat_requests >= bridge.max_chat_requests:
+                            self.send_error(429,"scanner_model_budget_exhausted")
+                            return
+                    if bridge.inference_authority is not None:
+                        try:
+                            self.inference_reservation = bridge.inference_authority.reserve(
+                                runtime_context, value, expected, self.request_end-time.monotonic())
+                            authorized_end = datetime.fromisoformat(self.inference_reservation['deadline'].replace('Z','+00:00'))
+                            self.request_end = min(self.request_end, time.monotonic()+
+                                (authorized_end-datetime.now(timezone.utc)).total_seconds())
+                            if self.request_end <= time.monotonic():
+                                raise TimeoutError('runtime_inference_original_lease_expired')
+                        except (OSError, TimeoutError, ValueError, PermissionError):
+                            self.send_error(403,'runtime_inference_authorization_denied_or_unknown')
+                            return
                     with bridge._lock:
                         if bridge.max_chat_requests is not None and bridge.chat_requests >= bridge.max_chat_requests:
                             self.send_error(429, "scanner_model_budget_exhausted")

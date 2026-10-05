@@ -51,8 +51,10 @@ def main():
         'backend_version','model_host','model_port','allowed_client_uid','max_chat_requests','campaign_deadline',
         'request_timeout_seconds','tokenizer_hashes','temperature','top_p','max_output_tokens','digest'}
     protected = policy.get('kind') == 'ProtectedNativeModelBridgePolicy'
-    protected_fields = {'campaign_id', 'deployment_epoch', 'config_digest', 'source_index_digest', 'lifecycle_grant_digest'}
-    if (set(policy)!=(required | protected_fields if protected else required)
+    runtime = policy.get('allowed_client_uid') == 21002
+    runtime_fields = {'campaign_id','deployment_epoch','config_digest'} if runtime else set()
+    protected_fields = {'source_index_digest', 'lifecycle_grant_digest'} if protected else set()
+    if (set(policy)!=(required | runtime_fields | protected_fields)
             or policy['kind'] not in {'NativeModelBridgePolicy', 'ProtectedNativeModelBridgePolicy'}
             or policy['model_host'] not in {'127.0.0.1','host.docker.internal'}
             or type(policy['model_port']) is not int or not 1024<=policy['model_port']<=65535
@@ -65,6 +67,13 @@ def main():
     if (policy['whole_round_manifest_digest']!=whole['digest'] or policy['source_digest']!=whole['source_digest']
             or policy['source_digest']!=digest_jcs(source_index(Path(__file__).resolve().parents[2]))):
         raise ValueError('native_model_gateway_source_or_whole_round_changed')
+    inference_authority = None
+    if runtime:
+        campaigns = [c for c in whole['campaigns'] if c['campaign_digest'] == policy['campaign_id']]
+        if len(campaigns) != 1 or policy['deployment_epoch'] != whole['deployment_epoch']:
+            raise ValueError('runtime_gateway_whole_campaign_binding')
+        from skillloop.runtime.inference_authorization import RuntimeInferenceAuthorization
+        inference_authority = RuntimeInferenceAuthorization(policy)
     lifecycle_grant = None
     if protected:
         if policy['allowed_client_uid'] != 21002:
@@ -109,7 +118,8 @@ def main():
                 model_id=policy['model_id'],backend='ollama',native_chat=True,tokenizer=tokenizer,
                 allowed_client_uid=policy['allowed_client_uid'],max_chat_requests=policy['max_chat_requests'],
                 temperature=policy['temperature'],top_p=policy['top_p'],max_output_tokens=policy['max_output_tokens'],
-                request_timeout_seconds=policy['request_timeout_seconds'],campaign_deadline=policy['campaign_deadline']) as bridge:
+                request_timeout_seconds=policy['request_timeout_seconds'],campaign_deadline=policy['campaign_deadline'],
+                inference_authority=inference_authority) as bridge:
             while not stop.is_set():
                 left=(deadline-datetime.now(timezone.utc)).total_seconds()
                 if left<=60:break

@@ -417,7 +417,7 @@ class OllamaGateway:
         return converted
 
     def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
-                 *, remaining_seconds: float) -> tuple[dict[str, Any], int, float]:
+                 *, remaining_seconds: float, inference_context=None) -> tuple[dict[str, Any], int, float]:
         if self.template_overhead_tokens is None:
             raise GatewayError("ollama_token_calibration_required")
         started = time.monotonic()
@@ -433,6 +433,12 @@ class OllamaGateway:
                    "options": {"temperature": self.temperature, "top_p": self.top_p,
                                "num_ctx": self.max_context_tokens,
                                "num_predict": self.max_output_tokens}}
+        if self.expected_server_uid == 21011 and os.geteuid() == 21002:
+            if type(inference_context) is not dict:
+                raise GatewayError("runtime_inference_current_identity_required")
+            payload["skillloop_runtime_context"] = inference_context
+        elif inference_context is not None:
+            raise GatewayError("runtime_inference_context_wrong_role")
         body = json.dumps(payload, ensure_ascii=False).encode()
         model_started = time.monotonic()
         def parse_native(raw,status):

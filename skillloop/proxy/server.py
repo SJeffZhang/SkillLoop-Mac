@@ -37,7 +37,8 @@ class ProxyServer:
                  controller_uid: int = 21001, runtime_uid: int = 21002,
                  socket_mode: int = 0o660, controller_gid: int | None = None,
                  runtime_gid: int | None = None, approval_authority=None,
-                 admin_gid: int | None = None, on_cancel=None):
+                 admin_gid: int | None = None, on_cancel=None, inference_authority=None,
+                 inference_directory: Path | None = None):
         if not hasattr(socket, "SO_PEERCRED") or not hasattr(socket, "SOCK_SEQPACKET"):
             raise RuntimeError("linux_peercred_seqpacket_required")
         if approval_authority is not None and (os.geteuid() != 21003 or
@@ -47,6 +48,19 @@ class ProxyServer:
         self.approval_authority = approval_authority
         self.admin_gid = admin_gid
         self.on_cancel = on_cancel
+        self.inference_authority = inference_authority
+        self.inference_directory = inference_directory
+        if (inference_authority is None) != (inference_directory is None):
+            raise ValueError("inference_authority_endpoint_pair")
+        if inference_authority is not None:
+            import stat
+            from .inference_authority import RuntimeInferenceAuthority
+            info = Path(inference_directory).lstat()
+            if (type(inference_authority) is not RuntimeInferenceAuthority or inference_authority.store is not store
+                    or os.geteuid() != 21003 or not Path(inference_directory).is_absolute()
+                    or Path(inference_directory).is_symlink() or not stat.S_ISDIR(info.st_mode)
+                    or info.st_uid != 21003 or info.st_gid != 21011 or stat.S_IMODE(info.st_mode) != 0o750):
+                raise PermissionError("inference_authority_endpoint_custody")
         self.store = store
         self.directory = Path(directory)
         self.controller_uid = controller_uid
@@ -58,7 +72,7 @@ class ProxyServer:
         self._sockets: list[socket.socket] = []
         self._bound_paths: list[Path] = []
         self._stop = threading.Event()
-        self._active = {"controller": 0, "runtime": 0, "admin": 0}
+        self._active = {"controller": 0, "runtime": 0, "admin": 0, "inference": 0}
         self._lock = threading.Lock()
         self._idle = threading.Condition(self._lock)
 
@@ -69,9 +83,11 @@ class ProxyServer:
                      ("runtime_ingress", "ingress.sock", self.runtime_gid)]
         if self.approval_authority is not None:
             endpoints.append(("admin", "admin.sock", self.admin_gid))
+        if self.inference_authority is not None:
+            endpoints.append(("inference", "inference.sock", 21011))
         try:
             for role, name, gid in endpoints:
-                path = self.directory / name
+                path = Path(self.inference_directory if role == "inference" else self.directory) / name
                 # lexists covers dangling links, which are not our endpoint.
                 if os.path.lexists(path):
                     raise RuntimeError("socket_path_exists")
@@ -158,7 +174,7 @@ class ProxyServer:
             connection.settimeout(MAX_REQUEST_SECONDS)
             raw_peer = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
             _pid, uid, _gid = struct.unpack("3i", raw_peer)
-            expected = (21010 if socket_role == "admin" else
+            expected = (21011 if socket_role == "inference" else 21010 if socket_role == "admin" else
                         self.controller_uid if socket_role == "controller" else self.runtime_uid)
             # Consume one bounded packet before replying. Closing a SEQPACKET socket
             # with unread input can turn the explicit denial into ECONNRESET.
@@ -170,6 +186,19 @@ class ProxyServer:
                 self._send(connection, {"ok": False, "error_code": "invalid_args"})
                 return
             try:
+                if socket_role == "inference":
+                    from skillloop.protocol import decode_json
+                    request = decode_json(raw)
+                    if type(request) is not dict:
+                        raise ProxyError("invalid_args")
+                    end = _deadline(request["deadline"])
+                    with self.store.rpc_window(end):
+                        if request.get("kind") == "RuntimeInferenceReservationRequest":
+                            result = self.inference_authority.reserve(request)
+                        else:
+                            result = self.inference_authority.complete(request)
+                    self._send(connection, {"ok": True, "result": result})
+                    return
                 if socket_role == "runtime_ingress":
                     call = parse_envelope(raw)
                     if call["kind"] != "ToolCall":
