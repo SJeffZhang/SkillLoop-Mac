@@ -50,3 +50,23 @@ def publish_qualification(app, registry, *, pr, check_id, head_sha,
     # by read-only inspection, never by an automatic second PATCH.
     registry.complete(project, head_sha, config_digest, generation, campaign, decision)
     return result
+
+
+def reconcile_qualification_receipt(app, registry, *, pr, check_id, head_sha,
+                                    config_digest, generation, campaign, decision):
+    """Record a lost-reply original Check by GET, without sending another PATCH.
+
+    This transport recovery still requires a trusted caller's independently
+    verified decision. It does not authenticate a Gate result or create a
+    qualification when the original Check remains pending or differs.
+    """
+    outcome=qualification_outcome(decision['verdict'])
+    observed=app.inspect_qualification_check(pr=pr,check_id=check_id,
+        head_sha=head_sha,config_digest=config_digest,generation=generation)
+    if (observed['conclusion']!=outcome['conclusion']
+            or observed['transport_verified'] is not True
+            or observed['qualification_evidence_verified'] is not False):
+        raise ValueError('qualification_original_check_conclusion_mismatch')
+    project=app.repository+'#'+str(pr)
+    registry.complete(project,head_sha,config_digest,generation,campaign,decision)
+    return observed
