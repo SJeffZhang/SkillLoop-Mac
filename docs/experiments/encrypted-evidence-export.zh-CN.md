@@ -116,3 +116,9 @@ Registry 使用已提交的 RegistryArchiveWithdrawal 原操作结果阻断该 c
 正式 archive_role 调度增加 restore worker。恢复首先要求完整独立 campaign 归档审查通过，再完整认证 AES-GCM ciphertext；第二次认证解密时按封装内 inventory 重建原件，逐文件实际分配容量、核对字节、保留 2GiB free floor 并 fsync。路径穿越、重复/大小写冲突、容量不足、ciphertext 变化和部分恢复均拒绝完成，原件与部分新目录保留。
 
 恢复目录必须为空且使用不同 deployment epoch，全部历史原件进入 Gate 私有惰性证据库，不能作为运行数据库挂载。旧批准、Lease、grant、session、attestation 不自动激活，必须由新部署 Admin 重新准入。此入口不能替代新部署生产者和业务状态重建；完整覆盖仍缺操作/资源与失败/unknown 历史，因此目前会在完整审查门槛拒绝恢复，未进行恢复实测。
+
+### Linux 加密 wheel 锁与正式入口构建
+
+已从官方 PyPI 获取 Python 3.12/Linux-aarch64 的四个实际 wheel，公开锁记录真实版本、文件名与 SHA256：cryptography 50.0.2、cffi 2.1.1、pycparser 3.0、typing_extensions 4.16.0。wheel 二进制保留私有部署准备目录，不提交 Git；下载未运行模型或实验。
+
+新 whole-flow Dockerfile 使用独立加密安装目录、离线 require-hashes/no-deps/no-compile 安装，并由 Linux 专属生产者记录安装后的完整实际文件清单。归档角色 PYTHONPATH 接入该批准目录，运行时仍逐文件核验。构建同时安装 pyproject 的正式 skillloop console entry。镜像尚未构建，BASE_IMAGE 必须由最终冻结构建流程提供精确已批准摘要；wheel 已落实不等于 installed lock、完整入口或 runtime 已通过。

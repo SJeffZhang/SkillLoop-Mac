@@ -1,0 +1,27 @@
+{
+  "kind": "FrozenArchiveWheelArtifacts",
+  "platform": "linux-aarch64",
+  "distributions": {
+    "cffi": {
+      "version": "2.1.1",
+      "filename": "cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+      "digest": "sha256:68e62fe11f30d5ca8289242866f0a5291402d8529ca2178ab8afc5c9694ae890"
+    },
+    "cryptography": {
+      "version": "50.0.2",
+      "filename": "cryptography-50.0.2-cp311-abi3-manylinux_2_28_aarch64.whl",
+      "digest": "sha256:f9f6143a8c75945eb960d9eb98905a441394abfa24afaae239d514ffb2586480"
+    },
+    "pycparser": {
+      "version": "3.0",
+      "filename": "pycparser-3.0-py3-none-any.whl",
+      "digest": "sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"
+    },
+    "typing_extensions": {
+      "version": "4.16.0",
+      "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+      "digest": "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+    }
+  },
+  "digest": "sha256:1e161f9ab63f415b6b64c36087bf06d4fda24d01c008e8000b4d1e0b526101f1"
+}

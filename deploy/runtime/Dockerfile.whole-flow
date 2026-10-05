@@ -1,0 +1,14 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER 0
+ENV PYTHONDONTWRITEBYTECODE=1 PIP_NO_INDEX=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+COPY wheels /archive-wheels
+COPY archive-requirements.txt /archive-build/requirements.txt
+COPY archive-wheel-artifacts.json /archive-build/artifacts.json
+RUN python -m pip install --no-index --find-links=/archive-wheels --only-binary=:all: --require-hashes --no-deps --no-compile --target=/opt/archive-crypto -r /archive-build/requirements.txt
+COPY code /code
+ENV PYTHONPATH=/code/scripts/vendor:/code:/opt/archive-crypto
+RUN python /code/deploy/runtime/lock_archive_dependencies.py /archive-build/artifacts.json /archive-wheels /opt/archive-crypto /archive-build/installed-lock.json
+RUN python -m pip install --no-index --no-deps --no-build-isolation --no-compile /code
+WORKDIR /code
+ENTRYPOINT ["python"]

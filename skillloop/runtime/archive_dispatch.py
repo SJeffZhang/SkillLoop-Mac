@@ -76,7 +76,7 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
         operation_key='archive-'+policy['action']+'-'+policy['operation_ref'],
         seconds=policy['timeout_seconds']+policy['closure_seconds'],input_tokens=0,output_tokens=0,
         disk_bytes=policy['maximum_evidence_bytes'])
-    env=['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
+    env=['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code:/opt/archive-crypto',
         'SKILLLOOP_ARCHIVE_POLICY_DIGEST='+policy['worker_policy_digest'],
         'SKILLLOOP_ARCHIVE_MAX_BYTES='+str(policy['maximum_evidence_bytes'])]
     if not key_service:env.append('SKILLLOOP_ARCHIVE_ACTION='+policy['action'])
