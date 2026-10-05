@@ -82,6 +82,31 @@ class GitHubApp:
         return {'head_sha':head_sha,'identity':identity,'check_id':check['id'],
                 'generation':generation,'status':check['status'],'created':not bool(matches)}
 
+    def inspect_qualification_check(self,*,pr,check_id,head_sha,config_digest,generation):
+        """Read a possibly committed original Check after a lost PATCH reply.
+
+        This authenticates only GitHub transport and the live PR identity. It
+        neither recreates a Check nor asserts the Gate's qualification verdict.
+        """
+        if type(pr) is not int or pr<1 or type(check_id) is not int or check_id<1:
+            raise ValueError('invalid_qualification_check_reference')
+        identity=check_identity(self.repository,pr,head_sha,config_digest,generation)
+        if self.request('/pulls/'+str(pr))['head']['sha']!=head_sha:
+            raise ValueError('stale_head')
+        check=self.request('/check-runs/'+str(check_id))
+        if (check.get('head_sha')!=head_sha or check.get('external_id')!=identity
+                or check.get('app',{}).get('id')!=self.app_id
+                or check.get('name')!='SkillLoop qualification'):
+            raise ValueError('qualification_check_original_identity')
+        if check.get('status')!='completed' or check.get('conclusion') not in {
+                'success','failure','action_required'}:
+            raise ValueError('qualification_check_original_not_complete')
+        if self.request('/pulls/'+str(pr))['head']['sha']!=head_sha:
+            raise ValueError('stale_head_after_check_read')
+        return {'check_id':check_id,'head_sha':head_sha,'identity':identity,
+                'generation':generation,'conclusion':check['conclusion'],
+                'transport_verified':True,'qualification_evidence_verified':False}
+
     def complete_integration_check(self,pr,receipt,current_config):
         if self.request('/pulls/'+str(pr))['head']['sha']!=receipt['head_sha']:
             raise ValueError('stale_head')
