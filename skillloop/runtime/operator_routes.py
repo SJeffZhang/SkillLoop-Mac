@@ -116,6 +116,10 @@ def _validate_evaluation_sequence(route):
         raise ValueError('operator_evaluation_same_produced_gate_assignment')
     if not registered<frozen<factory<gate or not frozen<lifecycle<gate:
         raise ValueError('operator_evaluation_original_phase_order')
+    private_policy=[index for index,step in enumerate(route['steps']) if step['action']=='role_command'
+        and step.get('role')=='admin' and step.get('role_command')=='produce-private-policy']
+    if len(private_policy)!=1 or not frozen<private_policy[0]<assignment:
+        raise ValueError('operator_evaluation_current_private_policy_producer_required')
     development={'semantic_discovery','development','proposal','application_gate'}
     if any(not registered<index<frozen for index,action in enumerate(actions) if action in development):
         raise ValueError('operator_evaluation_development_before_freeze')
@@ -127,6 +131,8 @@ def _validate_evaluation_sequence(route):
     for index,action in enumerate(actions):
         if action=='private_session' and not factory<index<gate:
             raise ValueError('operator_evaluation_session_after_factory')
+        if action=='private_session' and index<=private_policy[0]:
+            raise ValueError('operator_evaluation_private_policy_before_delivery')
         if action not in {'private_resources','private_start','private_runtime','protected_close'}:continue
         if not max(factory,lifecycle)<index<assignment:
             raise ValueError('operator_evaluation_protected_after_isolation')

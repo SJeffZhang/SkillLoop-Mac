@@ -178,6 +178,11 @@ def create_private_epoch(*,assignment_path,whole_round_manifest_path,tokenizer_p
             'opaque_ref':opaque,'aggregate_status':'sealed'}
         result['digest']=digest_jcs(result)
         _save(projection/(job['digest'][7:]+'.json'),result,group=21001)
+        # A frozen caller can locate this opaque commitment without knowing
+        # the future roster-derived assignment digest. Ordinary independent
+        # files preserve the original seal and one-link custody requirement.
+        # The epoch is already committed: partial publication never regenerates.
+        _save(projection/'commit.json',result,group=21001)
         return result
 
 

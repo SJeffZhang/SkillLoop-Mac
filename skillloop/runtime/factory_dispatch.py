@@ -134,6 +134,8 @@ def dispatch_private_factory(*,policy,assignment_directory,projection_directory,
             if observed['State']['Running'] or wait['StatusCode'] or observed['State']['ExitCode']:
                 raise RuntimeError('private_factory_failed_preserve_generation')
             result=read_owned(projection/(job['digest'][7:]+'.json'),uid=21004,gid=21001,limit=262144)
+            if read_owned(projection/'commit.json',uid=21004,gid=21001,limit=262144)!=result:
+                raise ValueError('private_factory_original_commit_locator')
             if (set(result)!={'kind','campaign_public_ref','opaque_ref','aggregate_status','digest'}
                     or result.get('kind')!='FormalPrivateFactoryCommit'
                     or result.get('campaign_public_ref')!=policy['campaign_digest']
@@ -210,5 +212,7 @@ def recover_private_factory(*,policy,journal_directory,projection_directory,regi
         result=read_owned(Path(projection_directory)/(policy['assignment_digest'][7:]+'.json'),
             uid=21004,gid=21001,limit=262144)
         if result!=reviewed['commit']:raise ValueError('private_factory_recovery_original_commit_bytes')
+        if read_owned(Path(projection_directory)/'commit.json',uid=21004,gid=21001,limit=262144)!=result:
+            raise ValueError('private_factory_recovery_commit_locator')
         return {'commit':result,'container_id':identifier,'inspection':actual,
             'private_evidence_released':False,'host_backend_lifecycle_verified':False}

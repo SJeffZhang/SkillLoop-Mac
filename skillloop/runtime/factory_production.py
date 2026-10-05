@@ -63,6 +63,7 @@ def produce_factory_dispatch(*,recipe,assignment_directory,gate_freeze_path,jour
                 or saved['job_digest']!=job['digest'] or cost.get('kind')!='ControllerPrivateFactoryProductionCost'
                 or cost['spending']['requested_cost']!=requested
                 or cost['spending']['operation_key']!='factory-production-'+recipe['digest'][7:]
+                or cost['spending'] not in ledger.read().get('auxiliary_executions',[])
                 or read_owned(target,uid=21001,gid=21004,limit=8388608)!=job):
             raise ValueError('factory_production_original_receipt_changed')
         if saved.get('budget_closure')!='within_original_budget':
