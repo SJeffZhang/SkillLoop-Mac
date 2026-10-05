@@ -204,6 +204,12 @@ class ProxyServer:
 
     def dispatch(self, request: dict[str, Any], role: str) -> dict[str, Any]:
         """Role is supplied only after SO_PEERCRED verification in _handle."""
+        if request.get('kind')!='ControlRequest':raise ProxyError('invalid_args')
+        end=_deadline(request['body']['deadline'])
+        with self.store.rpc_window(end):
+            return self._dispatch_in_window(request,role)
+
+    def _dispatch_in_window(self, request: dict[str, Any], role: str) -> dict[str, Any]:
         if request["kind"] != "ControlRequest":
             raise ProxyError("invalid_args")
         body = request["body"]

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+import time
+from contextvars import ContextVar
 from contextlib import closing, contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +24,7 @@ from .policy import AuthorizationError, compile_capability, permits
 MIGRATION = Path(__file__).with_name("migrations") / "001_initial.sql"
 TOOL_NAMES = frozenset({"read_resource", "build_artifact", "write_artifact",
                         "validate_artifact", "prepare_publication", "publish_artifact"})
+_rpc_clock = ContextVar('proxy_original_rpc_clock', default=None)
 
 
 class ProxyError(Exception):
@@ -99,14 +102,44 @@ class ProxyStore:
                     raise
 
 
+    @contextmanager
+    def rpc_window(self, deadline):
+        now=datetime.now(timezone.utc)
+        if deadline.tzinfo is None or not 0<(deadline-now).total_seconds()<=10:
+            raise ProxyError('expired')
+        clock=(deadline,time.monotonic()+(deadline-now).total_seconds())
+        old=_rpc_clock.get()
+        if old is not None:clock=(min(old[0],clock[0]),min(old[1],clock[1]))
+        token=_rpc_clock.set(clock)
+        try:
+            self._check_rpc_clock()
+            yield
+            self._check_rpc_clock()
+        finally:_rpc_clock.reset(token)
+
+    @staticmethod
+    def _check_rpc_clock():
+        clock=_rpc_clock.get()
+        if clock is not None and (datetime.now(timezone.utc)>=clock[0] or time.monotonic()>=clock[1]):
+            raise ProxyError('expired')
+
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        db.execute("PRAGMA busy_timeout=10000")
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA synchronous=FULL")
-        return db
+        self._check_rpc_clock()
+        clock=_rpc_clock.get()
+        timeout=10 if clock is None else min(10,max(0.001,clock[1]-time.monotonic()))
+        db = sqlite3.connect(self.path, timeout=timeout, isolation_level=None)
+        try:
+            db.row_factory = sqlite3.Row
+            if clock is not None:
+                db.set_progress_handler(lambda: int(datetime.now(timezone.utc)>=clock[0] or time.monotonic()>=clock[1]),1000)
+            db.execute("PRAGMA foreign_keys=ON")
+            db.execute("PRAGMA busy_timeout="+str(max(1,int(timeout*1000))))
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA synchronous=FULL")
+            self._check_rpc_clock()
+            return db
+        except BaseException:
+            db.close();raise
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -114,16 +147,21 @@ class ProxyStore:
         try:
             db.execute("BEGIN IMMEDIATE")
             try:
+                self._check_rpc_clock()
                 yield db
-            except BaseException:
-                db.execute("ROLLBACK")
-                raise
-            else:
+                self._check_rpc_clock()
                 if self.fault_hook is not None:
                     self.fault_hook("before_commit")
+                self._check_rpc_clock()
                 db.execute("COMMIT")
                 if self.fault_hook is not None:
                     self.fault_hook("after_commit")
+            except BaseException:
+                if db.in_transaction:
+                    # An expired progress callback must not prevent rollback.
+                    db.set_progress_handler(None,0)
+                    db.execute("ROLLBACK")
+                raise
         finally:
             db.close()
 

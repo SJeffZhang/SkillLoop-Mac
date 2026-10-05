@@ -405,3 +405,9 @@ Runtime、Generator、Patcher、Scanner和Gateway禁止挂载其他角色拥有�
 正式CLI→Controller、Controller/Admin/Runtime→Proxy和Gate→Admin密钥服务均接入一次性SEQPACKET传输。连接、实际内核peer校验、发送、读取共享原10秒/5秒窗口；Proxy进一步取原ControlRequest UTC截止与该窗口的最小值，Operator查询保留原ticket截止。计时器shutdown原socket，不重新连接或重发；只在验证peer后发送私有绑定或密钥请求。
 
 响应为空、超量、MSG_TRUNC或超过原截止均失败，响应丢失不能当未提交。原请求/operation恢复路径保留，schema和角色方法权限未扩大。该连接被三个实际生产调用者使用；仅源码/AST检查，无RPC或组件实验。服务事务自身的截止和推理run/fence当前授权仍须逐调用链核对。
+
+### 原Proxy请求截止进入实际事务
+
+冻结ControlRequest经server派发时将原UTC截止和单调剩余窗口绑定当前请求上下文，实际SQLite连接、写锁等待、取得事务后及COMMIT前均复核该窗口。busy timeout取原剩余值，SQL progress callback不允许长查询以每条SQL重新取得窗口；正式storage外层写锁也沿同一检查。上下文按线程请求隔离并在退出时恢复，不改变其它新部署初始化或内部可信生产操作的时钟。
+
+提交前到期回滚原事务；取消/撤销/工具副作用和operation仍在同一库中提交。COMMIT的实际fsync或随后回复可能跨过截止，此时绝不能将expired/丢失响应解释为未提交，仍需原operation权威恢复。过期progress回调在ROLLBACK前解除，防止它阻止回滚；原故障/未知保全规则继续适用。未运行SQLite或事务实验，仅AST及调用路径检查。

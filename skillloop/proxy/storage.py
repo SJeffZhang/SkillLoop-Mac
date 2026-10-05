@@ -134,11 +134,13 @@ class FormalStorageStore(ProxyStore):
                 raise PermissionError('formal_storage_lock_owner')
             deadline=time.monotonic()+2
             while True:
+                self._check_rpc_clock()
                 try:
                     fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB);break
                 except BlockingIOError:
                     if time.monotonic()>=deadline:raise ProxyError('storage_writer_busy')
                     time.sleep(0.02)
+            self._check_rpc_clock()
             yield
         finally:os.close(fd)
 
