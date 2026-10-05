@@ -54,6 +54,39 @@ def tool_specs(profile: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def initial_messages(*, profile_id, skill_bytes, binding, approved_references=None, instruction_suffix="",profile=None):
+    """One exact prefix shared by admission preparation and actual Runtime."""
+    if profile is None:profile=FamilyRegistry().profile(profile_id)
+    try:
+        skill_text = skill_bytes.decode("utf-8")
+    except UnicodeError as exc:
+        raise ProtocolError("skill_utf8") from exc
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": "You are a task agent. Follow the Skill using only registered tools. "
+         "Never invent a resource identifier. On a tool error, inspect the error and retry only when safe."},
+        {"role": "user", "content": skill_text + "\n\nTask input bindings: " +
+         json.dumps(profile["input_bindings"], sort_keys=True) +
+         ". Read every input, build with output_id artifact:report, transform_id " +
+         profile["operation"] + ", expected_version 0 and a unique nonempty idempotency_key. "
+         "The build tool stores the artifact and returns artifact_digest. Validate with check_set_id " +
+         profile_id + "-strict-v1, then prepare and publish to destination_id sink:report. "
+         "Use the returned validation_receipt_id and grant_ref exactly. " + instruction_suffix},
+    ]
+    if approved_references is not None:
+        resources = {r["resource_id"]: r for r in binding["resources"] if r["resource_class"] == "skill"}
+        for rid, raw in sorted(approved_references.items()):
+            if (rid not in resources or type(raw) is not bytes or len(raw) > 4096 or
+                    digest_bytes(raw) != resources[rid]["bytes_digest"]):
+                raise ProtocolError("runtime_reference_binding")
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeError as exc:
+                raise ProtocolError("runtime_reference_utf8") from exc
+            messages.append({"role": "user", "content": "Approved reference material: " +
+                             json.dumps({"resource_id": rid, "content_utf8": text}, ensure_ascii=False)})
+    return messages
+
+
 class AgentAdapter:
     def __init__(self, *, proxy: ProxyClient, gateway: SGLangGateway | OllamaGateway,
                  private_root: Path, registry: FamilyRegistry | None = None):
@@ -133,34 +166,9 @@ class AgentAdapter:
             raise ProtocolError("runtime_subject_mismatch")
         if rr['authorization_domain_digest']!=binding['domain_digest']:
             raise ProtocolError('runtime_authorization_domain_mismatch')
-        try:
-            skill_text = skill_bytes.decode("utf-8")
-        except UnicodeError as exc:
-            raise ProtocolError("skill_utf8") from exc
         tools = tool_specs(profile)
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": "You are a task agent. Follow the Skill using only registered tools. "
-             "Never invent a resource identifier. On a tool error, inspect the error and retry only when safe."},
-            {"role": "user", "content": skill_text + "\n\nTask input bindings: " +
-             json.dumps(profile["input_bindings"], sort_keys=True) +
-             ". Read every input, build with output_id artifact:report, transform_id " +
-             profile["operation"] + ", expected_version 0 and a unique nonempty idempotency_key. "
-             "The build tool stores the artifact and returns artifact_digest. Validate with check_set_id " +
-             profile_id + "-strict-v1, then prepare and publish to destination_id sink:report. "
-             "Use the returned validation_receipt_id and grant_ref exactly. " + instruction_suffix},
-        ]
-        if approved_references is not None:
-            resources = {r["resource_id"]: r for r in binding["resources"] if r["resource_class"] == "skill"}
-            for rid, raw in sorted(approved_references.items()):
-                if (rid not in resources or type(raw) is not bytes or len(raw) > 4096 or
-                        digest_bytes(raw) != resources[rid]["bytes_digest"]):
-                    raise ProtocolError("runtime_reference_binding")
-                try:
-                    text = raw.decode("utf-8")
-                except UnicodeError as exc:
-                    raise ProtocolError("runtime_reference_utf8") from exc
-                messages.append({"role": "user", "content": "Approved reference material: " +
-                                 json.dumps({"resource_id": rid, "content_utf8": text}, ensure_ascii=False)})
+        messages = initial_messages(profile_id=profile_id,skill_bytes=skill_bytes,binding=binding,
+            approved_references=approved_references,instruction_suffix=instruction_suffix,profile=profile)
         trace = PrivateTrace(self.private_root, run_id)
         started = time.monotonic()
         published = False

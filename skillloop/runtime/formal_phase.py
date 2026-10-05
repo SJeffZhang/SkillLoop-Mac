@@ -11,7 +11,7 @@ import time
 import stat
 
 from skillloop.protocol import digest_jcs, canonical_json_line
-from skillloop.runtime.formal_execution import execute_admitted
+from skillloop.runtime.formal_execution import execute_admitted,prepare_development_materials
 from skillloop.runtime.task_controller import FormalTaskController, imported_task_intent
 from skillloop.runtime.gateway import ExactLocalTokenizer
 from skillloop.repair.budget import SpendingLedger
@@ -96,6 +96,12 @@ class FormalPhaseExecutor:
                         or record.get('unit_digest')!=digest_jcs(unit)
                         or record.get('intent_digest')!=prepared.get('intent_digest')):
                     raise ValueError('formal_phase_original_task_journal_chain')
+            materials=prepared.get('materials')
+            if (type(materials) is not dict or materials.get('kind')!='FormalDevelopmentMaterialsPrepared'
+                    or materials.get('entry_digest')!=unit['entry']['digest']
+                    or materials.get('model_request_sent') is not False
+                    or materials.get('digest')!=digest_jcs({k:v for k,v in materials.items() if k!='digest'})):
+                raise ValueError('formal_phase_original_prelease_materials_required')
             if (attempted.get('lease_digest')!=lease['started']['digest']
                     or completed.get('runtime_capture_digest')!=review.get('runtime_capture_digest')
                     or completed.get('retirement_digest')!=retirement['digest']
@@ -309,12 +315,14 @@ class FormalPhaseExecutor:
                     {'kind':'FormalTaskAuxiliaryAdmission','entry_digest':entry['digest'],
                      'spending':auxiliary,'whole_round_manifest_digest':self.round_manifest['digest']})
                 inputs={k:base64.b64decode(v,validate=True) for k,v in unit['inputs'].items()}
+                materials=prepare_development_materials(entry,inputs,self.tokenizer)
                 intent=imported_task_intent(entry,domain=unit['domain'],policy=unit['policy'],
                     inputs=inputs,run_deadline=phase['campaign_deadline'])
                 identity={'phase_digest':phase['digest'],'entry_digest':entry['digest'],
                     'unit_digest':digest_jcs(unit),'intent_digest':intent['digest']}
                 token='task-'+digest_jcs(key)[7:]
-                self._save(phase_root/(token+'.prepared.json'),{'kind':'FormalPhaseTaskPrepared',**identity})
+                self._save(phase_root/(token+'.prepared.json'),{'kind':'FormalPhaseTaskPrepared',
+                    **identity,'materials':materials.receipt})
                 self.controller.publish(intent)
                 started=time.monotonic()
                 while self.controller.admission(intent) is None:
@@ -336,7 +344,8 @@ class FormalPhaseExecutor:
                     archive_policy_path=unit['archive_policy_path'],archive_sources=unit['archive_sources'],
                     archive_gate_policy=unit['archive_gate_policy'],
                     archive_gate_journal_directory=unit['archive_gate_journal_directory'],
-                    archive_review_path=unit['archive_review_path'],private_session_context=unit.get('private_session_context'))
+                    archive_review_path=unit['archive_review_path'],private_session_context=unit.get('private_session_context'),
+                    prepared_materials=materials)
                 from skillloop.runtime.protected_flow import _controller_record
                 retirement=_controller_record(Path(unit['retirement_journal_directory'])/'retirement-completion.json')
                 if (retirement.get('kind')!='FormalTaskRetirementCompletion'

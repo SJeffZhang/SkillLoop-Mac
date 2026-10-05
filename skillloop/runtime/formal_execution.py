@@ -23,12 +23,67 @@ from skillloop.runtime.docker_api import DockerEngine
 from skillloop.repair.budget import SpendingLedger
 from skillloop.runtime.evaluation_dispatch import dispatch_evaluation, dispatch_task_gate
 from skillloop.runtime.formal_retirement import retire_reviewed_task
+from dataclasses import dataclass,asdict
+
+
+@dataclass(frozen=True)
+class PreparedDevelopmentMaterials:
+    package: tuple
+    selection: object
+    mutation: object
+    receipt: dict
+
+
+def prepare_development_materials(entry,inputs,tokenizer):
+    """Finish package/tokenizer preparation before issuing a task Lease."""
+    from skillloop.runtime.adapter import initial_messages,tool_specs
+    if os.geteuid()!=21001 or type(tokenizer) is not ExactLocalTokenizer:
+        raise PermissionError('formal_preparation_actual_controller_tokenizer')
+    config=entry['config'];compiled=entry['compiled']
+    if (entry.get('kind')=='protected' or config.get('whole_flow_required') is not True
+            or entry['digest']!=digest_jcs({k:v for k,v in entry.items() if k!='digest'})
+            or tokenizer.snapshot_hashes!=config.get('tokenizer_hashes')):
+        raise ValueError('formal_preparation_current_development_identity')
+    admission=entry['source_admission']
+    validate_source_admission(admission,config,compiled['subject_digest'])
+    package={k:base64.b64decode(v,validate=True) for k,v in admission['package_files'].items()}
+    loader=ApprovedPackageLoader(approved_sources=admission['approved_sources'],
+        reference_resource_ids=admission['reference_resource_ids'],approved_subjects=admission.get('approved_subjects'))
+    profile=FamilyRegistry().profile(entry['profile'])
+    selection=loader.select(admission['source_snapshot'],package,admission['manifest'],
+        profile_id=entry['profile'],family_id=profile['family_id'])
+    if digest_bytes(package['SKILL.md'])!=compiled['skill_digest']:
+        raise ValueError('formal_preparation_instruction_identity')
+    mutation_spec=compiled['mutations'].get(entry['case_id'])
+    mutation=(compile_mutation(mutation_spec,source_bytes=inputs['notes'],profile_id=entry['profile'],
+        count_tokens=tokenizer.count_text) if mutation_spec else None)
+    resources=selection.resource_bytes()
+    instruction=next(rid for name,rid,raw in selection.files if name=='SKILL.md')
+    references={rid:raw for rid,raw in resources.items() if rid!=instruction}
+    pins={'resources':[{'resource_id':rid,'resource_class':'skill','bytes_digest':digest_bytes(raw)}
+        for rid,raw in resources.items()]}
+    messages=initial_messages(profile_id=entry['profile'],skill_bytes=package['SKILL.md'],
+        binding=pins,approved_references=references)
+    overhead=config['ollama_template_overhead_tokens']
+    if type(overhead) is not int or overhead<0:
+        raise ValueError('formal_preparation_actual_template_overhead')
+    prompt=tokenizer.count(messages,tool_specs(profile),enable_thinking=False)+overhead
+    if type(prompt) is not int or prompt<0 or prompt+config['max_output_tokens']>config['max_context_tokens']:
+        raise ValueError('formal_preparation_initial_context_capacity')
+    receipt={'kind':'FormalDevelopmentMaterialsPrepared','entry_digest':entry['digest'],
+        'inputs_digest':digest_jcs({k:digest_bytes(v) for k,v in inputs.items()}),
+        'package_digest':digest_jcs({k:digest_bytes(v) for k,v in package.items()}),
+        'mutation_digest':digest_jcs(asdict(mutation)) if mutation else None,
+        'initial_context_digest':digest_jcs(messages),'initial_prompt_tokens':prompt,
+        'tokenizer_digest':digest_jcs(tokenizer.snapshot_hashes),'model_request_sent':False}
+    receipt['digest']=digest_jcs(receipt)
+    return PreparedDevelopmentMaterials(tuple(sorted(package.items())),selection,mutation,receipt)
 
 
 def execute_admitted(entry, intent, started, output, *, resource_context, tokenizer, controller, ledger,
                      evaluator_policy, evaluator_assignment_directory, gate_policy, gate_journal_directory,
                      gate_review_path, retirement_journal_directory,archive_policy_path,archive_sources,archive_gate_policy,
-                     archive_gate_journal_directory,archive_review_path,private_session_context=None):
+                     archive_gate_journal_directory,archive_review_path,private_session_context=None,prepared_materials=None):
     if entry.get('kind')=='protected':
         raise PermissionError('protected_entry_requires_private_evaluator_dispatch')
     dispatch_state={'attempted':False}
@@ -40,7 +95,8 @@ def execute_admitted(entry, intent, started, output, *, resource_context, tokeni
             retirement_journal_directory=retirement_journal_directory,dispatch_state=dispatch_state,
                 archive_policy_path=archive_policy_path,archive_sources=archive_sources,
                 archive_gate_policy=archive_gate_policy,archive_gate_journal_directory=archive_gate_journal_directory,
-            archive_review_path=archive_review_path,private_session_context=private_session_context)
+            archive_review_path=archive_review_path,private_session_context=private_session_context,
+            prepared_materials=prepared_materials)
     except BaseException as error:
         # No Runtime Engine request has been sent before this boundary.
         # An issued Lease must be fenced when preflight fails.
@@ -56,7 +112,7 @@ def execute_admitted(entry, intent, started, output, *, resource_context, tokeni
 def _execute_admitted(entry, intent, started, output, *, resource_context, tokenizer, controller, ledger,
                       evaluator_policy, evaluator_assignment_directory, gate_policy, gate_journal_directory,
                       gate_review_path, retirement_journal_directory, dispatch_state,archive_policy_path,archive_sources,archive_gate_policy,
-                      archive_gate_journal_directory,archive_review_path,private_session_context):
+                      archive_gate_journal_directory,archive_review_path,private_session_context,prepared_materials):
     if os.geteuid()!=21001:
         raise PermissionError('formal_runtime_controller_role')
     if not isinstance(tokenizer,ExactLocalTokenizer):
@@ -122,11 +178,21 @@ def _execute_admitted(entry, intent, started, output, *, resource_context, token
     output.mkdir(mode=0o700)
     admission=entry['source_admission']
     validate_source_admission(admission,config,compiled['subject_digest'])
-    package={k:base64.b64decode(v,validate=True) for k,v in admission['package_files'].items()}
-    loader=ApprovedPackageLoader(approved_sources=admission['approved_sources'],
-        reference_resource_ids=admission['reference_resource_ids'],approved_subjects=admission.get('approved_subjects'))
-    selected=loader.select(admission['source_snapshot'],package,admission['manifest'],
-        profile_id=entry['profile'],family_id=FamilyRegistry().profile(entry['profile'])['family_id'])
+    if type(prepared_materials) is not PreparedDevelopmentMaterials:
+        raise ValueError('formal_prelease_materials_required')
+    package=dict(prepared_materials.package);selected=prepared_materials.selection
+    prepared=prepared_materials.receipt
+    profile=FamilyRegistry().profile(entry['profile'])
+    inputs={slot:base64.b64decode(intent['input_resources'][rid],validate=True)
+        for slot,rid in profile['input_bindings'].items()}
+    if (prepared['digest']!=digest_jcs({k:v for k,v in prepared.items() if k!='digest'})
+            or prepared.get('kind')!='FormalDevelopmentMaterialsPrepared'
+            or prepared['entry_digest']!=entry['digest'] or prepared['model_request_sent'] is not False
+            or prepared['tokenizer_digest']!=digest_jcs(tokenizer.snapshot_hashes)
+            or prepared['inputs_digest']!=digest_jcs({k:digest_bytes(v) for k,v in inputs.items()})
+            or prepared['package_digest']!=digest_jcs({k:digest_bytes(v) for k,v in package.items()})
+            or package!={k:base64.b64decode(v,validate=True) for k,v in admission['package_files'].items()}):
+        raise ValueError('formal_prelease_prepared_materials_changed')
     selected.check_binding(intent['binding'])
     if digest_bytes(package['SKILL.md'])!=compiled['skill_digest']:
         raise ValueError('formal_runtime_instruction_identity')
@@ -139,11 +205,9 @@ def _execute_admitted(entry, intent, started, output, *, resource_context, token
         raise ValueError('formal_runtime_actual_lease_binding')
     if (expiry-datetime.now(timezone.utc)).total_seconds()<=config['worker_deadline_seconds']+10:
         raise ValueError('formal_runtime_actual_lease_cannot_fit_worker')
-    mutation_spec=compiled['mutations'].get(entry['case_id'])
-    inputs={k:base64.b64decode(v,validate=True) for k,v in intent['input_resources'].items()}
-    notes_id=FamilyRegistry().profile(entry['profile'])['input_bindings']['notes']
-    mutation=(compile_mutation(mutation_spec,source_bytes=inputs[notes_id],profile_id=entry['profile'],
-                               count_tokens=tokenizer.count_text) if mutation_spec else None)
+    mutation=prepared_materials.mutation
+    if prepared['mutation_digest']!=(digest_jcs(asdict(mutation)) if mutation else None):
+        raise ValueError('formal_prelease_mutation_changed')
     capture={'kind':'FormalRuntimeCapture','entry_digest':entry['digest'],'intent_digest':intent['digest'],
         'source_admission_digest':digest_jcs(admission),'approval_digest':started['approval_digest'],
         'lease':started['lease'],'trust_revision':started['trust_revision'],'result':None,

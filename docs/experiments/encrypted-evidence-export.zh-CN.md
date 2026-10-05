@@ -323,3 +323,9 @@ Operator的生产dispatcher失败现在先在原Controller专属恢复目录保�
 正式 Docker Engine 调用现在默认将普通 JSON 响应限制为2MiB；原始日志和归档必须声明实际上界。完整请求从连接开始计时，期限到达关闭原 socket 的读写方向，防止连续小块数据让单次 read timeout 无限续期。短读、超限、期限和网络失败保持 transport unknown，不作为 HTTP 拒绝或重发理由；所有原创建/start恢复仍只核对原身份。看门狗只操作本请求 socket，不停止任何服务或容器。
 
 这是生产通信代码修复，仅执行AST和调用点检查。实际完整成本、资源租约和整轮准备仍未完成，未运行Docker或组件实验。
+
+### 开发任务先准备材料再申请 Lease
+
+正式phase现在先核验实际批准包、选中reference、输入及mutation，并用当前锁定tokenizer计算真正的首轮完整消息和工具context；通过后才产生当前任务deadline、投递任务、取得短期Lease。Runtime与准备阶段复用同一消息构造代码，保留原提示文本和reference顺序，不使用近似token计数。取得Lease后的执行复用原不可变字节和rendered mutation，核对准备receipt、完整输入与包摘要，拒绝不匹配或缺少准备的调用。
+
+原phase任务journal保存准备receipt，原完整summary恢复也要求此链存在。该receipt仅证明材料/token准备，没有模型请求、模型预热或fresh-private隔离证明；正式宿主后端调度和完整资源预算仍需接通。未启动tokenizer、模型、业务任务或组件实验，仅AST及跨模块调用检查。
