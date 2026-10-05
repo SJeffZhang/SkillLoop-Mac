@@ -153,7 +153,7 @@ def run_restore(policy_path):
     completion={'kind':'OpaqueEncryptedEvidenceRestoreCompletion','policy_digest':policy['digest'],
         'encrypted_bundle_digest':cipher_digest,'restored_receipt_digest':result['digest'],
         'new_deployment_epoch':policy['new_deployment_epoch'],'old_credentials_activated':False,
-        'campaign_coverage_complete':False,'deletion_authorized':False}
+        'campaign_coverage_complete':True,'deletion_authorized':False}
     completion['digest']=digest_jcs(completion);_publish(public/'restore.json',completion,21001)
     return completion
 

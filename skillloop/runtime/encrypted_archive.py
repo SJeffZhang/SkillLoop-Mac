@@ -168,19 +168,26 @@ def run_export(policy_path,*,review=False):
         from skillloop.runtime.campaign_archive_coverage import review_campaign_inventory
         coverage=review_campaign_inventory(policy=policy,inventory=inventory,budget=budget)
         if _inventory(policy,budget)!=inventory:raise ValueError('archive_campaign_coverage_inventory_changed')
+        complete=coverage.get('campaign_coverage_complete')
+        if (type(complete) is not bool or type(coverage.get('missing_categories')) is not list
+                or complete != (not coverage['missing_categories'])
+                or coverage.get('source_inventory_digest')!=inventory['digest']
+                or coverage.get('campaign')!=policy['campaign']
+                or coverage.get('deployment_epoch')!=policy['deployment_epoch']):
+            raise ValueError('archive_independent_campaign_coverage_binding')
         _publish(private/(policy['operation_ref']+'.coverage.json'),coverage,21005)
         result={'kind':'IndependentEncryptedEvidenceReview','policy_digest':policy['digest'],
             'export_receipt_digest':receipt['digest'],'encrypted_bundle_digest':cipher_digest,
             'authenticated_content_verified':True,'selected_inventory_complete':True,
             'campaign_coverage_review_digest':coverage['digest'],
             'all_reviewed_task_bytes_present':coverage['all_reviewed_task_bytes_present'],
-            'campaign_coverage_complete':False,'qualification_withdrawn':False,'deletion_authorized':False}
+            'campaign_coverage_complete':complete,'qualification_withdrawn':False,'deletion_authorized':False}
         result['digest']=digest_jcs(result);_publish(private/(policy['operation_ref']+'.review.json'),result,21005)
         completion={'kind':'OpaqueEncryptedEvidenceReviewCompletion','policy_digest':policy['digest'],
             'campaign':policy['campaign'],'deployment_epoch':policy['deployment_epoch'],'key_id':header['key_id'],
             'encrypted_bundle_digest':cipher_digest,'selected_inventory_verified':True,
             'all_reviewed_task_bytes_present':coverage['all_reviewed_task_bytes_present'],
-            'campaign_coverage_complete':False,
+            'campaign_coverage_complete':complete,
             'deletion_authorized':False};completion['digest']=digest_jcs(completion)
         _publish(public/(policy['operation_ref']+'.review.json'),completion,21001)
         # Frozen admin export promises verified encryption, not campaign

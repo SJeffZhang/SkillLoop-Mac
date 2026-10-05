@@ -117,8 +117,10 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
     result=read_owned(policy['result_path'],uid=21005,gid=21001,limit=262144)
     kind={'export':'OpaqueEncryptedEvidenceExportCompletion','review':'OpaqueEncryptedEvidenceReviewCompletion',
           'restore':'OpaqueEncryptedEvidenceRestoreCompletion'}[policy['action']]
+    complete=result.get('campaign_coverage_complete')
     if (result.get('kind')!=kind or result.get('policy_digest')!=policy['worker_policy_digest']
-            or result.get('deletion_authorized') is not False or result.get('campaign_coverage_complete') is not False):
+            or result.get('deletion_authorized') is not False or type(complete) is not bool
+            or (policy['action']=='export' and complete is not False)):
         raise ValueError('archive_selected_inventory_only_actual_result')
     return _save(root,'completion.json',{'kind':'ArchiveRoleDispatchCompletion','worker_id':identifier,
         'configuration_digest':digest_jcs(config),'result':result,'resource_retired':False})
