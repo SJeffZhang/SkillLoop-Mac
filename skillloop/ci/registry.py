@@ -39,3 +39,20 @@ class LocalRegistry:
             if prior and prior[0]!=digest:raise ValueError('immutable_receipt')
             db.execute('INSERT OR IGNORE INTO receipts VALUES(?,?,?)',(campaign,digest,json.dumps(decision)))
             return digest
+
+    def verify_current(self,project,head,config,generation,campaign,decision):
+        """Read the exact generation without committing a qualification receipt.
+
+        GitHub transport can fail or return an unknown result. A pre-write
+        identity fence must not record a locally completed campaign merely
+        because a remote Check was still pending.
+        """
+        with sqlite3.connect(self.path) as db:
+            db.execute('BEGIN')
+            row=db.execute('SELECT generation,head,config FROM projects WHERE project=?',(project,)).fetchone()
+            if row!=(generation,head,config):raise ValueError('stale_generation')
+            known=db.execute('SELECT generation,campaign FROM triggers WHERE project=? AND generation=?',(project,generation)).fetchone()
+            if known!=(generation,campaign):raise ValueError('unknown_campaign')
+            prior=db.execute('SELECT digest FROM receipts WHERE campaign=?',(campaign,)).fetchone()
+            if prior and prior[0]!=digest_jcs(decision):raise ValueError('immutable_receipt')
+            return digest_jcs(decision)
