@@ -16,10 +16,10 @@ import time
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import digest_jcs
-from skillloop.runtime.operation_store import OperatorOperationStore,verify_operation_transitions
+from skillloop.runtime.operation_store import OperatorOperationStore,verify_operation_transitions,STORAGE_POLICY
 from skillloop.runtime.proposal_dispatch import _save
 from skillloop.runtime.round_manifest import read_round_manifest
-from skillloop.runtime.archive_files import open_original,identity,require_unchanged
+from skillloop.runtime.archive_files import open_original,identity,require_unchanged,allocate_output
 
 
 def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whole_round_manifest_path):
@@ -56,14 +56,34 @@ def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whol
     def capacity(size):
         if used+size+1048576>policy['maximum_bytes']:raise ValueError('operation_archive_original_capacity')
     def snapshot_database():
-        target=root/'operations.sqlite';fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600);os.close(fd)
+        target=root/'operations.sqlite'
+        fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        os.close(fd)
+        # A compact consistent snapshot preserves every request/transition, not
+        # the live store's reusable emergency/free pages as duplicate evidence.
+        with closing(sqlite3.connect(store.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as source:
+            source.set_progress_handler(lambda:(budget() or 0),1000)
+            page_size=source.execute('PRAGMA page_size').fetchone()[0]
+            pages=source.execute('PRAGMA page_count').fetchone()[0]
+            maximum=page_size*pages
+            if page_size!=4096 or not 3968<=pages<=4096 or maximum>STORAGE_POLICY['database_bytes']:
+                raise ValueError('operation_archive_original_physical_database_bound')
+            capacity(maximum)
+            space=os.statvfs(root)
+            if space.f_bavail*space.f_frsize<2147483648+2*maximum:
+                raise OSError('operation_archive_original_snapshot_peak_floor')
+            source.execute('PRAGMA temp_store=MEMORY')
+            source.execute('VACUUM INTO ?', (str(target),))
+            budget()
+        info=target.lstat()
+        if (info.st_size>maximum or not stat.S_ISREG(info.st_mode) or info.st_uid!=21001
+                or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600):
+            raise PermissionError('operation_archive_actual_snapshot_custody')
         with closing(sqlite3.connect(target,timeout=2)) as destination:
-            destination.execute('PRAGMA journal_mode=DELETE');destination.execute('PRAGMA synchronous=FULL')
-            def progress(*_):budget();capacity(target.stat().st_size)
-            with closing(sqlite3.connect(store.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as source:
-                source.backup(destination,pages=64,progress=progress,sleep=0.01)
             destination.set_progress_handler(lambda:int(time.monotonic()-started>=policy['timeout_seconds']),1000)
-            if destination.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or destination.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,policy['deployment_epoch'])]:
+            if (destination.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]
+                    or destination.execute('PRAGMA freelist_count').fetchone()!=(0,)
+                    or destination.execute('SELECT version,epoch FROM identity').fetchall()!=[(3,policy['deployment_epoch'])]):
                 raise ValueError('operation_archive_actual_store_integrity')
             verify_operation_transitions(destination,policy['deployment_epoch'],budget=budget)
         return target
@@ -120,6 +140,7 @@ def preserve_operation_history(*,policy_path,journal_directory,store,ledger,whol
                     opened=os.fstat(reader.fileno())
                     if identity(opened)!=identity(before):raise ValueError('operation_archive_original_replaced')
                     os.fchown(writer.fileno(),-1,21005);os.fchmod(writer.fileno(),0o640)
+                    budget();allocate_output(writer.fileno(),before.st_size);budget()
                     for block in iter(lambda:reader.read(1048576),b''):
                         budget();size+=len(block)
                         if size>before.st_size:raise ValueError('operation_archive_original_grew')
