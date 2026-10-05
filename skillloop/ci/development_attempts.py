@@ -8,6 +8,7 @@ an original terminal result and complete stage receipts.
 """
 from contextlib import closing
 from datetime import datetime, timezone
+import base64
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
@@ -32,7 +33,8 @@ def _sealed_copy(root, row, *, limit, budget):
     return value
 
 
-def review_attempts(*, root, campaign, epoch, config_digest, deadline, spending):
+def review_attempts(*, root, campaign, epoch, config_digest, deadline, spending,
+                    proposal_history):
     if os.geteuid()!=21005:
         raise PermissionError('development_attempt_actual_gate')
     root=Path(root);info=root.lstat()
@@ -85,13 +87,83 @@ def review_attempts(*, root, campaign, epoch, config_digest, deadline, spending)
                 or row['original_path'] in files or row['original_uid'] not in {21001,21006,21007,21011}):
             raise ValueError('development_attempt_original_file_inventory')
         files[row['original_path']]=row
+    if type(proposal_history) is not list or len(proposal_history)>128:
+        raise ValueError('development_attempt_proxy_proposal_inventory')
+    proposal_by_grant={}
+    for attempt in proposal_history:
+        grant=attempt['reservation']['request']['grant']
+        if (grant['digest'] in proposal_by_grant or grant['digest']!=attempt['grant_digest']
+                or grant['campaign_id']!=campaign or grant['deployment_epoch']!=epoch
+                or grant['config_digest']!=config_digest):
+            raise ValueError('development_attempt_original_proposal_grant')
+        proposal_by_grant[grant['digest']]=attempt
+    from skillloop.runtime.gateway import OllamaGateway
+    proposal_requests={};proposal_responses={};proposal_unknown=set()
+    for name,row in files.items():
+        budget()
+        if row['original_uid'] not in {21006,21007}:continue
+        basename=PurePosixPath(name).name
+        if basename not in {'request-0.json','response-0.json','response-0-unknown.json'}:
+            if basename.startswith(('request-','response-')):
+                raise ValueError('development_attempt_unexpected_native_proposal_slot')
+            continue
+        key=(str(PurePosixPath(name).parent),row['original_uid'])
+        target=(proposal_requests if basename=='request-0.json' else
+                proposal_responses if basename=='response-0.json' else None)
+        if target is None:
+            proposal_unknown.add(key);continue
+        if key in target:
+            raise ValueError('development_attempt_duplicate_native_proposal_record')
+        target[key]=_sealed_copy(root,row,limit=8388608,budget=budget)
+    missing=[];reviewed_proposals=set()
+    for key,intent in proposal_requests.items():
+        budget();grant_digest=intent.get('inference_grant_digest')
+        attempt=proposal_by_grant.get(grant_digest)
+        if (intent.get('kind')!='NativeProposalIntent' or intent.get('slot')!=0
+                or attempt is None or grant_digest in reviewed_proposals
+                or attempt['role_uid']!=key[1]
+                or intent.get('digest')!=digest_jcs({k:v for k,v in intent.items() if k!='digest'})):
+            raise ValueError('development_attempt_native_proposal_intent_binding')
+        reviewed_proposals.add(grant_digest)
+        request=attempt['reservation']['request'];grant=request['grant']
+        model=grant['model_config'];messages=OllamaGateway._ollama_messages(intent['messages'])
+        payload={'model':model['model'],'messages':messages,'tools':[],
+            'stream':False,'think':False,
+            'options':{'temperature':model['temperature'],'top_p':model['top_p'],
+                       'num_ctx':model['max_context_tokens'],
+                       'num_predict':model['max_output_tokens']}}
+        if (request['messages_digest']!=digest_jcs(messages)
+                or request['tools_digest']!=digest_jcs([])
+                or request['payload_digest']!=digest_bytes(canonical_json_line(payload))):
+            raise ValueError('development_attempt_original_model_request_bytes')
+        response=proposal_responses.get(key)
+        if response is None or key in proposal_unknown:
+            missing.append('proposal_response_unknown_or_missing');continue
+        if (response.get('kind')!='NativeProposalResponse' or response.get('slot')!=0
+                or response.get('inference_grant_digest')!=grant_digest
+                or response.get('policy_digest')!=intent.get('policy_digest')
+                or response.get('spent') is not True
+                or request['input_tokens']!=response.get('actual_prompt_tokens')):
+            raise ValueError('development_attempt_original_native_response_binding')
+        completion=response['response']
+        raw=base64.b64decode(completion['backend_response_raw_b64'],validate=True)
+        if (not 0<len(raw)<=4194304
+                or digest_bytes(raw)!=attempt['raw_response_digest']
+                or digest_bytes(raw)!=completion['backend_response_bytes_digest']
+                or digest_jcs(decode_json(raw))!=attempt['response_digest']
+                or decode_json(raw)!=completion['backend_response']
+                or attempt['status']!='recorded'):
+            raise ValueError('development_attempt_proxy_original_backend_response')
+    if (set(proposal_by_grant)!=reviewed_proposals or set(proposal_responses)!=set(proposal_requests)
+            or proposal_unknown):
+        missing.append('proposal_original_attempt_inventory_incomplete')
     identities=[]
     for name,row in files.items():
         if row['original_uid']==21001 and PurePosixPath(name).name=='identity.json':
             value=_sealed_copy(root,row,limit=262144,budget=budget)
             if value.get('kind')=='CampaignRouteIdentity':
                 identities.append((str(PurePosixPath(name).parent),value))
-    missing=[];completed=0;running=0
+    completed=0;running=0
     with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
         db.execute('PRAGMA query_only=ON')
         if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:
@@ -162,6 +234,8 @@ def review_attempts(*, root, campaign, epoch, config_digest, deadline, spending)
         'config_digest':config_digest,'snapshot_digest':snapshot['digest'],
         'database_digest':pin['digest'],'operations_reviewed':len(rows),
         'completed_operations':completed,'running_evaluation_operations':running,
+        'proposal_inference_attempts_reviewed':len(reviewed_proposals),
+        'proposal_original_response_bytes_verified':not any(reason.startswith('proposal_') for reason in missing),
         'transition_count':transition['transitions'],
         'incomplete_reasons':sorted(set(missing)),
         'all_attempt_history_complete':not missing and running==1}

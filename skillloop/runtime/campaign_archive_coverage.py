@@ -131,7 +131,9 @@ def review_campaign_inventory(*,policy,inventory,budget):
     if (attempt_audit.get('campaign')!=policy['campaign']
             or attempt_audit.get('deployment_epoch')!=policy['deployment_epoch']
             or attempt_audit.get('config_digest')!=evidence['bindings']['config_digest']
-            or type(attempt_audit.get('all_attempt_history_complete')) is not bool):
+            or type(attempt_audit.get('all_attempt_history_complete')) is not bool
+            or type(attempt_audit.get('proposal_inference_attempts_reviewed')) is not int
+            or type(attempt_audit.get('proposal_original_response_bytes_verified')) is not bool):
         raise ValueError('campaign_archive_original_development_attempt_audit')
     raw_pins=facts['development-evidence'].get('reviewed_raw_inputs')
     if type(raw_pins) is not list or not 1<=len(raw_pins)<=512:
@@ -156,6 +158,11 @@ def review_campaign_inventory(*,policy,inventory,budget):
     from skillloop.proxy.archive_projection import verify_source_history
     source_map=verify_source_history(source_history,campaign=policy['campaign'],epoch=policy['deployment_epoch'],
         config_digest=evidence['bindings']['config_digest'],trust_revision=evidence['bindings']['trust_revision'])
+    if (attempt_audit['proposal_inference_attempts_reviewed']!=len(
+            source_history['development_inference_history']['proposal_attempts'])
+            or attempt_audit['proposal_original_response_bytes_verified'] is not True
+            or attempt_audit['all_attempt_history_complete'] is not True):
+        raise ValueError('campaign_archive_original_proposal_attempt_history_incomplete')
     if (not set(evidence['bindings']['subjects'].values())<=set(source_map)
             or not any(row['uid']==21003 and row['gid']==21005 for row,_ in
                 resolve(source_history['digest'],'ProxyCampaignSourceAuthoritySnapshot'))):
