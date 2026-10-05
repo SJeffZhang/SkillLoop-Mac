@@ -176,6 +176,21 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action']=='private_factory':
+                root=Path(step['journal_directory'])
+                if not (root/'dispatch-intent.json').exists():return
+                from skillloop.runtime.factory_dispatch import recover_private_factory
+                policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                if policy.get('kind')=='FrozenPrivateFactoryProduction':
+                    from skillloop.runtime.factory_production import produce_factory_dispatch
+                    policy=produce_factory_dispatch(recipe=policy,assignment_directory=step['assignment_directory'],
+                        gate_freeze_path=step['gate_freeze_path'],journal_directory=step['journal_directory'],
+                        whole=self.phase.round_manifest,registry=self.registry,ledger=self.ledger)
+                result=recover_private_factory(policy=policy,journal_directory=step['journal_directory'],
+                    projection_directory=step['projection_directory'],registry=self.registry,engine=self.engine,ledger=self.ledger)
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action'] in {'private_runtime','private_session','private_resources','protected_close'}:
                 campaign=route['campaign_digest']
                 if step['action']=='private_runtime':
@@ -568,7 +583,13 @@ class CampaignDispatcher:
                     ledger=self.ledger,engine=self.engine)
             elif step['action']=='private_factory':
                 from skillloop.runtime.factory_dispatch import dispatch_private_factory
-                result=dispatch_private_factory(policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152),
+                policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                if policy.get('kind')=='FrozenPrivateFactoryProduction':
+                    from skillloop.runtime.factory_production import produce_factory_dispatch
+                    policy=produce_factory_dispatch(recipe=policy,assignment_directory=step['assignment_directory'],
+                        gate_freeze_path=step['gate_freeze_path'],journal_directory=step['journal_directory'],
+                        whole=self.phase.round_manifest,registry=self.registry,ledger=self.ledger)
+                result=dispatch_private_factory(policy=policy,
                     assignment_directory=step['assignment_directory'],projection_directory=step['projection_directory'],
                     gate_freeze_path=step['gate_freeze_path'],journal_directory=step['journal_directory'],
                     whole_round_manifest_path=self.manifest_path,ledger=self.ledger,registry=self.registry,engine=self.engine)
