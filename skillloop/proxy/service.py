@@ -297,28 +297,53 @@ class CompletedTaskSnapshots:
             directory.mkdir(mode=0o750)
             os.chown(directory,-1,21004);os.chmod(directory,0o750)
             target=directory/'authority.db'
-            fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o640)
-            os.fchown(fd,-1,21004);os.fchmod(fd,0o640);os.close(fd)
-            with closing(self.store._connect()) as source,closing(sqlite3.connect(target)) as output:
-                source.backup(output,pages=128,progress=within_budget,sleep=0.01)
-                if output.execute('PRAGMA integrity_check').fetchone()!=('ok',):
-                    raise RuntimeError('snapshot_actual_database_integrity')
+            # VACUUM INTO creates a consistent compact export directly. A
+            # backup followed by VACUUM first copied every physically reserved
+            # free page from the live authority DB for every completed task.
+            # Keep the actual live reservation intact and never retry a partial
+            # target. The evaluator cannot read it until custody is published.
+            with closing(self.store._connect()) as source:
+                page_size=source.execute('PRAGMA page_size').fetchone()[0]
+                source_pages=source.execute('PRAGMA page_count').fetchone()[0]
+                if (page_size!=4096 or not 1<=source_pages<=131072):
+                    raise ValueError('snapshot_actual_source_capacity')
+                # Reserve a conservative two full live-DB upper bounds for
+                # SQLite's sorting/export peak, rather than claiming that the
+                # small final compact file bounds temporary storage as well.
+                peak_bytes=2*source_pages*page_size
+                free=os.statvfs(directory)
+                if free.f_bavail*free.f_frsize<2147483648+peak_bytes:
+                    raise OSError('snapshot_actual_export_peak_free_floor')
+                def sql_budget():
+                    within_budget()
+                    available=os.statvfs(directory)
+                    if available.f_bavail*available.f_frsize<2147483648:
+                        raise OSError('snapshot_actual_export_free_floor')
+                    if os.path.lexists(target) and target.lstat().st_size>source_pages*page_size:
+                        raise ValueError('snapshot_export_original_capacity_exceeded')
+                    return 0
+                source.set_progress_handler(sql_budget,1000)
+                try:source.execute('VACUUM main INTO ?', (str(target),))
+                finally:source.set_progress_handler(None,0)
+            fd=os.open(target,os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK)
+            try:
+                info=os.fstat(fd)
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=21003
+                        or not 1<=info.st_size<=source_pages*page_size):
+                    raise PermissionError('snapshot_actual_export_custody')
+                os.fchown(fd,-1,21004);os.fchmod(fd,0o640);os.fsync(fd)
+            finally:os.close(fd)
+            with closing(sqlite3.connect(target.absolute().as_uri()+'?mode=ro&immutable=1',uri=True)) as output:
+                output.set_progress_handler(lambda: (within_budget() or 0),1000)
+                if (output.execute('PRAGMA integrity_check').fetchone()!=('ok',)
+                        or output.execute('PRAGMA freelist_count').fetchone()!=(0,)):
+                    raise RuntimeError('snapshot_actual_compact_database_integrity')
                 run=output.execute('SELECT state,fence FROM runs WHERE run_id=?',(row['run_id'],)).fetchone()
                 admission=output.execute('SELECT receipt FROM controller_task_admissions WHERE intent=?',(key,)).fetchone()
                 if run!=('cancelled',row['fence']) or admission is None or admission[0]!=row['receipt']:
                     raise RuntimeError('snapshot_committed_task_binding')
-                output.execute('PRAGMA journal_mode=DELETE')
-                # Compact only this consistent export: retain the actual live
-                # database's reserved pages. Verify ALL named table values and
-                # schema before/after, not just the current publication row.
                 from skillloop.proxy.snapshot_content import snapshot_content_digest
                 content_digest=snapshot_content_digest(output,within_budget)
-                output.set_progress_handler(lambda: (within_budget() or 0),10000)
-                try:output.execute('VACUUM')
-                finally:output.set_progress_handler(None,0)
-                if (snapshot_content_digest(output,within_budget)!=content_digest
-                        or output.execute('PRAGMA integrity_check').fetchone()!=('ok',)):
-                    raise RuntimeError('snapshot_compaction_changed_actual_content')
             with target.open('rb') as stream:os.fsync(stream.fileno())
             import hashlib
             h=hashlib.sha256()
@@ -332,6 +357,8 @@ class CompletedTaskSnapshots:
                 'admission_receipt_digest':decode_json(row['receipt'])['digest'],
                 'database_digest':'sha256:'+h.hexdigest(),'database_size_bytes':target.stat().st_size,
                 'consistent_export_compacted':True,'database_content_digest':content_digest,
+                'export_method':'sqlite_vacuum_into','source_page_count':source_pages,
+                'source_page_size':page_size,'export_peak_bound_bytes':peak_bytes,
                 'exporter_uid':21003,'exported_at':datetime.now(timezone.utc).isoformat(),
                 'export_elapsed_seconds':time.monotonic()-started, 'export_timeout_seconds':self.timeout,
                 'model_stop_verified':False,'independent_gate_verified':False}
@@ -367,7 +394,7 @@ class CompletedTaskSnapshots:
             with os.fdopen(fd,'rb') as stream:
                 data=os.fstat(stream.fileno())
                 if (not stat.S_ISREG(data.st_mode) or data.st_uid!=21003 or data.st_gid!=21004
-                        or stat.S_IMODE(data.st_mode)!=0o640 or (limit is not None and data.st_size>limit)):
+                        or stat.S_IMODE(data.st_mode)!=0o640 or data.st_nlink!=1 or (limit is not None and data.st_size>limit)):
                     raise PermissionError('snapshot_recovery_file_custody')
                 if limit is not None:return stream.read(limit+1)
                 h=hashlib.sha256()
@@ -381,7 +408,8 @@ class CompletedTaskSnapshots:
             'task_binding_digest':row['binding_digest'],'approval_digest':row['approval_digest'],
             'cancellation_fence':row['fence'],'admission_receipt_digest':decode_json(row['receipt'])['digest'],
             'exporter_uid':21003,'model_stop_verified':False,'independent_gate_verified':False,
-            'export_timeout_seconds':self.timeout,'consistent_export_compacted':True}
+            'export_timeout_seconds':self.timeout,'consistent_export_compacted':True,
+            'export_method':'sqlite_vacuum_into','source_page_size':4096}
         if (manifest.get('digest')!=digest_jcs({k:v for k,v in manifest.items() if k!='digest'})
                 or any(manifest.get(k)!=v for k,v in expected.items())):
             raise ValueError('snapshot_recovery_original_manifest_binding')
@@ -391,7 +419,11 @@ class CompletedTaskSnapshots:
                 or type(elapsed) not in (int,float) or not 0<=elapsed<=self.timeout):
             raise ValueError('snapshot_recovery_original_clock_invalid')
         digest,size=read(directory/'authority.db')
-        if digest!=manifest['database_digest'] or size!=manifest['database_size_bytes']:
+        if (digest!=manifest['database_digest'] or size!=manifest['database_size_bytes']
+                or type(manifest.get('source_page_count')) is not int
+                or not 1<=manifest['source_page_count']<=131072
+                or manifest.get('export_peak_bound_bytes')!=2*manifest['source_page_count']*4096
+                or size>manifest['source_page_count']*4096):
             raise ValueError('snapshot_recovery_original_database_digest')
         within_budget()
         uri=(directory/'authority.db').absolute().as_uri()+'?mode=ro&immutable=1'
@@ -400,7 +432,8 @@ class CompletedTaskSnapshots:
             if snapshot_content_digest(db,within_budget)!=manifest.get('database_content_digest'):
                 raise ValueError('snapshot_recovery_complete_content_changed')
             db.set_progress_handler(lambda:1 if time.monotonic()-started>self.timeout else 0,1000)
-            if db.execute('PRAGMA integrity_check').fetchone()!=('ok',):
+            if (db.execute('PRAGMA integrity_check').fetchone()!=('ok',)
+                    or db.execute('PRAGMA freelist_count').fetchone()!=(0,)):
                 raise ValueError('snapshot_recovery_database_integrity')
             task=db.execute('SELECT run_request_digest,binding_digest,approval_digest FROM tasks WHERE task_instance_id=?',(row['task_instance_id'],)).fetchone()
             run=db.execute('SELECT state,fence FROM runs WHERE run_id=?',(row['run_id'],)).fetchone()

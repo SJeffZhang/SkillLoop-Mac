@@ -28,7 +28,7 @@ class PublicationSnapshot:
             with os.fdopen(fd,'rb') as stream:
                 info=os.fstat(stream.fileno())
                 if (not stat.S_ISREG(info.st_mode) or info.st_uid!=21003 or info.st_gid!=21004
-                        or stat.S_IMODE(info.st_mode)!=0o640 or info.st_size>limit):
+                        or stat.S_IMODE(info.st_mode)!=0o640 or info.st_nlink!=1 or info.st_size>limit):
                     raise PermissionError('snapshot_private_file')
                 if content:return stream.read(limit+1)
                 digest=hashlib.sha256()
@@ -52,12 +52,20 @@ class PublicationSnapshot:
         digest,size,self.identity=read(self.path,maximum_bytes)
         if digest!=manifest['database_digest'] or size!=manifest['database_size_bytes']:
             raise ValueError('snapshot_database_digest')
+        if (manifest.get('export_method')!='sqlite_vacuum_into'
+                or manifest.get('source_page_size')!=4096
+                or type(manifest.get('source_page_count')) is not int
+                or not 1<=manifest['source_page_count']<=131072
+                or manifest.get('export_peak_bound_bytes')!=2*manifest['source_page_count']*4096
+                or size>manifest['source_page_count']*4096):
+            raise ValueError('snapshot_original_export_peak_binding')
         self.task=manifest['task_instance_id'];self.manifest=manifest
         with closing(self.connect()) as db:
             if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
                 raise ValueError('snapshot_integrity')
             from skillloop.proxy.snapshot_content import snapshot_content_digest
             if (manifest.get('consistent_export_compacted') is not True
+                    or db.execute('PRAGMA freelist_count').fetchone()[0]!=0
                     or snapshot_content_digest(db,lambda:None)!=manifest.get('database_content_digest')):
                 raise ValueError('snapshot_complete_content_identity')
             task=db.execute('SELECT run_request_digest,binding_digest,approval_digest FROM tasks WHERE task_instance_id=?',(self.task,)).fetchone()
