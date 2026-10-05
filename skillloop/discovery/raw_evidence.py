@@ -37,6 +37,7 @@ def preserve_reviewed_raw(output_directory, sources, *, maximum_bytes):
     later reread cannot silently replace the bytes the Gate reviewed.
     """
     from skillloop.protocol import decode_json, digest_bytes
+    from skillloop.runtime.archive_files import allocate_output
     output = Path(output_directory)
     info = output.lstat()
     if (os.geteuid() != 21005 or not output.is_absolute() or output.is_symlink()
@@ -67,6 +68,7 @@ def preserve_reviewed_raw(output_directory, sources, *, maximum_bytes):
             fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL
                          | os.O_NOFOLLOW, 0o640)
             with os.fdopen(fd, 'wb') as stream:
+                allocate_output(stream.fileno(),len(raw))
                 os.fchown(stream.fileno(), -1, 21001)
                 os.fchmod(stream.fileno(), 0o640)
                 stream.write(raw); stream.flush(); os.fsync(stream.fileno())

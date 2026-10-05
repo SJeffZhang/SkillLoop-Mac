@@ -12,6 +12,7 @@ import time
 
 from scripts.mac_agent_runtime import read_current_request
 from skillloop.protocol import canonical_json_line, digest_jcs
+from skillloop.runtime.archive_files import allocate_output, require_unchanged
 
 
 def handoff():
@@ -52,6 +53,12 @@ def handoff():
                 else:
                     total+=meta.st_size;paths.append((path,meta))
                     if total>maximum:raise ValueError('private_handoff_byte_capacity')
+    raw=canonical_json_line(packet)
+    if total+len(raw)+262144>maximum or enumerated+2>count:
+        raise ValueError('private_handoff_packet_and_receipt_capacity')
+    space=os.statvfs(output)
+    if space.f_bavail*space.f_frsize<2147483648+total+len(raw)+262144+(enumerated+2)*4096:
+        raise OSError('private_handoff_complete_copy_peak_and_floor')
     inventory={}
     pin=lambda v:(v.st_dev,v.st_ino,v.st_size,v.st_mtime_ns,v.st_ctime_ns)
     for path,meta in sorted(paths,key=lambda row:str(row[0])):
@@ -66,6 +73,7 @@ def handoff():
             fd=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             checksum=hashlib.sha256();copied=0
             with os.fdopen(fd,'wb') as writer:
+                budget();allocate_output(writer.fileno(),meta.st_size);budget()
                 for block in iter(lambda:reader.read(1048576),b''):
                     budget();copied+=len(block)
                     if copied>meta.st_size:raise ValueError('private_handoff_source_grew')
@@ -74,19 +82,20 @@ def handoff():
                 writer.flush();os.fsync(writer.fileno())
             if copied!=meta.st_size or pin(os.fstat(reader.fileno()))!=pin(meta):
                 raise ValueError('private_handoff_source_changed_during_copy')
+            require_unchanged(path,meta,os.fstat(reader.fileno()))
         check=hashlib.sha256()
         with destination.open('rb') as stream:
             for block in iter(lambda:stream.read(1048576),b''):budget();check.update(block)
         if check.digest()!=checksum.digest():raise ValueError('private_handoff_copy_digest')
         inventory[relative]={'bytes':copied,'digest':'sha256:'+checksum.hexdigest()}
-    raw=canonical_json_line(packet)
-    if total+len(raw)+262144>maximum or enumerated+2>count:
-        raise ValueError('private_handoff_packet_and_receipt_capacity')
     def publish(name,value):
+        encoded=canonical_json_line(value)
+        budget()
         fd=os.open(output/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'wb') as stream:
+            allocate_output(stream.fileno(),len(encoded));budget()
             os.fchown(stream.fileno(),-1,21004);os.fchmod(stream.fileno(),0o640)
-            stream.write(canonical_json_line(value));stream.flush();os.fsync(stream.fileno())
+            stream.write(encoded);stream.flush();os.fsync(stream.fileno())
     publish('current-request.json',packet)
     inventory['current-request.json']={'bytes':len(raw),'digest':'sha256:'+hashlib.sha256(raw).hexdigest()}
     receipt={'kind':'RuntimePrivateEvidenceHandoff','packet_digest':packet['digest'],

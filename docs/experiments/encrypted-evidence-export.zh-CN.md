@@ -417,3 +417,9 @@ Runtime、Generator、Patcher、Scanner和Gateway禁止挂载其他角色拥有�
 Generator/Patcher在保存新intent前，于原spending锁内逐项读取当前session的连续原请求与响应，核验真实所有者、权限、inode/时间稳定性、policy及slot绑定。原request缺response、存在unknown、孤立response或编号缺口均阻断后续模型投递；相同messages已经完成也拒绝再次投递，调用者必须恢复原proposal/operation而不是再调用模型。请求和响应文件不会删除或补写，max_requests与原时钟不变。
 
 该保护由正式NativeProposalSession.complete直接执行，覆盖新进程接回同session时仅凭request数量继续dispatch的漏洞。它不是完整失败/未知candidate清单或独立Gate，后者仍要接入整链。仅源码/AST检查，未调用模型或重跑原任务。
+
+### 实际私有交接与Gate raw复制的目标容量
+
+停止Runtime后的可信handoff在任何复制前计入全部当前raw、packet、receipt及目录峰值，检查同一目标文件系统2GiB free floor；实际证据目标inode在写入前物理分配，packet/receipt同样分配并受原预算检查。读取原source后还复核路径inode，避免仅核对仍打开的旧文件描述符而遗漏替换。原输出和部分复制持续保全，只有全部原字节复制/核验后发布完成receipt。
+
+Gate preserve_reviewed_raw的实际目标复制也先物理分配；没有另建不参与写入的占位文件。上述逐写入保护不能代替尚缺的共享campaign 2GiB租约、跨角色峰值所有权或完整资源运行验收。仅源码检查，未复制旧raw或执行新handoff。
