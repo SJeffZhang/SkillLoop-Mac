@@ -5,6 +5,7 @@ pairing, finalist freeze, private evaluation and qualification remain separate.
 """
 import base64
 from datetime import datetime,timezone
+import math
 import os
 from pathlib import Path
 import stat
@@ -90,14 +91,29 @@ def review_application(*,assignment_path,patcher_directory,tokenizer_path,
             or model.get('temperature')!=0.2 or model.get('top_p')!=0.9
             or model.get('thinking') is not False or model.get('gateway_uid')!=21011):
         raise ValueError('application_gate_frozen_patcher_parameters')
+    timeout=policy.get('request_timeout_seconds')
+    latency=response.get('latency_seconds')
+    if (type(timeout) is not int or not 1<=timeout<=180
+            or type(request.get('reserved_input_tokens')) is not int
+            or request['reserved_input_tokens']!=15360
+            or type(request.get('reserved_output_tokens')) is not int
+            or request['reserved_output_tokens']!=1024
+            or type(request.get('reserved_seconds')) is not int
+            or request['reserved_seconds']!=timeout
+            or type(latency) not in (int,float) or not math.isfinite(latency)
+            or not 0<=latency<=timeout):
+        raise ValueError('application_gate_original_reserved_budget')
     tokenizer=ExactLocalTokenizer(tokenizer_path,expected_hashes=policy['tokenizer_hashes'])
     try:
         prompt=tokenizer.count(messages,[],enable_thinking=False)+model['template_overhead_tokens']
     finally:tokenizer.close()
     completion=response['response'];backend=completion['backend_response'];usage=completion['usage']
-    if (prompt+1024>16384 or response.get('actual_prompt_tokens')!=prompt
-            or backend.get('model')!=model['model'] or backend.get('done_reason')!='stop'
-            or backend.get('prompt_eval_count')!=prompt
+    if (prompt+1024>16384 or type(response.get('actual_prompt_tokens')) is not int
+            or response['actual_prompt_tokens']!=prompt
+            or backend.get('model')!=model['model'] or backend.get('done') is not True
+            or backend.get('done_reason')!='stop'
+            or type(backend.get('prompt_eval_count')) is not int
+            or backend['prompt_eval_count']!=prompt
             or backend.get('message',{}).get('thinking')
             or backend.get('message',{}).get('tool_calls')
             or type(backend.get('eval_count')) is not int or not 0<=backend['eval_count']<=1024

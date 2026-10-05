@@ -423,3 +423,9 @@ Generator/Patcher在保存新intent前，于原spending锁内逐项读取当前s
 停止Runtime后的可信handoff在任何复制前计入全部当前raw、packet、receipt及目录峰值，检查同一目标文件系统2GiB free floor；实际证据目标inode在写入前物理分配，packet/receipt同样分配并受原预算检查。读取原source后还复核路径inode，避免仅核对仍打开的旧文件描述符而遗漏替换。原输出和部分复制持续保全，只有全部原字节复制/核验后发布完成receipt。
 
 Gate preserve_reviewed_raw的实际目标复制也先物理分配；没有另建不参与写入的占位文件。上述逐写入保护不能代替尚缺的共享campaign 2GiB租约、跨角色峰值所有权或完整资源运行验收。仅源码检查，未复制旧raw或执行新handoff。
+
+### 独立Application Gate核验原推理完成与预算
+
+Gate从原Patcher intent/response独立核对15360输入、1024输出和原request timeout预留，拒绝bool冒充token计数、非有限或超过原窗口的latency；原backend必须明确done=true并以stop结束。仅凭派发端曾接受响应不能替代独立完成核验。原失败或不完整记录保持不变，不发起模型重试。
+
+该修复接入正式候选Application Gate；仅AST和源码差异检查，未执行模型或组件实验。共享资源租约、每次推理权威授权及完整配置生产仍待整链接通。
