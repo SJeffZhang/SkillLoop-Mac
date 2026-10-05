@@ -312,6 +312,15 @@ class CampaignDispatcher:
         # scripts or local result fixtures. Missing stage providers stay blocked.
         from skillloop.protection.current_task import _directory,_publish
         from skillloop.runtime.proposal_dispatch import _save
+        if request['command']=='harden':
+            proposals=[step for step in route['steps'] if step['action']=='proposal']
+            if len(proposals)!=1:raise ValueError('harden_one_original_patcher_assignment')
+            job=read_owned(Path(proposals[0]['assignment_directory'])/'job.json',uid=21001,gid=21007,limit=2097152)
+            if (job.get('kind')!='FormalNativeProposalAssignment' or job.get('role_uid')!=21007
+                    or request['parameters']!={'campaign':route['campaign_digest'],
+                        'parent_subject':job.get('parent_subject_digest')}
+                    or job.get('parent_subject_digest') is None):
+                raise ValueError('harden_original_parent_before_any_side_effect')
         journal=_directory(route['journal_directory'],21001,21001,0o700)
         identity={'kind':'CampaignRouteIdentity','request_digest':request['digest'],'route_digest':route['digest']}
         original=journal/'identity.json'

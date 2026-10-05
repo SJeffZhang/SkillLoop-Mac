@@ -44,6 +44,8 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
         if route_end.tzinfo is None or route_end > end:
             raise ValueError('operator_route_original_deployment_deadline')
         validate_dispatch_route(route)
+        if route['command']=='evaluate':
+            _validate_evaluation_sequence(route)
         # A sealed Admin declaration cannot expand a read-only CLI command
         # into a privileged campaign operation. Validate the actual callers,
         # rather than accepting a final public result after arbitrary writes.
@@ -88,3 +90,46 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
     if covered != set(commands):
         raise ValueError('operator_all_frozen_cli_routes_required')
     return admitted
+
+
+def _validate_evaluation_sequence(route):
+    """Require actual whole-campaign callers, without asserting their success.
+
+    Inputs may still be future role outputs. Each caller checks their custody
+    and original binding when reached; this prevents a short declaration from
+    being admitted as the formal full evaluation route.
+    """
+    actions=[step['action'] for step in route['steps']]
+    once=('register_campaign','roster_freeze','private_factory','lifecycle_review','campaign_gate')
+    if (route['campaign_digest'] is None or route['result_uid']!=21005
+            or any(actions.count(action)!=1 for action in once)
+            or any(action not in actions for action in ('semantic_discovery','development','private_session'))
+            or any(action in actions for action in ('harden_review','qualification_withdraw',
+                'registry_withdraw','archive_close','promote'))):
+        raise PermissionError('operator_complete_evaluation_callers_required')
+    registered=actions.index('register_campaign');frozen=actions.index('roster_freeze')
+    factory=actions.index('private_factory');lifecycle=actions.index('lifecycle_review')
+    gate=actions.index('campaign_gate')
+    if not registered<frozen<factory<gate or not frozen<lifecycle<gate:
+        raise ValueError('operator_evaluation_original_phase_order')
+    development={'semantic_discovery','development','proposal','application_gate'}
+    if any(not registered<index<frozen for index,action in enumerate(actions) if action in development):
+        raise ValueError('operator_evaluation_development_before_freeze')
+    if not any(action=='semantic_discovery' for action in actions[registered+1:actions.index('development')]):
+        raise ValueError('operator_evaluation_discovery_before_development')
+    # Reserve/materialize actions can occur between task stages, but a second
+    # Lease or a final Gate cannot cross an unclosed original Runtime.
+    state='idle';tasks=0
+    for index,action in enumerate(actions):
+        if action=='private_session' and not factory<index<gate:
+            raise ValueError('operator_evaluation_session_after_factory')
+        if action not in {'private_start','private_runtime','protected_close'}:continue
+        if not max(factory,lifecycle)<index<gate:
+            raise ValueError('operator_evaluation_protected_after_isolation')
+        expected={'idle':'private_start','leased':'private_runtime','running':'protected_close'}[state]
+        if action!=expected:raise ValueError('operator_evaluation_original_task_closure_order')
+        if action=='private_start':state='leased'
+        elif action=='private_runtime':state='running'
+        else:state='idle';tasks+=1
+    if state!='idle' or tasks==0:
+        raise ValueError('operator_evaluation_full_protected_call_chain_required')

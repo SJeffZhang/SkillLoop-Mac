@@ -457,3 +457,11 @@ Controller派发策略绑定原部署manifest/journal；派发前确认原provis
 campaign恢复调用同一退休生产函数：仅有原consumed记录的阶段可以继续，核对Admin原策略与原request/step；原删除意图后404才能视作删除已发生。恢复返回原结果、不重跑Gate或推理、不续时钟；超过原窗口保留inconclusive预算收尾，不能提交成功阶段。harden继续保留名单未冻结和资格未发行的范围。
 
 仅145份生产Python的AST解析与源码差异检查，未运行容器或实验。当前正式整轮配置生产、推理权威授权、共享容量所有权和新部署恢复仍需集中修复；第一整轮未启动。
+
+### 正式evaluate整链准入及harden副作用前父subject核验
+
+部署producer与operator启动共同调用的route准入，现在要求evaluate有唯一注册、名单冻结、工厂、独立后端生命周期和最终Gate，且有真实语义发现、开发和保护session调用者。开发必须在注册之后/冻结之前；每个短Lease必须按start→原Runtime→protected_close顺序收尾，全部在工厂和隔离之后/最终Gate之前；取消资格、归档关闭或晋级不能混入评价路线。该检查只证明生产调用顺序，不宣称任务矩阵、隔离或运行成功。
+
+harden正式执行在任何步骤副作用之前重读Controller持有的原Patcher assignment，核对实际UID、campaign和CLI父subject；错误父subject不再等模型和独立Gate都结束后才拒绝。原结果仍由最后harden_review独立绑定并生成，重启不会改成新的推理请求。
+
+仅生产AST与源码差异检查，未运行CLI/模型。GitHub正式外发调用者与整轮配置/成本生产仍有缺项；现有传输服务不会因声明这些route而成为全面CI验收。
