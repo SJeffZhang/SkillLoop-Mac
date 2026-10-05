@@ -27,7 +27,7 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
         'deadline','operation_ref','worker_policy_digest','timeout_seconds','closure_seconds',
         'maximum_evidence_bytes','mounts','result_path','digest'}
     if (set(policy)!=fields or policy['kind']!='FrozenArchiveRoleDispatch'
-            or policy['action'] not in {'key_service','export','review'}
+            or policy['action'] not in {'key_service','export','review','restore'}
             or type(policy['timeout_seconds']) is not int or not 1<=policy['timeout_seconds']<=1200
             or type(policy['closure_seconds']) is not int or not 30<=policy['closure_seconds']<=120
             or type(policy['maximum_evidence_bytes']) is not int or not 1<=policy['maximum_evidence_bytes']<=2147483648
@@ -48,6 +48,7 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
         'public_key':'/archive-public','key_socket':'/archive-sockets','public_result':'/public-result'} if key_service else
         {'policy':'/archive-policy','crypto_lock':'/crypto-lock','public_key':'/archive-public',
          'key_socket':'/archive-sockets','encrypted':'/encrypted','private_result':'/private-result','public_result':'/public-result'})
+    if policy['action']=='restore':targets['restored']='/restored'
     if type(policy['mounts']) is not dict:raise ValueError('archive_dispatch_fixed_mounts')
     if key_service and set(policy['mounts'])!=set(targets):raise ValueError('archive_key_no_private_evidence_mount')
     if not key_service:
@@ -57,7 +58,7 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
         targets.update({k:'/sources/'+k[7:] for k in extras})
         if set(policy['mounts'])!=set(targets):raise ValueError('archive_dispatch_complete_mount_set')
     mounts=[]
-    writable={'keys','public_key','key_socket','public_result'} if key_service else {'private_result','public_result'}|({'encrypted'} if policy['action']=='export' else set())
+    writable={'keys','public_key','key_socket','public_result'} if key_service else {'private_result','public_result'}|({'encrypted'} if policy['action']=='export' else ({'restored'} if policy['action']=='restore' else set()))
     for name,target in targets.items():
         pin=policy['mounts'][name]
         if type(pin) is not dict or set(pin)!={'volume','subpath'}:raise ValueError('archive_dispatch_actual_volume_pin')
@@ -80,7 +81,7 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
         'SKILLLOOP_ARCHIVE_MAX_BYTES='+str(policy['maximum_evidence_bytes'])]
     if not key_service:env.append('SKILLLOOP_ARCHIVE_ACTION='+policy['action'])
     config={'Image':whole['image'],'User':str(uid)+':'+str(uid),'Entrypoint':['python'],
-        'Cmd':['-m','skillloop.runtime.archive_key_service' if key_service else 'skillloop.runtime.encrypted_archive'],
+        'Cmd':['-m','skillloop.runtime.archive_key_service' if key_service else ('skillloop.runtime.encrypted_restore' if policy['action']=='restore' else 'skillloop.runtime.encrypted_archive')],
         'Env':env,'Labels':{'skillloop.deployment_epoch':whole['deployment_epoch'],
             'skillloop.role':'archive_key_service' if key_service else 'encrypted_archive_'+policy['action'],
             'skillloop.action':policy['digest']},
@@ -111,7 +112,8 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
     if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
         raise RuntimeError('archive_original_role_failure_preserve_all_evidence')
     result=read_owned(policy['result_path'],uid=21005,gid=21001,limit=262144)
-    kind='OpaqueEncryptedEvidenceExportCompletion' if policy['action']=='export' else 'OpaqueEncryptedEvidenceReviewCompletion'
+    kind={'export':'OpaqueEncryptedEvidenceExportCompletion','review':'OpaqueEncryptedEvidenceReviewCompletion',
+          'restore':'OpaqueEncryptedEvidenceRestoreCompletion'}[policy['action']]
     if (result.get('kind')!=kind or result.get('policy_digest')!=policy['worker_policy_digest']
             or result.get('deletion_authorized') is not False or result.get('campaign_coverage_complete') is not False):
         raise ValueError('archive_selected_inventory_only_actual_result')
@@ -150,7 +152,7 @@ def close_archive_role(*,policy_path,dispatch_journal,review_path,journal_direct
     else:
         original=dispatch['result']
         if (original.get('encrypted_bundle_digest')!=review.get('encrypted_bundle_digest')
-                or original.get('policy_digest')!=review.get('policy_digest')):
+                or policy['action']!='restore' and original.get('policy_digest')!=review.get('policy_digest')):
             raise ValueError('archive_closure_exact_reviewed_bundle')
     deadline=datetime.fromisoformat(policy['deadline'].replace('Z','+00:00'))
     if deadline.tzinfo is None or type(policy['closure_seconds']) is not int or not 30<=policy['closure_seconds']<=120:
