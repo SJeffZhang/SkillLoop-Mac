@@ -1,6 +1,6 @@
 """Gateway-owned pinned SkillSpector semantic pass; Scanner gains no model RPC."""
 from datetime import datetime,timezone
-import base64,hashlib,os,subprocess,sys
+import base64,hashlib,os,subprocess,sys,stat
 from pathlib import Path
 from deploy.scanner.qwen_relay import HostModelBridge,run_guest_relay
 from skillloop.discovery.formal_task_gate import read_owned
@@ -12,7 +12,28 @@ from skillloop.runtime.model_bridge_service import backend_identity
 from skillloop.runtime.round_manifest import read_round_manifest
 
 
-def main():
+def grant_semantic_evidence():
+    """Grant the stopped development worker's original bytes, including failure."""
+    root=Path('/report');paths=[]
+    info=root.lstat()
+    if root.is_symlink() or info.st_uid!=21011 or not stat.S_ISDIR(info.st_mode):
+        raise PermissionError('semantic_final_evidence_owner')
+    for parent,dirs,files in os.walk(root,followlinks=False):
+        for name in dirs+files:
+            path=Path(parent)/name;info=path.lstat()
+            if (path.is_symlink() or info.st_uid!=21011 or info.st_nlink!=1 and stat.S_ISREG(info.st_mode)
+                    or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode))):
+                raise PermissionError('semantic_final_evidence_regular_owner')
+            paths.append(path)
+            if len(paths)>512:raise ValueError('semantic_final_evidence_inventory_capacity')
+    for path in paths+[root]:
+        os.chown(path,-1,21001);os.chmod(path,0o750 if path.is_dir() else 0o640)
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|(os.O_DIRECTORY if path.is_dir() else os.O_NONBLOCK))
+        try:os.fsync(fd)
+        finally:os.close(fd)
+
+
+def execute():
     os.umask(0o077)
     if os.geteuid()!=21011 or 21001 not in set(os.getgroups())|{os.getegid()}:
         raise PermissionError('semantic_actual_model_gateway')
@@ -120,14 +141,29 @@ def main():
                 'dispositions':dispositions,'backend_identity':identity,'model_requests':bridge.chat_requests,
                 'usage_records':bridge.usage_records,'qualification_issued':False}
             value['digest']=digest_jcs(value);_publish(evidence/'discovery.json',value,21001)
-    except BaseException:
+    except BaseException as error:
         failure={'kind':'SemanticDiscoveryUnavailable','assignment_digest':job['digest'],
             'model_attempts':len(requests),'complete_responses':len(responded),
-            'automatic_replay_allowed':False,'qualification_issued':False}
+            'automatic_replay_allowed':False,'qualification_issued':False,
+            'error_type':type(error).__name__}
         failure['digest']=digest_jcs(failure)
-        _publish(evidence/'failure.json',failure,21001)
+        try:_publish(evidence/'failure.json',failure,21001)
+        except BaseException as preservation_error:
+            error.add_note('semantic_failure_record_unavailable:'+type(preservation_error).__name__)
         raise
     finally:tokenizer.close()
+
+
+def main():
+    os.umask(0o077)
+    try:execute()
+    finally:
+        primary=sys.exc_info()[1]
+        if os.path.lexists('/report'):
+            try:grant_semantic_evidence()
+            except BaseException as grant_error:
+                if primary is None:raise
+                primary.add_note('semantic_original_evidence_grant_unavailable:'+type(grant_error).__name__)
 
 
 if __name__=='__main__':main()

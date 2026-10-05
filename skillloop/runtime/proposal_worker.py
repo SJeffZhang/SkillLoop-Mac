@@ -96,6 +96,21 @@ def grant_preserved_evidence():
 def main():
     os.umask(0o077)
     try:execute()
+    except BaseException as error:
+        # Parsing/application preparation may fail after a complete model call.
+        # Retain that distinct failure instead of losing it in process stderr.
+        failure={'kind':'FormalNativeProposalFailure','producer_uid':os.geteuid(),
+            'error_type':type(error).__name__,'diagnostic':str(error)[:4096],
+            'automatic_replay_allowed':False,'qualification_issued':False}
+        failure['digest']=digest_jcs(failure)
+        try:
+            raw=canonical_json_line(failure)
+            fd=os.open('/evidence/failure.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            with os.fdopen(fd,'wb') as stream:
+                stream.write(raw);stream.flush();os.fsync(stream.fileno())
+        except BaseException as preservation_error:
+            error.add_note('formal_proposal_failure_record_unavailable:'+type(preservation_error).__name__)
+        raise
     finally:
         primary=sys.exc_info()[1]
         try:grant_preserved_evidence()
