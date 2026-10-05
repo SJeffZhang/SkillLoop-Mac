@@ -58,6 +58,15 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
                 or route['steps'][0]['role']!='report' or route['steps'][0]['role_command']!='report'
                 or route['result_uid']!=21009):
             raise PermissionError('operator_reporter_public_projection_only')
+        if route['command']=='harden' and (
+                route['steps'][-1]['action']!='harden_review'
+                or sum(s['action']=='proposal' for s in route['steps'])!=1
+                or sum(s['action']=='application_gate' for s in route['steps'])!=1
+                or any(s['action'] in {'roster_freeze','private_factory','private_session',
+                    'private_start','private_runtime','protected_close','campaign_gate','promote',
+                    'qualification_withdraw','registry_withdraw','archive_role','archive_close'}
+                    for s in route['steps'])):
+            raise PermissionError('operator_harden_one_current_dev_round_only')
         if route['command'] in {'admin cancel','admin revoke'} and (
                 len(route['steps']) != 1 or route['steps'][0]['action'] != 'proxy_controller'
                 or route['steps'][0]['method'] != {

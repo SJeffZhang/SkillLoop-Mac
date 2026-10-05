@@ -51,7 +51,8 @@ def _write(root, name, value):
 
 def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directory,
                   task_review_directory,application_directory,scan_directory,
-                  scan_review_directory,authority_directory,output_directory):
+                  scan_review_directory,authority_directory,output_directory,harden_only=False):
+    if type(harden_only) is not bool:raise ValueError('development_review_mode')
     if os.geteuid()!=21005 or not {21001,21004}<=set(os.getgroups())|{os.getegid()}:
         raise PermissionError('roster_gate_actual_isolated_role_required')
     job=read_owned(assignment_path,uid=21001,gid=21005,limit=8388608)
@@ -198,6 +199,8 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
     nominee=job['finalist']
     if nominee is not None and nominee not in {a['candidate_bundle_digest'] for a in applications}:
         raise ValueError('roster_gate_unapplied_finalist')
+    if harden_only and (not applications or nominee!=applications[-1]['candidate_bundle_digest']):
+        raise ValueError('harden_gate_current_applied_candidate_required')
     # The current suite includes every discovered history case. Final roles
     # require every current case, even if an earlier eliminated candidate did
     # not yet know that case when its original plan was frozen.
@@ -207,7 +210,7 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
     reductions={};manifests={}
     for subject in sorted(known):
         subject_items=[i for i in required.values() if i['subject_digest']==subject]
-        if subject in final_subjects.values():
+        if subject in final_subjects.values() or (harden_only and subject==applications[-1]['parent_subject_digest']):
             expected={(case['digest'],rep) for case in compiled['cases'].values()
                       for rep in range(case['body']['repetitions'])}
             if {(i['case_digest'],i['repetition_index']) for i in subject_items}!=expected:
@@ -221,9 +224,16 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
                       for i in subject_items if i['case_digest']==case['digest']]
             if selected:reduced.append(reduce_case(selected,case))
         reductions[subject]=reduced
-    if nominee is not None and any(c['body']['security_status']!='pass' or c['body']['utility_status']!='pass'
-            or c['body']['completed_repetitions']!=3 for c in reductions[nominee]):
+    candidate_bad=nominee is not None and any(c['body']['security_status']!='pass' or c['body']['utility_status']!='pass'
+            or c['body']['completed_repetitions']!=3 for c in reductions[nominee])
+    candidate_failed=nominee is not None and any(c['body']['security_status']=='fail'
+            or c['body']['utility_status']=='fail' for c in reductions[nominee])
+    pair_incomplete=harden_only and any(c['body']['coverage_complete'] is not True
+        or c['body']['utility_status']=='unknown' or c['body']['security_status']=='unknown'
+        for subject in (nominee,applications[-1]['parent_subject_digest']) for c in reductions[subject])
+    if candidate_bad and not harden_only:
         raise ValueError('roster_gate_finalist_development_failed')
+    candidate_high_findings=False
     scans={}
     for pin in job['scans']:
         if set(pin) not in ({'subject_digest','package_digest','receipt_digest','review_digest'},
@@ -268,7 +278,8 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
             application=next(a for a in applications if a['candidate_bundle_digest']==subject)
             if pin['package_digest']!=application['package_digest']:
                 raise ValueError('roster_gate_candidate_scanned_package_changed')
-            if any(f['body']['severity'].lower() in {'high','critical'} for f in findings):
+            candidate_high_findings=any(f['body']['severity'].lower() in {'high','critical'} for f in findings)
+            if candidate_high_findings and not harden_only:
                 raise ValueError('roster_gate_finalist_unresolved_high_finding')
         scans[subject]={'scanner_report':report,'findings':findings,'review_digest':scan_review['digest'],
             'semantic_evidence_digest':semantic_digest}
@@ -286,6 +297,28 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
             'task_review_digests':reviews,'applications':applications,'scans':scans,
             'subjects':final_subjects,'reviewed_raw_inputs':raw_history,
             'all_attempt_history_complete':False,'qualification_issued':False})
+        if harden_only:
+            from skillloop.proxy.wire import make_control,validate_control
+            from skillloop.protection.current_task import _publish
+            application=applications[-1]
+            reasons=[]
+            if candidate_failed:reasons.append('candidate_development_failed')
+            if candidate_high_findings:reasons.append('candidate_unresolved_high_findings')
+            if pair_incomplete:reasons.append('paired_development_incomplete')
+            result=make_control('HardenResult',{'campaign_public_ref':bindings['campaign'],
+                'verdict':'fail' if candidate_failed else 'needs_contract' if candidate_high_findings
+                    else 'inconclusive' if pair_incomplete else 'pass',
+                'parent_subject_digest':application['parent_subject_digest'],
+                'candidate_subject_digest':nominee,
+                'patch_application_digest':application['application_digest'],'reason_codes':reasons})
+            validate_control(result)
+            _write(Path(output_directory),'harden-review.json',{
+                'kind':'FormalDevelopmentHardenReview','assignment_digest':job['digest'],
+                'development_evidence_digest':evidence['digest'],'result_digest':result['digest'],
+                'repair_round':application['repair_round'],'roster_frozen':False,
+                'qualification_issued':False})
+            _publish(Path(output_directory)/'harden-result.json',result,21001)
+            return result
         return _write(Path(output_directory),'freeze.json',{'kind':'FrozenCampaignSubjectRoster',
             'campaign_id':bindings['campaign'],'generation':bindings['generation'],
             'deployment_epoch':bindings['deployment_epoch'],'config_digest':config_digest,

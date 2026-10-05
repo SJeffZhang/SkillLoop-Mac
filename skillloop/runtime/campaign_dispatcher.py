@@ -21,6 +21,7 @@ ACTION_FIELDS={
     'proxy_controller':{'method','rpc_params','journal_directory'},
     'development':{'plan_path'},
     'roster_freeze':{'policy_path','assignment_directory','roster_directory','journal_directory','authority_directory'},
+    'harden_review':{'policy_path','assignment_directory','roster_directory','journal_directory','authority_directory'},
     'lifecycle_review':{'policy_path','manifest_path','deployment_journal','journal_directory','result_path'},
     'private_factory':{'policy_path','assignment_directory','projection_directory','gate_freeze_path','journal_directory'},
     'private_session':{'policy_path','journal_directory'},
@@ -49,7 +50,7 @@ def validate_dispatch_route(route):
     if campaign is not None and (type(campaign) is not str or len(campaign)!=71
             or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
         raise ValueError('campaign_route_exact_campaign')
-    producing={'register_campaign','development','roster_freeze','private_factory','private_session',
+    producing={'register_campaign','development','roster_freeze','harden_review','private_factory','private_session',
         'private_start','private_runtime','lifecycle_review','semantic_discovery','proposal','application_gate','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
@@ -318,7 +319,7 @@ class CampaignDispatcher:
             # Evidence preservation/withdrawal remains available after cancel.
             # No new model, task, candidate, qualification or promotion may
             # start from this route after the actual Proxy cancellation commit.
-            if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze',
+            if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze','harden_review',
                     'private_factory','private_session','private_start','private_runtime','lifecycle_review','semantic_discovery',
                     'proposal','application_gate','campaign_gate','promote','static_scan'} or (
                     campaign is not None and step['action']=='role_command' and step['role']=='admin'):
@@ -428,12 +429,17 @@ class CampaignDispatcher:
                     assignment_directory=step['assignment_directory'],reviews_directory=step['reviews_directory'],
                     journal_directory=step['journal_directory'],whole_round_manifest_path=self.manifest_path,
                     ledger=self.ledger,engine=self.engine,registry=self.registry)
-            elif step['action']=='roster_freeze':
+            elif step['action'] in {'roster_freeze','harden_review'}:
                 from skillloop.runtime.roster_dispatch import dispatch_roster_gate
                 result=dispatch_roster_gate(policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152),
                     assignment_directory=step['assignment_directory'],roster_directory=step['roster_directory'],
                     journal_directory=step['journal_directory'],authority_directory=step['authority_directory'],
-                    whole_round_manifest_path=self.manifest_path,registry=self.registry,ledger=self.ledger,engine=self.engine)
+                    whole_round_manifest_path=self.manifest_path,registry=self.registry,ledger=self.ledger,engine=self.engine,
+                    harden_only=step['action']=='harden_review')
+                if step['action']=='harden_review' and request['command']=='harden' and (
+                        request['parameters']!={'campaign':campaign,
+                            'parent_subject':result['body']['parent_subject_digest']}):
+                    raise ValueError('harden_original_operator_parent_binding')
             elif step['action']=='lifecycle_review':
                 from skillloop.runtime.lifecycle_dispatch import dispatch_lifecycle_review
                 result=dispatch_lifecycle_review(policy_path=step['policy_path'],manifest_path=step['manifest_path'],

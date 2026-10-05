@@ -17,13 +17,15 @@ from skillloop.runtime.round_manifest import read_round_manifest
 
 
 def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_directory,
-                         authority_directory,whole_round_manifest_path,registry,ledger,engine):
+                         authority_directory,whole_round_manifest_path,registry,ledger,engine,harden_only=False):
+    if type(harden_only) is not bool:raise ValueError('roster_dispatch_mode')
     if (os.geteuid()!=21001 or type(engine) is not DockerEngine
             or type(registry) is not CampaignRegistry or type(ledger) is not SpendingLedger):
         raise PermissionError('roster_dispatch_actual_controller')
     fields={'kind','campaign_digest','image','assignment_digest','whole_round_manifest_digest',
             'campaign_deadline','timeout_seconds','maximum_evidence_bytes','mounts','digest'}
-    if (type(policy) is not dict or set(policy)!=fields or policy['kind']!='FrozenDevelopmentRosterDispatch'
+    if (type(policy) is not dict or set(policy)!=fields or policy['kind']!=
+            ('FrozenDevelopmentHardenDispatch' if harden_only else 'FrozenDevelopmentRosterDispatch')
             or policy['digest']!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
             or type(policy['timeout_seconds']) is not int or not 1<=policy['timeout_seconds']<=120
             or type(policy['maximum_evidence_bytes']) is not int
@@ -60,7 +62,7 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
         mounts.append({'Type':'volume','Source':pin['volume'],'Target':target,'ReadOnly':key!='roster',
             'VolumeOptions':{'Subpath':pin['subpath']}})
     config={'Image':policy['image'],'User':'21005:21005','Entrypoint':['python'],
-        'Cmd':['-m','skillloop.discovery.formal_roster_gate'],
+        'Cmd':['-m','skillloop.discovery.formal_harden_gate' if harden_only else 'skillloop.discovery.formal_roster_gate'],
         'Env':['PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=/code/scripts/vendor:/code',
                'SKILLLOOP_RAW_HISTORY_MAX_BYTES='+str(policy['maximum_evidence_bytes'])],
         'Labels':{'skillloop.role':'roster_gate','skillloop.whole_round':whole['digest'],
@@ -99,9 +101,29 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
                 'inspection':observed,'wait_result':wait,'logs_digest':logs_digest})
             if observed['State']['Running'] or wait['StatusCode'] or observed['State']['ExitCode']:
                 raise RuntimeError('roster_gate_failed_no_private_epoch_release')
-            freeze=read_owned(output/'freeze.json',uid=21005,gid=21001,limit=262144)
             evidence=read_owned(output/'development-evidence.json',uid=21005,gid=21001,limit=16777216)
-            if (freeze.get('kind')!='FrozenCampaignSubjectRoster'
+            if harden_only:
+                from skillloop.proxy.wire import validate_control
+                result=read_owned(output/'harden-result.json',uid=21005,gid=21001,limit=262144)
+                review=read_owned(output/'harden-review.json',uid=21005,gid=21001,limit=262144)
+                validate_control(result)
+                applications=evidence['applications']
+                if (result['kind']!='HardenResult' or not applications
+                        or review.get('kind')!='FormalDevelopmentHardenReview'
+                        or review.get('assignment_digest')!=job['digest']
+                        or review.get('development_evidence_digest')!=evidence['digest']
+                        or review.get('result_digest')!=result['digest']
+                        or review.get('roster_frozen') is not False or review.get('qualification_issued') is not False
+                        or review.get('repair_round')!=applications[-1]['repair_round']
+                        or result['body']['campaign_public_ref']!=policy['campaign_digest']
+                        or result['body']['parent_subject_digest']!=applications[-1]['parent_subject_digest']
+                        or result['body']['candidate_subject_digest']!=applications[-1]['candidate_bundle_digest']
+                        or result['body']['patch_application_digest']!=applications[-1]['application_digest']
+                        or os.path.lexists(output/'freeze.json')):
+                    raise ValueError('harden_dispatch_actual_current_review_chain')
+            else:
+                freeze=read_owned(output/'freeze.json',uid=21005,gid=21001,limit=262144)
+            if not harden_only and (freeze.get('kind')!='FrozenCampaignSubjectRoster'
                     or freeze.get('development_evidence_digest')!=evidence['digest']
                     or evidence.get('assignment_digest')!=job['digest']
                     or freeze.get('development_plan_digest')!=job['plan']['digest']
@@ -115,6 +137,11 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
                     'reason':str(error),'error_type':type(error).__name__,'automatic_replay_allowed':False})
             except BaseException as secondary:error.add_note('roster_custody_requires_recovery:'+type(secondary).__name__)
             raise
+    if harden_only:
+        _save(directory,'consumed.json',{'kind':'FormalDevelopmentHardenConsumed',
+            'review_digest':review['digest'],'result_digest':result['digest'],
+            'container_id':identifier,'roster_frozen':False,'qualification_issued':False})
+        return result
     # The Gate review ran under the registry read transaction. Now serialize
     # consuming its result with live Proxy approval/plan-head publication too.
     with current_authority(authority_directory,epoch=state['bindings']['deployment_epoch'],
