@@ -168,3 +168,5 @@ Admin 通用 role_command 不再发送尚无业务实现的 Proxy export/archive
 统一部署原来把所有长期角色库放入最多 2GiB tmpfs，而 FormalStorageStore 在同一 FS 要求 2GiB free floor 加 DB/WAL 预分配，正式 Proxy 必然无法准入。新内部部署 manifest 必须明确 storage_backend=local_persistent，并单列 provisioning_bytes（初始化配置、目录和元数据上限）；不再把 tmpfs 大小当作真实 evidence reserve，也不把整个共享卷的额度重复计入初始化成本。
 
 部署实际核对 Docker local volume 的 Options/epoch，bootstrap 在首次写入前核对实际持久 FS free floor 和完整初始化预算。原每任务有界 tmpfs、Keeper 和临时证据保全流程独立保留；长期数据仍按原角色子目录权限授权。只对新部署身份生效，旧 manifest/卷不迁移、不重启。整个 campaign 的共享物理预留和释放仍未闭合，provision completion 明确 campaign_capacity_verified=false。未构建或运行新部署。
+
+统一角色准入还要求除独立冻结 Scanner 以外的生产角色使用当前 whole-round 精确 image；拒绝重复环境变量名或不合法环境条目，避免已冻结 source/image 与实际角色配置分离。Scanner 仍由自己的 scanner lock/实际报告链复核。未运行部署验证。

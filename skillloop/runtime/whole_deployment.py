@@ -80,10 +80,15 @@ class WholeRoleDeployment:
                 raise PermissionError('whole_role_evidence_group_boundary')
             if type(config.get('Env')) is not list:
                 raise ValueError('whole_role_explicit_environment_required')
+            environment=config['Env']
+            if (any(type(item) is not str or '=' not in item or '\x00' in item for item in environment)
+                    or len({item.split('=',1)[0] for item in environment})!=len(environment)):
+                raise ValueError('whole_role_unique_explicit_environment')
             valid_entry=(cmd[:1]==['-m'] and len(cmd)==2 and cmd[1] in MODULES.get(role,set()))
             if role=='scanner':valid_entry=cmd==['/opt/skillloop-scanner/offline_osv.py','scan','/subject/SKILL.md','--no-llm','--format','json','--output','/report/report.json']
             if (not valid_entry or config.get('Entrypoint')!=['python'] or config.get('User')!=str(uid)+':'+str(uid)
                     or not re.fullmatch(r'sha256:[0-9a-f]{64}',config.get('Image',''))
+                    or role!='scanner' and config.get('Image')!=self.plan['image']
                     or config.get('Labels',{}).get('skillloop.deployment_epoch')!=self.plan['deployment_epoch']
                     or hc.get('ReadonlyRootfs') is not True or hc.get('CapDrop')!=['ALL']
                     or 'no-new-privileges' not in hc.get('SecurityOpt',[])
