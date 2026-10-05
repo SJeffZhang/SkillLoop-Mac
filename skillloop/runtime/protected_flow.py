@@ -88,7 +88,7 @@ class ProtectedTaskCloser:
         with self.registry.private_scope(campaign=plan['campaign_digest']) as state:
             if state['gate_freeze']['deadline']!=plan['campaign_deadline']:
                 raise ValueError('protected_flow_current_frozen_registry_clock')
-        policies=[];producers=[]
+        policies=[];producers=[];producer_views=[]
         for step in plan['steps']:
             expected={'stage','policy_path','policy_digest','journal_directory','archive_mount_policy_path','archive_attestation_directory'}
             if set(step) not in (expected,expected|{'production'}):raise ValueError('protected_flow_step_shape')
@@ -112,14 +112,21 @@ class ProtectedTaskCloser:
                 if not dynamic or type(production) is not dict or set(production)!={'policy_path','policy_digest','journal_directory'}:
                     raise ValueError('protected_flow_frozen_action_producer')
                 producer=read_owned(production['policy_path'],uid=21010,gid=21001,limit=2097152)
-                if (producer.get('kind')!='FrozenOpaquePrivateSessionDispatch'
+                if producer.get('kind')=='FrozenPrivateClosingProducerProduction':
+                    from skillloop.runtime.closing_dispatch_production import closing_producer_template
+                    view=closing_producer_template(producer,stage=step['stage'],reference_path=plan['reference_path'])
+                    if producer['production_policy_digest']!=declaration.get('production_policy_digest'):
+                        raise ValueError('protected_flow_exact_action_production_policy')
+                else:view=producer
+                if (view.get('kind')!='FrozenOpaquePrivateSessionDispatch'
                         or producer['digest']!=production['policy_digest']
-                        or producer['campaign_digest']!=plan['campaign_digest']
-                        or producer['campaign_deadline']!=plan['campaign_deadline']
-                        or producer['whole_round_manifest_digest']!=self.whole['digest']
-                        or 'production_policy' not in producer['mounts']):
+                        or view['campaign_digest']!=plan['campaign_digest']
+                        or view['campaign_deadline']!=plan['campaign_deadline']
+                        or view['whole_round_manifest_digest']!=self.whole['digest']
+                        or 'production_policy' not in view['mounts']):
                     raise ValueError('protected_flow_original_private_producer_scope')
             producers.append(producer)
+            producer_views.append(view if producer is not None else None)
         journals=[s['journal_directory'] for s in plan['steps']]+[
             s['production']['journal_directory'] for s in plan['steps'] if s.get('production') is not None
         ]+[plan['retirement_journal'],plan['cleanup_journal'],str(self.root)]
@@ -129,13 +136,29 @@ class ProtectedTaskCloser:
         if scope is None:raise ValueError('protected_flow_whole_campaign_scope')
         bound=scope['stages']['protected']
         if any(p['timeout_seconds']+60>bound['seconds'] or p['maximum_evidence_bytes']>bound['disk_bytes']
-                for p in policies+[p for p in producers if p is not None]):
+                for p in policies+[p for p in producer_views if p is not None]):
             raise ValueError('protected_flow_unreserved_complete_step_cost')
+        dynamic_producers=[(step,p) for step,p in zip(plan['steps'],producers)
+            if p is not None and p.get('kind')=='FrozenPrivateClosingProducerProduction']
+        if dynamic_producers and (bound['seconds']<30 or bound['disk_bytes']<1048576):
+            raise ValueError('protected_flow_unreserved_controller_delegation_cost')
         remaining=[p for step,p in zip(plan['steps'],policies) if not (self.root/(step['stage']+'.done.json')).exists()]
+        remaining_producers=[p for step,p in zip(plan['steps'],producer_views)
+            if p is not None and not (self.root/(step['stage']+'.production.done.json')).exists()]
+        remaining_delegations=[step for step,p in dynamic_producers
+            if not (self.root/(step['stage']+'.production-policy.json')).exists()]
+        terminal_slots=sum(not (self.root/(name+'.cost.json')).exists() for name in ('retirement','cleanup'))
+        needed_slots=sum(not (self.root/(step['stage']+'.started.json')).exists()
+            for step in plan['steps'] if not (self.root/(step['stage']+'.done.json')).exists())
+        needed_slots+=sum(not (self.root/(step['stage']+'.production.started.json')).exists()
+            for step,p in zip(plan['steps'],producers) if p is not None
+            and not (self.root/(step['stage']+'.production.done.json')).exists())
+        needed_slots+=len(remaining_delegations)+terminal_slots
+        spent_slots=sum(e.get('stage')=='protected' for e in self.ledger.read().get('auxiliary_executions',[]))
+        if needed_slots+spent_slots>bound['count']:
+            raise ValueError('protected_flow_full_remaining_slots_not_reserved')
         if ((deadline-datetime.now(timezone.utc)).total_seconds()<=
-                sum(p['timeout_seconds']+60 for p in remaining)+sum(p['timeout_seconds']+60
-                    for step,p in zip(plan['steps'],producers) if p is not None and not (self.root/(step['stage']+'.production.done.json')).exists())
-                +plan['retirement_seconds']+plan['cleanup_seconds']+120):
+                (len(remaining)+len(remaining_producers)+len(remaining_delegations)+terminal_slots)*bound['seconds']+120):
             raise TimeoutError('protected_flow_full_remaining_chain_not_admitted')
         if not (self.root/'flow-intent.json').exists():
             if any(p.name!='production.json' for p in self.root.iterdir()):
@@ -149,6 +172,10 @@ class ProtectedTaskCloser:
         for step,producer in zip(plan['steps'],producers):
             from skillloop.runtime.private_session_dispatch import resolve_session_policy,recover_session_completion
             if producer is not None:
+                if producer.get('kind')=='FrozenPrivateClosingProducerProduction':
+                    from skillloop.runtime.closing_dispatch_production import produce_closing_dispatch
+                    producer=produce_closing_dispatch(recipe=producer,stage=step['stage'],reference_path=plan['reference_path'],
+                        whole=self.whole,ledger=self.ledger,registry=self.registry,journal_directory=self.root)
                 specification=step['production'];name=step['stage']+'.production'
                 done_production=self.root/(name+'.done.json');started_production=self.root/(name+'.started.json')
                 if done_production.exists():

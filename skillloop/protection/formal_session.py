@@ -25,10 +25,14 @@ def execute_session_action(*,assignment_path,private_directory,projection_direct
             or job['digest']!=expected_action_digest):
         raise ValueError('formal_session_sealed_action_digest')
     if owner==21001:
-        if (set(job)!={'kind','policy_digest','digest'} or job.get('kind')!='ControllerPrivateClosingActionProduction'):
+        if (set(job)!={'kind','policy_digest','reference_digest','stage','digest'}
+                or job.get('kind')!='ControllerPrivateClosingActionProduction'):
             raise PermissionError('formal_session_controller_opaque_production_only')
         policy=read_owned('/production-policy/policy.json',uid=21010,gid=21004,limit=262144)
-        if policy['digest']!=job['policy_digest']:raise ValueError('formal_session_original_production_policy')
+        reference=read_owned('/current-reference/reference.json',uid=21004,gid=21001,limit=262144)
+        if (policy['digest']!=job['policy_digest'] or policy.get('stage')!=job['stage']
+                or reference['digest']!=job['reference_digest']):
+            raise ValueError('formal_session_original_production_policy')
         from skillloop.protection.closing_actions import produce_closing_action
         authority=ProtectionAuthority(Path(private_directory)/'epoch-authority')
         return produce_closing_action(authority=authority,policy_path='/production-policy/policy.json',
