@@ -109,7 +109,9 @@ def main():
                     raise ValueError('semantic_raw_report_custody')
                 os.fchown(stream.fileno(),-1,21001);os.fchmod(stream.fileno(),0o640)
                 raw=stream.read(33554433);os.fsync(stream.fileno())
-            if len(responded)!=len(requests) or not requests:raise ValueError('semantic_original_model_attempts_incomplete')
+            if (len(responded)!=len(requests) or not requests
+                    or bridge.inference_unresolved.is_set() or bridge._inference_lock.locked()):
+                raise ValueError('semantic_original_model_attempts_incomplete')
             if len(raw)>33554432:raise ValueError('semantic_raw_report_capacity')
             report,findings,dispositions=reduce_scan(job['profile'],raw,process.returncode,
                 subject_digest=snapshot['body']['skill_digest'],require_llm=True,allow_risk_exit=True)

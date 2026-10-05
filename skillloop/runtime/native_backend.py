@@ -101,14 +101,12 @@ class NativeBackendSupervisor:
     def _identity(self):
         output = {}
         for key, path in (('version', '/api/version'), ('models', '/api/tags'), ('loaded', '/api/ps')):
-            connection = http.client.HTTPConnection('127.0.0.1', self.policy['port'], timeout=2)
-            try:
-                connection.request('GET', path); response = connection.getresponse()
-                raw = response.read(1048577)
-                if response.status != 200 or len(raw) > 1048576:
-                    raise ValueError('native_backend_identity_response')
-                output[key] = decode_json(raw)
-            finally: connection.close()
+            from skillloop.runtime.model_http import request_model
+            status, raw = request_model(f"http://127.0.0.1:{self.policy['port']}",
+                path, None, timeout=2, method='GET', maximum_bytes=1048576)
+            if status != 200 or len(raw) > 1048576:
+                raise ValueError('native_backend_identity_response')
+            output[key] = decode_json(raw)
         if output['version'].get('version') != self.policy['backend_version']:
             raise ValueError('native_backend_version_changed')
         models = [m for m in output['models']['models'] if m.get('name') == self.policy['model_id']]

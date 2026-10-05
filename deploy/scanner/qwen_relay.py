@@ -106,6 +106,7 @@ class HostModelBridge:
         self.usage_records = []
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
+        self.inference_unresolved = threading.Event()
         self._server = None
         self._thread = None
 
@@ -178,6 +179,11 @@ class HostModelBridge:
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers()
                     self.wfile.write(payload)
+                    return (status == 200 and isinstance(parsed, dict) and
+                            (parsed.get('done') is True and parsed.get('done_reason') == 'stop'
+                             if bridge.native_chat else
+                             bool(parsed.get('choices')) and all(c.get('finish_reason') in
+                                 {'stop', 'tool_calls'} for c in parsed['choices'])))
                 except ModelHTTPIncomplete as error:
                     if method == 'POST' and bridge.evidence_observer is not None:
                         bridge.evidence_observer('response_incomplete', body, error.partial, error.status)
@@ -195,6 +201,9 @@ class HostModelBridge:
                 self._forward("GET")
 
             def do_POST(self):
+                if bridge.inference_unresolved.is_set():
+                    self.send_error(409, 'original_inference_unresolved_no_dispatch')
+                    return
                 if bridge.deadline is not None and (bridge.deadline-datetime.now(timezone.utc)).total_seconds()<=bridge.request_timeout_seconds+60:
                     self.send_error(429,'original_model_budget_exhausted')
                     return
@@ -244,13 +253,21 @@ class HostModelBridge:
                     self.send_error(429,'model_inference_already_active')
                     return
                 try:
+                    if bridge.inference_unresolved.is_set():
+                        self.send_error(409, 'original_inference_unresolved_no_dispatch')
+                        return
                     with bridge._lock:
                         if bridge.max_chat_requests is not None and bridge.chat_requests >= bridge.max_chat_requests:
                             self.send_error(429, "scanner_model_budget_exhausted")
                             return
                         bridge.chat_requests += 1
+                    # A disconnected client or a timed out upstream does not
+                    # prove the native backend stopped. Keep it unavailable
+                    # even after releasing the HTTP handler concurrency lock.
+                    bridge.inference_unresolved.set()
                     if bridge.evidence_observer is not None:bridge.evidence_observer("request",payload,None,None)
-                    self._forward("POST", payload, expected_prompt_tokens=expected)
+                    if self._forward("POST", payload, expected_prompt_tokens=expected) is True:
+                        bridge.inference_unresolved.clear()
                 finally:bridge._inference_lock.release()
 
         class Server(_ThreadedUnixServer):

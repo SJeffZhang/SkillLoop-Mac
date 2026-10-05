@@ -21,12 +21,10 @@ from skillloop.runtime.round_manifest import read_round_manifest
 def backend_identity(policy):
     observed={}
     for name,path in (('version','/api/version'),('models','/api/tags')):
-        connection=http.client.HTTPConnection(policy['model_host'],policy['model_port'],timeout=5)
-        try:
-            connection.request('GET',path)
-            reply=connection.getresponse();raw=reply.read(1048577)
-        finally:connection.close()
-        if reply.status!=200 or len(raw)>1048576:raise ValueError('native_backend_identity_unavailable')
+        from skillloop.runtime.model_http import request_model
+        status, raw = request_model(f"http://{policy['model_host']}:{policy['model_port']}",
+            path, None, timeout=5, method='GET', maximum_bytes=1048576)
+        if status!=200 or len(raw)>1048576:raise ValueError('native_backend_identity_unavailable')
         observed[name]=decode_json(raw)
     if observed['version'].get('version')!=policy['backend_version']:
         raise ValueError('native_backend_version_changed')
@@ -108,7 +106,7 @@ def main():
                 left=(deadline-datetime.now(timezone.utc)).total_seconds()
                 if left<=60:break
                 stop.wait(min(1,left-60))
-            if bridge._inference_lock.locked():
+            if bridge._inference_lock.locked() or bridge.inference_unresolved.is_set():
                 raise RuntimeError('native_model_inference_unresolved_preserve_backend_lifecycle')
     finally:tokenizer.close()
 

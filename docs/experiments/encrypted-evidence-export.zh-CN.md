@@ -355,3 +355,9 @@ Controller在任何新投递前递归核对父phase的真实完整summary、原�
 生产SGLang/Ollama Gateway与宿主HostModelBridge共同使用单次本地HTTP传输：连接、发送、读取期间由独立截止计时器shutdown原socket，防止持续分片延长每次read等待而突破原剩余预算；不重发、不切换地址。UDS仍由Gateway核对实际SO_PEERCRED。TCP名称解析发生在模型投递前，解析后扣除其耗时；系统解析本身尚无可中断机制，不把它算作已证明的有界操作。HTTP不使用环境代理或重定向。
 
 读取保留有界原字节、实际HTTP状态和不完整标识，长度不符、超时及连接中断不能当完整成功。语义Observer先保存畸形/不完整/超量响应，且不能解除原unknown禁止重投；独立semantic Gate只接受完整响应记录。这个更改未执行HTTP、模型、扫描或组件实验；实际角色/run/privacy授权与完整宿主部署生产连接仍须继续修复。
+
+### 原模型推理未知状态不能因 HTTP 锁释放而解除
+
+HostModelBridge在单次实际投递前置未确认标记，仅完整已校验的原终止响应且客户响应交付完成后解除。超时、畸形响应、传输断连或客户响应丢失保留该标记；新请求在取得并发锁后再次检查，不能利用竞态继续投递。Gateway服务收尾和语义发现完成都检查实际未确认状态，不能将HTTP handler结束当后端空闲或隔离凭据。标记仅属于原服务进程，不授权新进程恢复/重投；原服务启动O_EXCL身份和原operation恢复规则继续适用。
+
+宿主Supervisor与Gateway启动身份查询也接入有界原HTTP读取，保留实际版本、manifest和启动cache-empty检查；它们仍不是模型预热或fresh-private独立证明。仅源码/AST检查，未执行模型或服务。
