@@ -225,10 +225,17 @@ def review_campaign():
             high=sum(f['body']['severity'].lower() in {'high','critical'} for f in scan['findings'])
             # Facts below have each been independently derived from real
             # role-owned records, current authority and full original spending.
+            # A successful-input projection cannot establish the full failed /
+            # unknown discovery and candidate attempt history. Keep coverage
+            # and qualification completeness distinct until the original
+            # authoritative attempt catalog has actually been reviewed.
+            incomplete=[]
+            if development.get('all_attempt_history_complete') is not True:
+                incomplete.append('development_attempt_history_incomplete')
             context=make_envelope('GateContext',{'contract_approved':True,'approval_digest':next(iter(approvals)),
                 'runtime_verified':True,'source_immutable':True,'scanner_complete':True,
                 'authorization_verified':True,'evidence_verified':True,'unresolved_high_findings':high,
-                'definite_failures':[],'incomplete_reasons':[],'config_digest':record['config_digest']})
+                'definite_failures':[],'incomplete_reasons':incomplete,'config_digest':record['config_digest']})
             chains[role],cases=_chain(subject,compiled,plan,selected,context);reductions.extend(cases)
             reviewed[role]=[paths[e['execution_record']['digest']] for e in selected]
         expiries=[row[key] for row in live['approvals'] if row['approval_digest'] in record['approval_digests']
@@ -273,7 +280,7 @@ def review_campaign():
     # Private case reductions and proof references are never written to the
     # Controller-readable completion or report.
     _publish(vault/'campaign-evidence.json',evidence,21005)
-    issuable=all(chain['gate']['body']['verdict'] in {'pass','fail'} and not chain['gate']['body']['incomplete_reasons']
+    issuable=development.get('all_attempt_history_complete') is True and all(chain['gate']['body']['verdict'] in {'pass','fail'} and not chain['gate']['body']['incomplete_reasons']
         and not chain['context']['body']['unresolved_high_findings'] for chain in chains.values())
     if issuable:
         issuer=QualificationIssuer('/eligibility/qualification.sqlite',deployment_epoch=record['deployment_epoch'],

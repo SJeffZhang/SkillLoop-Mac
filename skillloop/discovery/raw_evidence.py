@@ -103,6 +103,7 @@ def verify_raw_pin(pin, directory):
 
 def preserve_private_raw_history(pins, source_directory, vault, *, maximum_bytes):
     """Copy reviewed roster bytes into the existing private Gate archive vault."""
+    from skillloop.runtime.archive_files import allocate_output
     vault = Path(vault); info = vault.lstat()
     if (os.geteuid()!=21005 or vault.is_symlink() or not vault.is_absolute()
             or info.st_uid!=21005 or info.st_gid!=21005
@@ -120,6 +121,7 @@ def preserve_private_raw_history(pins, source_directory, vault, *, maximum_bytes
             raise ValueError('campaign_gate_private_raw_history_capacity')
         fd=os.open(vault/pin['name'],os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'wb') as stream:
+            allocate_output(stream.fileno(),len(raw))
             os.fchown(stream.fileno(),-1,21005);os.fchmod(stream.fileno(),0o600)
             stream.write(raw);stream.flush();os.fsync(stream.fileno())
         total+=len(raw)
