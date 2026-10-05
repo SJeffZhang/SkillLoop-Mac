@@ -255,20 +255,52 @@ class WholeRoleDeployment:
         if (self.root/(filename+'.created')).exists():
             original=_controller_record(self.root/(filename+'.created'))
             intent=_controller_record(self.root/filename)
-            if intent.get('configuration')!=config or intent.get('role')!=role:
+            if (intent.get('kind')!='WholeRoleCreateIntent' or intent.get('operation')!=operation_id
+                    or intent.get('configuration')!=config or intent.get('role')!=role
+                    or original.get('kind')!='WholeRoleCreated' or original.get('role')!=role
+                    or original.get('id')!=original.get('inspection',{}).get('Id')):
                 raise ValueError('whole_role_original_entry_variant_changed')
             actual=self.engine.inspect(original['id'])
             _verify_role_process(actual,original['id'],config,config['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
             if actual.get('Config')!=original['inspection'].get('Config') or actual.get('Image')!=original['inspection'].get('Image'):
                 raise ValueError('whole_role_original_created_identity_changed')
             return original
-        if (self.root/filename).exists():raise RuntimeError('whole_role_original_create_requires_recovery')
-        _save(self.root,filename,{'kind':'WholeRoleCreateIntent','role':role,'operation':operation_id,'configuration':config})
+        name='skillloop-'+role+'-'+digest_jcs(operation_id)[7:31]
+        if (self.root/filename).exists():
+            intent=_controller_record(self.root/filename)
+            cost=_controller_record(self.root/(filename+'.cost'))
+            if (intent.get('kind')!='WholeRoleCreateIntent' or intent.get('role')!=role
+                    or intent.get('operation')!=operation_id or intent.get('configuration')!=config
+                    or intent.get('container_name')!=name or intent.get('manifest_digest')!=self.plan['digest']
+                    or cost.get('kind')!='WholeRoleCreateSpending'):
+                raise ValueError('whole_role_original_create_identity_required')
+            state=self.ledger.read();spent=cost['spending']
+            if (state.get('whole_round_binding')!={'manifest_digest':self.whole['digest'],'campaign':self.plan['campaign_digest']}
+                    or state.get('campaign_started_at')!=self.ledger.campaign_started_at
+                    or spent not in state.get('auxiliary_executions',[])
+                    or spent.get('stage')!='approval_deployment'
+                    or spent.get('operation_key')!='role-create-'+digest_jcs({'role':role,'operation':operation_id})[7:]
+                    or spent.get('requested_cost')!={'seconds':60,'input_tokens':0,'output_tokens':0,'disk_bytes':2097152}):
+                raise ValueError('whole_role_original_creation_spending_required')
+            # A GET is the only recovery request. Missing/ambiguous creation
+            # stays unknown; this branch never sends a replacement POST.
+            actual=self.engine.inspect(name)
+            _verify_role_process(actual,actual['Id'],config,config['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
+            began=datetime.fromisoformat(intent['recorded_at'])
+            created_at=datetime.fromisoformat(actual['Created'].replace('Z','+00:00'))
+            if (actual.get('Name')!='/'+name or began.tzinfo is None or created_at.tzinfo is None
+                    or not began<=created_at<=datetime.now(timezone.utc) or created_at>=self.deadline):
+                raise ValueError('whole_role_original_named_creation_clock')
+            return _save(self.root,filename+'.created',{'kind':'WholeRoleCreated','role':role,
+                'id':actual['Id'],'inspection':actual})
+        _save(self.root,filename,{'kind':'WholeRoleCreateIntent','role':role,'operation':operation_id,
+            'configuration':config,'container_name':name,'manifest_digest':self.plan['digest'],
+            'recorded_at':datetime.now(timezone.utc).isoformat()})
         spending=self.ledger.consume_auxiliary(manifest=self.whole,campaign=self.plan['campaign_digest'],
             stage='approval_deployment',operation_key='role-create-'+digest_jcs({'role':role,'operation':operation_id})[7:],
             seconds=60,input_tokens=0,output_tokens=0,disk_bytes=2097152)
         _save(self.root,filename+'.cost',{'kind':'WholeRoleCreateSpending','spending':spending})
-        identifier=self.engine.create('skillloop-'+role+'-'+digest_jcs(operation_id)[7:31],config)
+        identifier=self.engine.create(name,config)
         actual=self.engine.inspect(identifier);_verify_role_process(actual,identifier,config,config['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
         return _save(self.root,filename+'.created',{'kind':'WholeRoleCreated','role':role,'id':identifier,'inspection':actual})
 
@@ -286,6 +318,11 @@ class WholeRoleDeployment:
                 raise ValueError('whole_role_original_start_completion_identity')
             return observed
         if intent.exists():
+            original_intent=_controller_record(intent)
+            if (original_intent.get('kind')!='WholeRoleStartIntent'
+                    or original_intent.get('created_digest')!=created['digest']
+                    or original_intent.get('id')!=identifier):
+                raise ValueError('whole_role_original_start_intent_identity')
             actual=self.engine.inspect(identifier)
             original=created['inspection']
             if (actual.get('Config')!=original.get('Config') or actual.get('Image')!=original.get('Image')
@@ -294,6 +331,13 @@ class WholeRoleDeployment:
             # Inspection proves this same container started. Never start a
             # stopped worker again, even when its original response was lost.
         else:
+            actual=self.engine.inspect(identifier)
+            _verify_role_process(actual,identifier,self.role_config(role,module),
+                self.role_config(role,module)['HostConfig']['Mounts'],controller_engine_bind=role=='controller')
+            if (actual.get('State',{}).get('Running') is not False
+                    or actual.get('State',{}).get('StartedAt') not in {None,'0001-01-01T00:00:00Z'}
+                    or actual.get('State',{}).get('Status')!='created'):
+                raise RuntimeError('whole_role_previously_started_without_original_intent')
             _save(self.root,intent.name,{'kind':'WholeRoleStartIntent','created_digest':created['digest'],'id':identifier})
             self.engine.start(identifier);actual=self.engine.inspect(identifier)
         return _save(self.root,completed.name,{'kind':'WholeRoleStartObserved','created_digest':created['digest'],
