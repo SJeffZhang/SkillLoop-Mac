@@ -42,6 +42,10 @@ def main():
         from skillloop.discovery.plan_production import produce_plan_revision
         if set(job['params'])!={'assignment_path'}:raise ValueError('plan_production_delegation')
         result=produce_plan_revision(job['params']['assignment_path'])
+    elif job['command']=='produce-private-policy':
+        from skillloop.protection.policy_production import produce_current_policy
+        if set(job['params'])!={'assignment_path'}:raise ValueError('private_policy_production_delegation')
+        result=produce_current_policy(job['params']['assignment_path'])
     elif job['command']=='produce-phase':
         from skillloop.discovery.phase_production import produce_formal_phase
         if set(job['params'])!={'assignment_path'}:raise ValueError('phase_production_delegation')

@@ -60,11 +60,14 @@ def prepare_and_deliver(*, authority, action_path, policy_path, lifecycle_review
         raise ValueError('private_current_task_action')
     record = authority.resolve_formal_bundle(campaign=action['campaign_id'], opaque_ref=action['opaque_ref'])
     policy = read_owned(policy_path, uid=21010, gid=21004, limit=8388608)
-    if (set(policy) != {'kind', 'campaign_id', 'deployment_epoch', 'config_digest',
-                       'domain', 'policy', 'sources', 'digest'}
-            or policy['kind'] != 'AdminPrivateCurrentTaskPolicy'
+    policy_fields = {'kind', 'campaign_id', 'deployment_epoch', 'config_digest', 'domain', 'sources', 'digest'}
+    old_policy = policy.get('kind') == 'AdminPrivateCurrentTaskPolicy' and set(policy) == policy_fields | {'policy'}
+    new_policy = policy.get('kind') == 'AdminPrivateCurrentTaskPolicyV2' and set(policy) == policy_fields | {'subject_policies'}
+    if (not (old_policy or new_policy)
             or any(policy[k] != record[k] for k in ('campaign_id', 'deployment_epoch', 'config_digest'))
-            or set(policy['sources']) != set(record['subjects'].values())):
+            or set(policy['sources']) != set(record['subjects'].values())
+            or new_policy and (type(policy['subject_policies']) is not dict
+                or set(policy['subject_policies']) != set(record['subjects'].values()))):
         raise ValueError('private_current_task_admin_scope')
     lifecycle = read_owned(lifecycle_review_path, uid=21005, gid=21004, limit=262144)
     # A backend tags/version response and an arbitrary nonempty digest are
@@ -139,7 +142,15 @@ def prepare_and_deliver(*, authority, action_path, policy_path, lifecycle_review
         heads = [h for h in live.get('plan_heads', []) if h['campaign_id'] == record['campaign_id']]
         if len(heads) != 1 or heads[0]['plan_digest'] != record['development_plan_digest']:
             raise ValueError('private_current_task_development_head_changed')
-        intent = imported_task_intent(entry, domain=policy['domain'], policy=policy['policy'],
+        admitted = [source for source in live.get('source_admissions', [])
+                    if source['campaign_id'] == record['campaign_id'] and source['subject_digest'] == item['subject_digest']]
+        if (len(admitted) != 1 or admitted[0]['admission_digest'] != digest_jcs(admission)
+                or admitted[0]['source_snapshot_digest'] != selection.source_snapshot_digest
+                or admitted[0]['skill_manifest_digest'] != selection.manifest_digest
+                or admitted[0]['git_provenance'].get('package_bytes_verified') is not True):
+            raise ValueError('private_current_task_actual_proxy_source_admission')
+        task_policy = policy['subject_policies'][item['subject_digest']] if new_policy else policy['policy']
+        intent = imported_task_intent(entry, domain=policy['domain'], policy=task_policy,
                                       inputs=inputs, run_deadline=record['deadline'])
         # Validate the entire transport before the irreversible delivered mark.
         handoff = {k: intent[k] for k in ('deployment_epoch', 'campaign_id', 'profile_id',
