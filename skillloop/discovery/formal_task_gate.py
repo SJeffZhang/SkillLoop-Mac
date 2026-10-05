@@ -14,13 +14,17 @@ from skillloop.protocol import canonical_json_line, decode_json, digest_jcs
 
 
 def read_owned(path, *, uid, gid, limit):
+    from skillloop.runtime.archive_files import open_original, require_unchanged, identity
     path = Path(path)
+    if type(limit) is not int or limit < 1:
+        raise ValueError('formal_gate_read_capacity')
     parent = path.parent.lstat()
     if (not path.is_absolute() or path.parent.is_symlink()
+            or not stat.S_ISDIR(parent.st_mode)
             or parent.st_uid != uid or parent.st_gid != gid
             or stat.S_IMODE(parent.st_mode) != 0o750):
         raise PermissionError('formal_gate_directory_custody')
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = open_original(path)
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_gid != gid
@@ -28,10 +32,12 @@ def read_owned(path, *, uid, gid, limit):
             raise PermissionError('formal_gate_file_custody')
         raw = stream.read(limit + 1)
         after = os.fstat(stream.fileno())
-        if (len(raw) != info.st_size or
-                (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns) !=
-                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)):
+        if len(raw) != info.st_size or identity(info) != identity(after):
             raise ValueError('formal_gate_input_changed')
+    require_unchanged(path, info, after)
+    current_parent=path.parent.lstat()
+    if any(getattr(parent,k)!=getattr(current_parent,k) for k in ('st_dev','st_ino','st_uid','st_gid','st_mode')):
+        raise ValueError('formal_gate_input_directory_changed')
     if len(raw) > limit:
         raise ValueError('formal_gate_input_capacity')
     value = decode_json(raw)

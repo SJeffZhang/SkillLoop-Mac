@@ -25,21 +25,27 @@ STAGES=('capture','evaluate','task_gate','session_complete','archive',
 
 
 def _controller_record(path):
+    import stat
+    from skillloop.runtime.archive_files import open_original, require_unchanged, identity
     path=Path(path);parent=path.parent.lstat()
-    if path.is_symlink() or path.parent.is_symlink() or parent.st_uid!=21001 or parent.st_mode&0o077:
+    if (path.is_symlink() or path.parent.is_symlink() or not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid!=21001 or stat.S_IMODE(parent.st_mode)!=0o700):
         raise PermissionError('protected_flow_controller_record_directory')
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    fd=open_original(path)
     with os.fdopen(fd,'rb') as stream:
         before=os.fstat(stream.fileno())
-        import stat
         if (not stat.S_ISREG(before.st_mode) or before.st_uid!=21001 or before.st_nlink!=1
-                or before.st_mode&0o077 or before.st_size>8388608):
+                or stat.S_IMODE(before.st_mode)!=0o600 or before.st_size>8388608):
             raise PermissionError('protected_flow_controller_record_file')
         raw=stream.read(8388609);after=os.fstat(stream.fileno())
-    if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns):
+    if len(raw)!=before.st_size or identity(before)!=identity(after):
         raise ValueError('protected_flow_record_changed')
+    require_unchanged(path,before,after)
+    current_parent=path.parent.lstat()
+    if any(getattr(parent,k)!=getattr(current_parent,k) for k in ('st_dev','st_ino','st_uid','st_gid','st_mode')):
+        raise ValueError('protected_flow_record_directory_changed')
     value=decode_json(raw)
-    if value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
+    if type(value) is not dict or value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'}):
         raise ValueError('protected_flow_record_seal')
     return value
 
