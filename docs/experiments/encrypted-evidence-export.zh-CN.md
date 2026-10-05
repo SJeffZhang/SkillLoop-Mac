@@ -387,3 +387,9 @@ Supervisor的多次身份查询共享原startup截止，而不是每个GET另获
 ### trace 容量不足保留原模型超时原因
 
 Runtime在保存Gateway原错误字节时若达到冻结trace上限，另记录trace_limit，但不再覆盖原provider_timeout/run_deadline原因。最终capture保留原未知原因与证据缺失两项；不能因为诊断写入失败把原模型超时伪装成另一种已知错误，也不扩trace预算或重发。仍按不完整证据收尾，源码检查未替代实测。
+
+### 模型连接处理有界与原请求排空
+
+原桥接服务在校验SO_PEERCRED后，最多接纳16个连接处理线程；超量连接在创建线程和读取body前关闭，推理并发仍为1。每个原连接从HTTP header读取开始共享单次截止，body、tokenizer预检和上游传输都消耗原窗口；独立计时器关闭超时socket，分片输入不能续期。拒绝重复Content-Length、Transfer-Encoding及不完整body，未准入推理不消费模型槽。
+
+停止listener后，先排空原连接处理再关闭服务和删除原socket；排空失败保全socket/证据并阻断收尾。该限制不能替代实际campaign物理容量、run/fence授权或满队列运行验收。仅AST及源码差异检查，没有模型、网络、容器或组件实验。

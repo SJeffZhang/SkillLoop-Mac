@@ -17,6 +17,7 @@ import selectors
 import socket
 import socketserver
 import threading
+import time
 import struct
 import stat
 from datetime import datetime, timezone
@@ -124,6 +125,27 @@ class HostModelBridge:
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                # Include request headers/body and local preflight in the same
+                # original deadline, rather than giving upstream another window.
+                self.request_end = time.monotonic() + bridge.request_timeout_seconds
+                self.request.settimeout(bridge.request_timeout_seconds)
+                def interrupt():
+                    try:self.request.shutdown(socket.SHUT_RDWR)
+                    except OSError:pass
+                self.request_watchdog = threading.Timer(bridge.request_timeout_seconds, interrupt)
+                self.request_watchdog.daemon = True
+                self.request_watchdog.start()
+                try:super().setup()
+                except BaseException:
+                    self.request_watchdog.cancel();self.request_watchdog.join()
+                    raise
+
+            def finish(self):
+                try:super().finish()
+                finally:
+                    self.request_watchdog.cancel();self.request_watchdog.join()
+
             def log_message(self, *_args):
                 pass
 
@@ -147,7 +169,7 @@ class HostModelBridge:
                 from skillloop.runtime.model_http import ModelHTTPIncomplete, request_model
                 parsed = None
                 try:
-                    timeout = bridge.request_timeout_seconds
+                    timeout = self.request_end - time.monotonic()
                     if bridge.deadline is not None:
                         timeout = min(timeout, (bridge.deadline - datetime.now(timezone.utc)).total_seconds())
                     if timeout <= 0:
@@ -231,9 +253,12 @@ class HostModelBridge:
                     return
                 try:
                     size = int(self.headers.get("Content-Length", "-1"))
-                    if size < 0 or size > 1_048_576:
+                    if (size < 0 or size > 1_048_576 or self.headers.get('Transfer-Encoding') is not None
+                            or len(self.headers.get_all('Content-Length', [])) != 1):
                         raise ValueError("request_size")
                     data = self.rfile.read(size)
+                    if len(data)!=size or time.monotonic()>=self.request_end:
+                        raise ValueError('request_incomplete_or_expired')
                     value = json.loads(data)
                     if type(value) is not dict or value.get("model") != bridge.model_id:
                         raise ValueError("model_identity")
@@ -270,6 +295,9 @@ class HostModelBridge:
                     self.send_error(429,'model_inference_already_active')
                     return
                 try:
+                    if time.monotonic()>=self.request_end:
+                        self.send_error(408,'original_model_request_expired')
+                        return
                     if bridge.inference_unresolved.is_set():
                         self.send_error(409, 'original_inference_unresolved_no_dispatch')
                         return
@@ -288,6 +316,43 @@ class HostModelBridge:
                 finally:bridge._inference_lock.release()
 
         class Server(_ThreadedUnixServer):
+            # Bound authenticated connection handlers too, before allocating a
+            # thread or parsing a body. The model lock alone is insufficient.
+            def __init__(self, *args, **kwargs):
+                self.slots = threading.BoundedSemaphore(16)
+                self.pending = 0
+                self.idle = threading.Condition()
+                super().__init__(*args, **kwargs)
+
+            def process_request(self, request, client_address):
+                if not self.slots.acquire(blocking=False):
+                    self.shutdown_request(request)
+                    return
+                with self.idle:self.pending += 1
+                try:super().process_request(request, client_address)
+                except BaseException:
+                    self.release_slot()
+                    raise
+
+            def release_slot(self):
+                self.slots.release()
+                with self.idle:
+                    self.pending -= 1
+                    self.idle.notify_all()
+
+            def process_request_thread(self, request, client_address):
+                try:super().process_request_thread(request, client_address)
+                finally:self.release_slot()
+
+            def drain(self):
+                end = time.monotonic() + bridge.request_timeout_seconds + 5
+                with self.idle:
+                    while self.pending:
+                        left = end-time.monotonic()
+                        if left <= 0:
+                            raise RuntimeError('model_bridge_handlers_unclosed_preserve_evidence')
+                        self.idle.wait(left)
+
             def verify_request(self, request, client_address):
                 if bridge.allowed_client_uid is None:return True
                 peer=struct.unpack('3i',request.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
@@ -307,8 +372,11 @@ class HostModelBridge:
 
     def __exit__(self, *_exc):
         self._server.shutdown()
+        self._server.drain()
         self._server.server_close()
         self._thread.join(timeout=5)
+        if self._thread.is_alive():
+            raise RuntimeError('model_bridge_listener_unclosed_preserve_evidence')
         self.socket_path.unlink(missing_ok=True)
 
 
