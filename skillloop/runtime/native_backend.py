@@ -98,12 +98,15 @@ class NativeBackendSupervisor:
         finally: os.close(fd)
         return value
 
-    def _identity(self):
+    def _identity(self, deadline):
         output = {}
         for key, path in (('version', '/api/version'), ('models', '/api/tags'), ('loaded', '/api/ps')):
             from skillloop.runtime.model_http import request_model
+            remaining=deadline-time.time()
+            if remaining<=0:raise TimeoutError('native_backend_original_identity_clock')
             status, raw = request_model(f"http://127.0.0.1:{self.policy['port']}",
-                path, None, timeout=2, method='GET', maximum_bytes=1048576)
+                path, None, timeout=min(2,remaining), method='GET', maximum_bytes=1048576)
+            if time.time()>=deadline:raise TimeoutError('native_backend_original_identity_clock')
             if status != 200 or len(raw) > 1048576:
                 raise ValueError('native_backend_identity_response')
             output[key] = decode_json(raw)
@@ -215,7 +218,7 @@ class NativeBackendSupervisor:
                 'pid': self.process.pid, 'pgid': os.getpgid(self.process.pid), 'created_at': _stamp()})
             while time.time() < startup_end:
                 self.assert_live()
-                try: observed = self._identity()
+                try: observed = self._identity(startup_end)
                 except (OSError, http.client.HTTPException):
                     time.sleep(min(0.2, max(0, startup_end - time.time()))); continue
                 return self._save('NativeBackendStarted', {'policy': p, 'process': created,

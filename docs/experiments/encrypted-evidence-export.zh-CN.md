@@ -367,3 +367,7 @@ HostModelBridge在单次实际投递前置未确认标记，仅完整已校验�
 统一部署fresh和恢复共用同一bootstrap配置生产函数。原bootstrap实际成功退出而Controller尚未保存provisioned时，调度器从原私有journal读取原意图、已消费辅助预算、原卷、Keeper与bootstrap创建记录；仅GET核对原实际ID、配置、权限、真实挂载、卷身份、Keeper存活、bootstrap正常退出和原时钟，随后保存原完成结果。不重复create/start/初始化，不再消费部署槽。缺记录、运行中、未知或失败均保全原卷与Keeper并明确阻断。
 
 部署创建及身份GET使用5秒整次Engine期限，bootstrap wait沿用原冻结期限，避免一系列默认30秒请求遗漏在原部署辅助时间内；未修改冻结bootstrap秒数或重置预算。配置权限检查区分可信root目录生产者与11个工作角色，不向Runtime增加能力。完整共享容量、实际证据写入租约和新epoch恢复还未接齐。仅源码检查，未运行Docker或bootstrap实验。
+
+### 启动身份查询保留原辅助时钟
+
+Supervisor的多次身份查询共享原startup截止，而不是每个GET另获完整等待窗口；Gateway/语义发现身份查询共享10秒上界并保留campaign原120秒收尾余量。数字loopback不做DNS，host.docker.internal仍只在模型投递前解析并扣除耗时。Runtime只接受Ollama实际done=true且done_reason=stop的完整终止输出，不能用done_reason单字段替代。上述检查是源码修复，不是启动或模型实验通过。

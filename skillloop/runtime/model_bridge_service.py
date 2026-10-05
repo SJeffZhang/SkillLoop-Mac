@@ -4,12 +4,12 @@ This process owns no tool socket, task DB or private suite. It does not issue
 qualification or establish fresh backend lifecycle merely by reading tags.
 """
 from datetime import datetime,timezone
-import http.client
 import os
 from pathlib import Path
 import signal
 import threading
 import stat
+import time
 
 from deploy.scanner.qwen_relay import HostModelBridge
 from skillloop.discovery.formal_task_gate import read_owned
@@ -20,10 +20,18 @@ from skillloop.runtime.round_manifest import read_round_manifest
 
 def backend_identity(policy):
     observed={}
+    campaign_end=datetime.fromisoformat(policy['campaign_deadline'].replace('Z','+00:00'))
+    if campaign_end.tzinfo is None:raise ValueError('native_backend_identity_original_clock')
+    allowance=min(10,(campaign_end-datetime.now(timezone.utc)).total_seconds()-120)
+    if allowance<=0:raise TimeoutError('native_backend_identity_original_clock')
+    end=time.monotonic()+allowance
     for name,path in (('version','/api/version'),('models','/api/tags')):
         from skillloop.runtime.model_http import request_model
+        remaining=end-time.monotonic()
+        if remaining<=0:raise TimeoutError('native_backend_identity_original_clock')
         status, raw = request_model(f"http://{policy['model_host']}:{policy['model_port']}",
-            path, None, timeout=5, method='GET', maximum_bytes=1048576)
+            path, None, timeout=min(5,remaining), method='GET', maximum_bytes=1048576)
+        if time.monotonic()>=end:raise TimeoutError('native_backend_identity_original_clock')
         if status!=200 or len(raw)>1048576:raise ValueError('native_backend_identity_unavailable')
         observed[name]=decode_json(raw)
     if observed['version'].get('version')!=policy['backend_version']:

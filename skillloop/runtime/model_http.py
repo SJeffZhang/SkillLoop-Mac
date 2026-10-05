@@ -30,8 +30,9 @@ def request_model(endpoint, path, body, *, timeout, unix_socket_path=None,
     # Resolve before dispatch. Never retry a different address after POST.
     if unix_socket_path is None:
         host = '127.0.0.1' if target.hostname == 'localhost' else target.hostname
-        address = socket.getaddrinfo(host, target.port or 80,
-                                     socket.AF_INET, socket.SOCK_STREAM)[0][4]
+        address = ((host, target.port or 80) if host == '127.0.0.1' else
+                   socket.getaddrinfo(host, target.port or 80,
+                                      socket.AF_INET, socket.SOCK_STREAM)[0][4])
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     else:
         address = unix_socket_path

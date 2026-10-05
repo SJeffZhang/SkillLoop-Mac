@@ -465,7 +465,7 @@ class OllamaGateway:
             raise GatewayError("provider_timeout") from exc
         if type(parsed) is not dict or parsed.get("model") != self.model:
             raise GatewayError("model_identity_mismatch", response=parsed)
-        if parsed.get("done_reason") != "stop":
+        if parsed.get('done') is not True or parsed.get("done_reason") != "stop":
             raise GatewayError("model_incomplete", response=parsed)
         if parsed.get("prompt_eval_count") != prompt_tokens:
             raise GatewayError("tokenizer_mismatch", response=parsed)
