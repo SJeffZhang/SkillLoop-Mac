@@ -188,9 +188,10 @@ def verify_development_inference_history(value,*,campaign,epoch,config_digest):
             or value['all_development_attempt_history_complete'] is not False
             or value['private_resources_disclosed'] is not False
             or type(value['runtime_attempts']) is not list or len(value['runtime_attempts'])>2048
-            or type(value['proposal_attempts']) is not list or len(value['proposal_attempts'])>128):
+            or type(value['proposal_attempts']) is not list or len(value['proposal_attempts'])>128
+            or type(value['unknown_count']) is not int or value['unknown_count']<0):
         raise ValueError('archive_actual_development_inference_history')
-    seen=set();rounds={};unknown=0
+    seen=set();grants=set();rounds={};unknown=0
     for runtime,rows in ((True,value['runtime_attempts']),(False,value['proposal_attempts'])):
         specific={'run_id','round_index'} if runtime else {'grant_digest','role_uid'}
         for row in rows:
@@ -199,6 +200,7 @@ def verify_development_inference_history(value,*,campaign,epoch,config_digest):
                 raise ValueError('archive_development_inference_attempt_shape')
             reserved=row['reservation'];request=reserved['request']
             if (reserved.get('kind')!=('ProxyRuntimeInferenceReserved' if runtime else 'ProxyProposalInferenceReserved')
+                    or request.get('kind')!=('RuntimeInferenceReservationRequest' if runtime else 'ProposalInferenceReservationRequest')
                     or reserved.get('digest')!=digest_jcs({k:v for k,v in reserved.items() if k!='digest'})
                     or request['digest']!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
                     or reserved['request_digest']!=request['digest'] or request['digest']!=row['request_digest']
@@ -215,9 +217,11 @@ def verify_development_inference_history(value,*,campaign,epoch,config_digest):
                     raise ValueError('archive_development_runtime_phase_and_round')
                 rounds.setdefault(row['run_id'],[]).append(row['round_index'])
             elif (binding['digest']!=digest_jcs({k:v for k,v in binding.items() if k!='digest'})
+                    or binding.get('kind')!='ControllerProposalInferenceGrant' or binding['digest'] in grants
                     or binding['digest']!=row['grant_digest'] or binding['role_uid']!=row['role_uid']
                     or row['role_uid'] not in {21006,21007}):
                 raise ValueError('archive_development_proposal_original_grant')
+            if not runtime:grants.add(binding['digest'])
             if row['response_digest'] is None:
                 if row['status']!='unknown' or row['raw_response_digest'] is not None or row['completed_at'] is not None:
                     raise ValueError('archive_development_unanswered_attempt_preserved')

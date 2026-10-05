@@ -649,3 +649,5 @@ source-authority导出在原同一SQLite事务中读取完整Runtime dev及Gener
 正式role-command进程身份改为原operation、job和冻结step的摘要，避免同一evaluate中的多次Admin命令共用同一个已退出进程。assignment/result只可由Controller实际最具体挂载映射到原部署卷中预先声明的目录；严格核对双方UID/GID、0750、只读assignment及单角色可写result，并重新校验全部角色权限和暴露子树。其余image、epoch、环境、权限、资源和入口不变，无通用config覆盖或新公共RPC。
 
 创建、启动、未知创建保全都使用同一原委托身份和配置。收尾核对原job摘要、实际进程配置及原结果；没有新进程重跑或失败证据删除。完成156份Python AST与diff空白检查，未启动任何角色、数据库或组件实验，整链仍未完成。
+
+部署生产者复用相同的role-command挂载解析及全角色校验，逐正式route在bootstrap前检查，避免只在执行到该步时发现错误。开发推理归档独立核验另严格检查unknown计数整数、Runtime/Proposal嵌套kind和proposal grant唯一性，拒绝外层摘要正确但内部类型错置的记录。仅源码检查。

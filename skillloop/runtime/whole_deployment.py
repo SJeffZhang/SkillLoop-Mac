@@ -355,6 +355,10 @@ class WholeRoleDeployment:
             variant=template.get('entry_variants',{}).get(module)
             if variant is None:raise ValueError('whole_role_entry_variant_not_frozen')
             config=variant['config']
+        return self.command_config(self.plan,role,config,delegation)
+
+    @staticmethod
+    def command_config(plan,role,config,delegation):
         if delegation is None:return config
         if (role not in {'admin','report'} or config['Cmd']!=['-m','skillloop.runtime.role_command_worker']
                 or type(delegation) is not dict or set(delegation)!={'assignment_directory','result_path'}):
@@ -365,8 +369,8 @@ class WholeRoleDeployment:
         config=deepcopy(config);mounts=config['HostConfig']['Mounts']
         if any(sum(m['Target']==target for m in mounts)!=1 for target in requested):
             raise ValueError('whole_role_command_fixed_mount_targets')
-        controller=self.plan['roles']['controller']['config']['HostConfig']['Mounts']
-        directories={d['path']:d for d in self.plan['directories']}
+        controller=plan['roles']['controller']['config']['HostConfig']['Mounts']
+        directories={d['path']:d for d in plan['directories']}
         for target,path in requested.items():
             if (type(path) is not str or not PurePosixPath(path).is_absolute()
                     or str(PurePosixPath(path))!=path or '..' in PurePosixPath(path).parts):
@@ -374,7 +378,7 @@ class WholeRoleDeployment:
             matches=[m for m in controller if PurePosixPath(path).is_relative_to(PurePosixPath(m['Target']))]
             if not matches:raise PermissionError('whole_role_command_controller_mount_required')
             alias=max(matches,key=lambda m:len(PurePosixPath(m['Target']).parts))
-            if alias.get('Type')!='volume' or alias.get('Source')!=self.plan['volume']:
+            if alias.get('Type')!='volume' or alias.get('Source')!=plan['volume']:
                 raise PermissionError('whole_role_command_original_volume_only')
             sub=str(PurePosixPath(alias['VolumeOptions']['Subpath'])/PurePosixPath(path).relative_to(alias['Target']))
             declared=directories.get(sub);uid=ROLES[role]
@@ -383,14 +387,14 @@ class WholeRoleDeployment:
                     or declared['privacy'] in {'protected','current_private'}):
                 raise PermissionError('whole_role_command_declared_custody')
             mount=next(m for m in mounts if m['Target']==target)
-            mount.clear();mount.update(Type='volume',Source=self.plan['volume'],Target=target,
+            mount.clear();mount.update(Type='volume',Source=plan['volume'],Target=target,
                 ReadOnly=target=='/assignment',VolumeOptions={'Subpath':sub})
         # Validate every exposed descendant and all unchanged role privileges.
-        candidate=deepcopy(self.plan)
+        candidate=deepcopy(plan)
         selected=candidate['roles'][role]
         if selected['config']['Cmd']==config['Cmd']:selected['config']=config
         else:selected['entry_variants'][config['Cmd'][1]]['config']=config
-        self.validate_roles_manifest(candidate)
+        WholeRoleDeployment.validate_roles_manifest(candidate)
         return config
 
     def create_role(self,role,operation_id,*,module=None,delegation=None):

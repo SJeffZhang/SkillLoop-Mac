@@ -152,6 +152,18 @@ def produce_deployment(policy_path):
         routes.append(route)
     from skillloop.runtime.operator_routes import validate_operator_routes
     validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
+    for route in routes:
+        for step in route['steps']:
+            if step.get('action')!='role_command':continue
+            role=step['role'];template=value['roles'][role]
+            config=template['config']
+            module='skillloop.runtime.role_command_worker'
+            if config['Cmd']!=['-m',module]:
+                variant=template.get('entry_variants',{}).get(module)
+                if variant is None:raise ValueError('whole_command_worker_entry_not_frozen')
+                config=variant['config']
+            WholeRoleDeployment.command_config(value,role,config,
+                {key:step[key] for key in ('assignment_directory','result_path')})
     output=_directory(policy['output_directory'],21010,21001,0o750)
     path=output/'deployment.json'
     if os.path.lexists(path):
