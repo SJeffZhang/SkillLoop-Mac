@@ -543,3 +543,9 @@ Gateway预算收尾审查：启动计时从生产调用开始，ready必须在�
 语义Gateway worker的所有出口在实际服务退出前，将自身原report目录的普通文件逐项校验、fsync并授予Controller明确只读组；原生扫描在失败时留下0600报告也纳入保全，不导出其他角色或保护目录。成功与失败调用都使用同一受限目录，符号链接、非本UID和多硬链接拒绝。失败记录写入/权限交接失败附在原异常上，不能覆盖最初原因。Generator/Patcher在模型已完成但提案解析失败时另保存独立失败终态，既有原request/response不删除、不重跑。
 
 仅AST和源码审查；没有实验运行。后续完整失败/unknown目录catalog仍必须与权威账本逐项绑定，不能从这些文件存在推出完整Gate通过。
+
+### 最终Campaign Gate动态assignment生产
+
+正式调度新增campaign_gate_assignment：Controller消费原gate_qualification_report辅助槽，从当前Registry冻结bindings及Evaluator实际sealed工厂公开投影产生Gate job；只能读取opaque_ref，不读取保护题库、逐题日志或结果矩阵。生产receipt绑定原Admin recipe、工厂commit、assignment和原账本，原重放返回同一对象，部分发布unknown不重新生成。evaluate入口强制该生产步骤位于全部保护任务连续收尾之后、最终Gate之前，且二者消费同一个assignment目录。
+
+辅助worker的成功收尾时限与原timeout+closure成本一致，删除未预留的额外60秒通过余量。仅源码AST、调用和预算一致性检查，未运行实验；整链修复及完整recipe、全attempt catalog、物理容量、宿主CI和restore仍未完成。

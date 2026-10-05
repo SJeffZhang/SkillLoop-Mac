@@ -18,7 +18,7 @@ def begin_auxiliary(step,deadline,uid,config):
     if any(root.iterdir()) or os.path.lexists(step['result_path']):
         raise RuntimeError('campaign_auxiliary_original_operation_requires_recovery')
     now=datetime.now(timezone.utc)
-    reserved=step['timeout_seconds']+step['closure_seconds']+60
+    reserved=step['timeout_seconds']+step['closure_seconds']
     if deadline.tzinfo is None or (deadline-now).total_seconds()<=reserved:
         raise TimeoutError('campaign_auxiliary_original_budget')
     return _save(root,'intent.json',{'kind':'CampaignAuxiliaryIntent','step_digest':digest_jcs(step),

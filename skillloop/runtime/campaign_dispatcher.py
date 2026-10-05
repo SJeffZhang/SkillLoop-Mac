@@ -30,6 +30,7 @@ ACTION_FIELDS={
     'protected_close':{'plan_path','journal_directory'},
     'static_scan':{'deployment_path'},
     'qualification_withdraw':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
+    'campaign_gate_assignment':{'policy_path','assignment_directory'},
     'campaign_gate':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'promote':{'qualification_path','authority_directory'},
     'semantic_discovery':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
@@ -53,7 +54,7 @@ def validate_dispatch_route(route):
             or not campaign.startswith('sha256:') or any(c not in '0123456789abcdef' for c in campaign[7:])):
         raise ValueError('campaign_route_exact_campaign')
     producing={'register_campaign','development','roster_freeze','harden_review','private_factory','private_session',
-        'private_start','private_runtime','lifecycle_review','semantic_discovery','native_gateway','native_gateway_close','proposal','application_gate','campaign_gate','promote'}
+        'private_start','private_runtime','lifecycle_review','semantic_discovery','native_gateway','native_gateway_close','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote'}
     if any(step.get('action') in producing for step in route['steps']) and campaign is None:
         raise ValueError('campaign_route_work_requires_campaign_binding')
     if any(step.get('action')=='campaign_inspection' for step in route['steps']) and (
@@ -174,6 +175,15 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action']=='campaign_gate_assignment':
+                if not (Path(step['assignment_directory'])/'production.json').exists():return
+                from skillloop.runtime.campaign_gate_assignment import produce_campaign_gate_assignment
+                result=produce_campaign_gate_assignment(policy_path=step['policy_path'],
+                    assignment_directory=step['assignment_directory'],campaign=route['campaign_digest'],
+                    whole=self.phase.round_manifest,registry=self.registry,ledger=self.ledger)
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action'] in {'native_gateway','native_gateway_close'}:
                 from skillloop.runtime.proposal_dispatch import recover_model_bridge, close_model_bridge
                 if step['action']=='native_gateway':
@@ -368,7 +378,7 @@ class CampaignDispatcher:
             # start from this route after the actual Proxy cancellation commit.
             if campaign is not None and step['action'] in {'register_campaign','development','roster_freeze','harden_review',
                     'private_factory','private_session','private_start','private_runtime','lifecycle_review','semantic_discovery',
-                    'native_gateway','proposal','application_gate','campaign_gate','promote','static_scan'} or (
+                    'native_gateway','proposal','application_gate','campaign_gate_assignment','campaign_gate','promote','static_scan'} or (
                     campaign is not None and step['action']=='role_command' and step['role']=='admin'):
                 from skillloop.proxy.qualification_authority import require_campaign_not_cancelled
                 require_campaign_not_cancelled('/authority-projection',epoch=self.controller.epoch,campaign=campaign)
@@ -539,6 +549,11 @@ class CampaignDispatcher:
                 from skillloop.discovery.scan_service import ScanController
                 result=ScanController(step['deployment_path']).scan(request['parameters']['snapshot'],
                     scanner_profile=request['parameters'].get('scanner_profile'),operation_id=request['operation_id'])
+            elif step['action']=='campaign_gate_assignment':
+                from skillloop.runtime.campaign_gate_assignment import produce_campaign_gate_assignment
+                result=produce_campaign_gate_assignment(policy_path=step['policy_path'],
+                    assignment_directory=step['assignment_directory'],campaign=campaign,
+                    whole=self.phase.round_manifest,registry=self.registry,ledger=self.ledger)
             elif step['action'] in {'campaign_gate','qualification_withdraw'}:
                 from skillloop.runtime.whole_deployment import WholeRoleDeployment
                 from skillloop.protection.current_task import _directory,_publish
