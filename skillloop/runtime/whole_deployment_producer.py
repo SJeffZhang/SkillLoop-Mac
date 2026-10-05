@@ -4,7 +4,7 @@ This creates configuration, never approvals, lifecycle proofs or task results.
 The Controller consumes the resulting manifest through WholeRoleDeployment.
 """
 import os
-from pathlib import Path
+from pathlib import Path,PurePosixPath
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import digest_jcs
 from skillloop.protection.current_task import _directory,_publish
@@ -74,6 +74,50 @@ def produce_deployment(policy_path):
             or operator_documents[0].get('deployment_epoch')!=value['deployment_epoch']
             or operator_documents[0].get('deadline')!=value['deadline']):
         raise ValueError('whole_operator_original_physical_storage_and_clock')
+    # All approved routes are checked before producing a bootstrap package.
+    # Actual operator startup repeats this check on the mounted documents.
+    from skillloop.runtime.operation_store import WIRE_LIMIT
+    from skillloop.runtime.campaign_dispatcher import validate_dispatch_route
+    documents={}
+    directories={d['path']:d for d in value['directories']}
+    mounts=value['roles']['controller']['config']['HostConfig']['Mounts']
+    for document in value['documents']:
+        original=PurePosixPath(document['directory'])/document['name']
+        for mount in mounts:
+            if mount.get('Type')!='volume' or mount.get('Source')!=value['volume']:
+                continue
+            subpath=PurePosixPath(mount['VolumeOptions']['Subpath'])
+            try:relative=original.relative_to(subpath)
+            except ValueError:continue
+            target=str(PurePosixPath(mount['Target'])/relative)
+            # Use the most specific actual mount at the target path. A nested
+            # overlay must not make a hidden bootstrap document look readable.
+            overlay=max((m for m in mounts if PurePosixPath(target).is_relative_to(PurePosixPath(m['Target']))),
+                        key=lambda m:len(PurePosixPath(m['Target']).parts))
+            if overlay is not mount:continue
+            directory=directories[document['directory']]
+            if directory['uid']!=21010 or directory['gid']!=21001:
+                continue
+            if target in documents and documents[target]!=document['value']:
+                raise ValueError('whole_operator_route_mount_alias_conflict')
+            documents[target]=document['value']
+    operator=operator_documents[0]
+    if type(operator.get('routes')) is not list or not 1<=len(operator['routes'])<=2048:
+        raise ValueError('whole_operator_complete_route_documents_required')
+    route_keys=set()
+    for path in operator['routes']:
+        route=documents.get(path)
+        if route is None:
+            raise ValueError('whole_operator_route_document_missing')
+        validate_dispatch_route(route)
+        from skillloop.protocol import canonical_json_line
+        if (route.get('kind')!='FrozenOperatorCampaignRoute'
+                or route.get('campaign_digest') not in {None,value['campaign_digest']}
+                or len(canonical_json_line(route))>WIRE_LIMIT):
+            raise ValueError('whole_operator_route_campaign_and_capacity')
+        key=(route['command'],route['parameters_digest'])
+        if key in route_keys:raise ValueError('whole_operator_route_duplicate')
+        route_keys.add(key)
     output=_directory(policy['output_directory'],21010,21001,0o750)
     path=output/'deployment.json'
     if os.path.lexists(path):

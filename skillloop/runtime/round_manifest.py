@@ -117,4 +117,10 @@ def admit_phase(manifest, phase, ledger, epoch):
                    or unit['entry']['config']['mac_runtime_image'] != manifest['image']
                    for unit in phase['entries'])):
         raise ValueError('whole_round_phase_not_admitted')
+    state=ledger.read()
+    if (state.get('campaign_started_at')!=ledger.campaign_started_at
+            or state.get('whole_round_binding')!=
+                {'manifest_digest':manifest['digest'],'campaign':campaign['campaign_digest']}
+            or state.get('whole_round_cost_reservation',{}).get('campaign')!=campaign['campaign_digest']):
+        raise ValueError('whole_round_phase_original_campaign_ledger_required')
     return campaign

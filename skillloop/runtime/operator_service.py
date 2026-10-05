@@ -26,6 +26,38 @@ class OperatorService:
         if (cfg['storage_policy']!=STORAGE_POLICY or cfg['deployment_epoch']!=whole['deployment_epoch']
                 or cfg['campaign_digest'] not in {c['campaign_digest'] for c in whole['campaigns']}):
             raise ValueError('operator_actual_storage_whole_round_binding')
+        deadline=datetime.fromisoformat(cfg['deadline'].replace('Z','+00:00'))
+        if (deadline.tzinfo is None or self.dispatcher.ledger.campaign_started_at is None
+                or deadline.timestamp()!=self.dispatcher.ledger.campaign_started_at+28800
+                or type(cfg['routes']) is not list or not 1<=len(cfg['routes'])<=2048):
+            raise ValueError('operator_single_campaign_original_clock_and_routes')
+        self.routes={}
+        for path in cfg['routes']:
+            route=read_owned(path,uid=21010,gid=21001,limit=WIRE_LIMIT)
+            expected={'kind','campaign_digest','command','parameters_digest','result_kind','deadline','steps','result_path','result_binding_path','result_uid','journal_directory','digest'}
+            if set(route)!=expected or type(route['steps']) is not list or not route['steps']:
+                raise ValueError('operator_complete_route_shape')
+            import json
+            specs=json.loads((Path(__file__).resolve().parents[2]/'specs/v2.2/operations/cli.json').read_text())
+            command=next((s for s in specs['commands'] if s['name']==route['command']),None)
+            if command is None or command['stdout_schema']!=route['result_kind'] or route['result_uid'] not in {21001,21005,21009,21010}:
+                raise ValueError('operator_frozen_cli_result_contract')
+            from skillloop.runtime.campaign_dispatcher import validate_dispatch_route
+            validate_dispatch_route(route)
+            # This service spends exactly one campaign's ledger. Three profiles
+            # use serial, separately admitted service/deployment records; no
+            # route may charge this campaign and deliver another campaign.
+            if route['campaign_digest'] not in {None,cfg['campaign_digest']}:
+                raise ValueError('operator_route_other_campaign_ledger')
+            if route['command'] in {'admin cancel','admin revoke'} and (len(route['steps'])!=1
+                    or route['steps'][0]['action']!='proxy_controller'
+                    or route['steps'][0]['method']!={'admin cancel':'cancel_run','admin revoke':'revoke_approval'}[route['command']]):
+                raise PermissionError('operator_control_lane_frozen_rpc_only')
+            key=(route['command'],route['parameters_digest'])
+            if key in self.routes or route.get('kind')!='FrozenOperatorCampaignRoute':raise ValueError('operator_duplicate_route')
+            if datetime.fromisoformat(route['deadline'].replace('Z','+00:00'))>datetime.fromisoformat(cfg['deadline'].replace('Z','+00:00')):
+                raise ValueError('operator_route_original_deployment_deadline')
+            self.routes[key]=route
         key='operator-storage-'+cfg['digest'][7:]
         ledger=self.dispatcher.ledger;state=ledger.read()
         prior=[e for e in state.get('auxiliary_executions',[]) if e['operation_key']==key]
@@ -40,28 +72,6 @@ class OperatorService:
                 operation_key=key,**requested)
         self.store=OperatorOperationStore(cfg['store'],cfg['deployment_epoch'])
         self.dispatcher.operation_store=self.store
-        self.routes={}
-        for path in cfg['routes']:
-            route=read_owned(path,uid=21010,gid=21001,limit=WIRE_LIMIT)
-            expected={'kind','campaign_digest','command','parameters_digest','result_kind','deadline','steps','result_path','result_binding_path','result_uid','journal_directory','digest'}
-            if set(route)!=expected or type(route['steps']) is not list or not route['steps']:
-                raise ValueError('operator_complete_route_shape')
-            import json
-            specs=json.loads((Path(__file__).resolve().parents[2]/'specs/v2.2/operations/cli.json').read_text())
-            command=next((s for s in specs['commands'] if s['name']==route['command']),None)
-            if command is None or command['stdout_schema']!=route['result_kind'] or route['result_uid'] not in {21001,21005,21009,21010}:
-                raise ValueError('operator_frozen_cli_result_contract')
-            from skillloop.runtime.campaign_dispatcher import validate_dispatch_route
-            validate_dispatch_route(route)
-            if route['command'] in {'admin cancel','admin revoke'} and (len(route['steps'])!=1
-                    or route['steps'][0]['action']!='proxy_controller'
-                    or route['steps'][0]['method']!={'admin cancel':'cancel_run','admin revoke':'revoke_approval'}[route['command']]):
-                raise PermissionError('operator_control_lane_frozen_rpc_only')
-            key=(route['command'],route['parameters_digest'])
-            if key in self.routes or route.get('kind')!='FrozenOperatorCampaignRoute':raise ValueError('operator_duplicate_route')
-            if datetime.fromisoformat(route['deadline'].replace('Z','+00:00'))>datetime.fromisoformat(cfg['deadline'].replace('Z','+00:00')):
-                raise ValueError('operator_route_original_deployment_deadline')
-            self.routes[key]=route
     def recover_original_operations(self):
         for ref,request,route in self.store.running():
             try:self.store.complete(ref,self.dispatcher.recover_final(request,route))

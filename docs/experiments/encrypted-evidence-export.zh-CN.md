@@ -229,3 +229,10 @@ OperatorService 在原 whole-round ledger 中先消费60秒、32MiB初始化/峰
 Proxy 在实际已取消 run 之后，通过 SQLite VACUUM INTO 直接生成一致、无空闲页的快照，不再为每个任务先复制业务库的全部预留空页。原业务库的实际页预留不变。生成前检查实际源页数，以两倍完整源文件页容量作为保守临时上界并保留2GiB真实FS余量；进度回调限制原时间、余量和目标容量。输出只在实际 integrity、原取消 fence、原准入 receipt、完整逻辑内容摘要及文件 fsync 核验后交给 Evaluator/Gate。部分文件保留且不自动重试。
 
 Evaluator/Gate 与重启恢复共同检查导出方法、原页容量、峰值上界、真实紧凑页数和完整字节摘要。此处的FS准入和一致导出仍不是全 campaign 物理资源所有权链；后续需把峰值纳入同一实际租约、实际磁盘容量和整轮预算。旧冻结镜像/证据未改。仅做源码与AST检查，未执行SQLite、故障或整轮实验。
+
+
+### 整轮 profile 与原账本绑定
+
+每个 Operator 服务只接纳当前部署 campaign 或不涉及 campaign 的只读/管理 route；三个 profile 必须串行使用各自实际准入的部署、原时钟和账本。完整开发 phase 在首次 victim 投递前再次核对已持久 whole-round campaign 绑定，禁止某 route 消耗A的预算却交付B的任务。Operator 在任何物理页分配或消费初始化槽之前先验证全部 route 和原8小时截止；无效配置不产生数据库副作用。
+
+统一部署生产者按 Controller 实际只读 volume/subpath/target/嵌套挂载解析配置文档，确认每条 route 确实存在且具备 Admin→Controller 文件授权，不能把宿主路径或被覆盖的配置当成可用入口。上述为源码连接检查；完整三个 campaign 的生产配置、串行启动与恢复仍需接通并实际整轮验证。
