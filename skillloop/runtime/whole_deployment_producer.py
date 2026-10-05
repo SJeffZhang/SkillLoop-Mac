@@ -74,6 +74,12 @@ def produce_deployment(policy_path):
     value={'kind':'FrozenWholeRoleDeployment',**{k:policy[k] for k in MANIFEST_FIELDS},'roles':roles}
     value['digest']=digest_jcs(value)
     WholeRoleDeployment.validate_roles_manifest(value)
+    from skillloop.runtime.task_archive import validate_controller_archive_reference
+    for document in value['documents']:
+        if document['value'].get('kind')=='FrozenDurableTaskArchive':
+            policy=document['value']
+            validate_controller_archive_reference(policy,
+                private=str(policy.get('controller_container_id','')).startswith('action-'))
     # The controller document and actual Docker mount must describe the same
     # explicitly authorized socket group, rather than an inherited root group.
     controller_documents=[d['value'] for d in value['documents']

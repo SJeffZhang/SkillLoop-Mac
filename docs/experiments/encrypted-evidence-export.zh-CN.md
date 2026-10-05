@@ -329,3 +329,9 @@ Operator的生产dispatcher失败现在先在原Controller专属恢复目录保�
 正式phase现在先核验实际批准包、选中reference、输入及mutation，并用当前锁定tokenizer计算真正的首轮完整消息和工具context；通过后才产生当前任务deadline、投递任务、取得短期Lease。Runtime与准备阶段复用同一消息构造代码，保留原提示文本和reference顺序，不使用近似token计数。取得Lease后的执行复用原不可变字节和rendered mutation，核对准备receipt、完整输入与包摘要，拒绝不匹配或缺少准备的调用。
 
 原phase任务journal保存准备receipt，原完整summary恢复也要求此链存在。该receipt仅证明材料/token准备，没有模型请求、模型预热或fresh-private隔离证明；正式宿主后端调度和完整资源预算仍需接通。未启动tokenizer、模型、业务任务或组件实验，仅AST及跨模块调用检查。
+
+### 归档策略可在 Controller 创建前冻结
+
+开发归档支持冻结原Controller创建operation、名称和私有journal位置，避免配置必须提前包含尚不存在的Docker随机ID。归档时只能读取这个原意图与created receipt，再GET原实际ID；要求名称、完整配置、真实挂载、image、UID、epoch和运行状态一致，不创建新容器或接受调用者自报ID。原显式ID和保护action绑定路径保持各自规则。
+
+新Task Gate将冻结归档policy摘要与image/epoch绑定到实际评估receipt；独立Archive Gate再校验新创建链和实际挂载记录，以及与原policy和完整已审查字节的关系。统一部署生产者在输出前检查这种引用形状。未把旧归档raw改成新证据，也未执行容器/归档实验；完整配置生产及物理租约仍待连续连接。

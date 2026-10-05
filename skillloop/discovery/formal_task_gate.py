@@ -84,6 +84,9 @@ def review_task(*, assignment_path, evaluation_directory, raw_directory,
         'runtime_capture_digest':original['runtime_capture_digest'],
         'authority_snapshot_digest':original['authority_snapshot_digest'],
         'runtime_read_grant_digest':raw_grant['digest'],
+        'archive_policy_digest':job['entry']['config']['durable_task_archive_policy_digest'],
+        'image':job['entry']['config']['mac_runtime_image'],
+        'deployment_epoch':job['entry']['config']['deployment_epoch'],
         'business_closure_digest':job['capture']['business_closure']['digest'],
         'evidence_complete':True,'gate_uid':21005,'qualification_issued':False,
         'review_completed_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z')}
@@ -133,6 +136,42 @@ def review_archive(*,archive_directory,original_review_directory,output_director
             or receipt.get('independent_archive_review_complete') is not False
             or receipt.get('qualification_issued') is not False):
         raise ValueError('formal_archive_original_gate_binding')
+    if receipt.get('policy_digest')!=original.get('archive_policy_digest'):
+        raise ValueError('formal_archive_original_frozen_policy')
+    creation=receipt.get('controller_creation_evidence')
+    if creation is not None:
+        from skillloop.runtime.task_archive import validate_controller_archive_reference
+        from skillloop.runtime.evaluation_dispatch import _verify_role_process
+        policy=receipt.get('controller_archive_policy')
+        if (type(policy) is not dict or policy.get('kind')!='FrozenDurableTaskArchive'
+                or policy.get('digest')!=receipt['policy_digest']
+                or policy['digest']!=digest_jcs({k:v for k,v in policy.items() if k!='digest'})
+                or policy.get('image')!=original.get('image')
+                or policy.get('deployment_epoch')!=original.get('deployment_epoch')
+                or policy.get('archive_volume')!=receipt.get('archive_volume')
+                or type(creation) is not dict or set(creation)!={'intent','created','inspection'}):
+            raise ValueError('formal_archive_frozen_creation_evidence')
+        pin=validate_controller_archive_reference(policy)
+        if pin is None:raise ValueError('formal_archive_named_creation_required')
+        intent_record,created,actual=(creation[k] for k in ('intent','created','inspection'))
+        for record,kind in ((intent_record,'WholeRoleCreateIntent'),(created,'WholeRoleCreated')):
+            if (record.get('kind')!=kind or record.get('role')!='controller'
+                    or record.get('digest')!=digest_jcs({k:v for k,v in record.items() if k!='digest'})):
+                raise ValueError('formal_archive_original_creation_seals')
+        config=intent_record['configuration']
+        _verify_role_process(actual,created['id'],config,config['HostConfig']['Mounts'],controller_engine_bind=True)
+        if (intent_record.get('operation')!=pin['operation_id']
+                or intent_record.get('container_name')!=policy['controller_container_id'][5:]
+                or actual.get('Name')!='/'+intent_record['container_name']
+                or actual.get('Config')!=created.get('inspection',{}).get('Config')
+                or actual.get('HostConfig')!=created.get('inspection',{}).get('HostConfig')
+                or actual.get('Image')!=policy['image'] or actual['Config'].get('User')!='21001:21001'
+                or actual['Config'].get('Labels',{}).get('skillloop.deployment_epoch')!=policy['deployment_epoch']
+                or actual['State'].get('Running') is not True
+                or not any(m.get('Type')=='volume' and m.get('Name')==receipt['archive_volume']
+                    and m.get('Destination')==policy['archive_root'] and m.get('RW') is True
+                    for m in actual.get('Mounts',[]))):
+            raise ValueError('formal_archive_original_creation_and_mount_chain')
     index={};total=0;nodes=0
     for parent,dirs,files in os.walk(root,followlinks=False):
         budget()

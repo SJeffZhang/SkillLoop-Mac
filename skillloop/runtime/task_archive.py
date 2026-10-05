@@ -17,6 +17,29 @@ from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
 from skillloop.runtime.archive_files import open_original,identity,require_unchanged,allocate_output
 
 
+def validate_controller_archive_reference(policy,*,private=False):
+    """Freeze a creation operation before Docker assigns its actual ID."""
+    reference=policy.get('controller_container_id')
+    creation=policy.get('controller_creation')
+    if private:
+        if creation is not None or type(reference) is not str or not re.fullmatch(r'action-sha256:[0-9a-f]{64}',reference):
+            raise ValueError('task_archive_private_action_reference')
+        return None
+    if type(reference) is str and re.fullmatch(r'[0-9a-f]{64}',reference):
+        if creation is not None:raise ValueError('task_archive_duplicate_controller_reference')
+        return None
+    if (type(creation) is not dict or set(creation)!={'operation_id','journal_directory'}
+            or type(creation['operation_id']) is not str
+            or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',creation['operation_id'])
+            or type(creation['journal_directory']) is not str
+            or not Path(creation['journal_directory']).is_absolute()
+            or str(Path(creation['journal_directory']))!=creation['journal_directory']
+            or '..' in Path(creation['journal_directory']).parts
+            or reference!='name:skillloop-controller-'+digest_jcs(creation['operation_id'])[7:31]):
+        raise ValueError('task_archive_frozen_original_controller_creation')
+    return creation
+
+
 def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engine=None,mount_attestation_path=None):
     private=entry.get('kind')=='protected'
     owner=21004 if private else 21001
@@ -24,14 +47,14 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
     policy=read_owned(policy_path,uid=21010,gid=owner,limit=262144)
     fields={'kind','deployment_epoch','image','controller_container_id','archive_volume',
             'archive_root','maximum_bytes','maximum_files','timeout_seconds','campaign_deadline','digest'}
-    if (set(policy)!=fields or policy['kind']!='FrozenDurableTaskArchive'
+    creation=validate_controller_archive_reference(policy,private=private)
+    if (set(policy)!=fields|({'controller_creation'} if creation is not None else set()) or policy['kind']!='FrozenDurableTaskArchive'
             or policy['digest']!=entry['config'].get('durable_task_archive_policy_digest')
             or policy['deployment_epoch']!=intent['deployment_epoch']
             or policy['image']!=entry['config']['mac_runtime_image']
             or type(policy['maximum_bytes']) is not int or not 1<=policy['maximum_bytes']<=2147483648
             or type(policy['maximum_files']) is not int or not 1<=policy['maximum_files']<=4096
-            or type(policy['timeout_seconds']) is not int or not 1<=policy['timeout_seconds']<=60
-            or not re.fullmatch(r'action-sha256:[0-9a-f]{64}' if private else r'[0-9a-f]{64}',policy['controller_container_id'])):
+            or type(policy['timeout_seconds']) is not int or not 1<=policy['timeout_seconds']<=60):
         raise ValueError('task_archive_frozen_policy')
     deadline=datetime.fromisoformat(policy['campaign_deadline'].replace('Z','+00:00'))
     if deadline.tzinfo is None or (deadline-datetime.now(timezone.utc)).total_seconds()<=120:
@@ -44,6 +67,7 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
     if (not root.is_absolute() or root.is_symlink() or not stat.S_ISDIR(info.st_mode)
             or info.st_uid!=owner or info.st_gid!=21005 or stat.S_IMODE(info.st_mode)!=0o750):
         raise PermissionError('task_archive_private_root')
+    creation_evidence=None
     if private:
         if engine is not None or mount_attestation_path is None:
             raise PermissionError('private_archive_no_engine_access')
@@ -58,9 +82,31 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
         container=attestation['inspection']
     else:
         if mount_attestation_path is not None:raise ValueError('development_archive_unexpected_attestation')
-        container=engine.inspect(policy['controller_container_id'])
+        if creation is None:
+            container=engine.inspect(policy['controller_container_id'])
+        else:
+            from skillloop.runtime.protected_flow import _controller_record
+            from skillloop.runtime.evaluation_dispatch import _verify_role_process
+            filename='role-'+digest_jcs({'role':'controller','operation':creation['operation_id']})[7:]+'.json'
+            original=_controller_record(Path(creation['journal_directory'])/filename)
+            created=_controller_record(Path(creation['journal_directory'])/(filename+'.created'))
+            if (original.get('kind')!='WholeRoleCreateIntent' or original.get('role')!='controller'
+                    or original.get('operation')!=creation['operation_id']
+                    or original.get('container_name')!=policy['controller_container_id'][5:]
+                    or created.get('kind')!='WholeRoleCreated' or created.get('role')!='controller'
+                    or created.get('id')!=created.get('inspection',{}).get('Id')):
+                raise ValueError('task_archive_original_controller_created_chain')
+            container=engine.inspect(created['id'])
+            config=original['configuration']
+            _verify_role_process(container,created['id'],config,config['HostConfig']['Mounts'],controller_engine_bind=True)
+            if (container.get('Name')!='/'+original['container_name']
+                    or container.get('Config')!=created['inspection'].get('Config')
+                    or container.get('HostConfig')!=created['inspection'].get('HostConfig')
+                    or container.get('Image')!=created['inspection'].get('Image')):
+                raise ValueError('task_archive_actual_original_controller_changed')
+            creation_evidence={'intent':original,'created':created,'inspection':container}
     if ((container.get('Config',{}).get('Labels',{}).get('skillloop.action')!=policy['controller_container_id'][7:] if private
-            else container.get('Id')!=policy['controller_container_id']) or container.get('Image')!=policy['image']
+            else container.get('Id')!=(creation_evidence['created']['id'] if creation_evidence else policy['controller_container_id'])) or container.get('Image')!=policy['image']
             or container.get('Config',{}).get('User')!=str(owner)+':'+str(owner)
             or container.get('State',{}).get('Running') is not (False if private else True)
             or container.get('Config',{}).get('Labels',{}).get('skillloop.deployment_epoch')!=policy['deployment_epoch']):
@@ -173,6 +219,9 @@ def archive_reviewed_task(*,entry,intent,capture,review,policy_path,sources,engi
         'archive_volume':volume['Name'],'archive_directory':str(target),'files':inventory,'total_bytes':total,
         'persistent_disk_bytes_verified':True,'independent_archive_review_complete':False,
         'qualification_issued':False,'elapsed_seconds':time.monotonic()-started}
+    if creation_evidence is not None:
+        receipt['controller_creation_evidence']=creation_evidence
+        receipt['controller_archive_policy']=policy
     receipt['digest']=digest_jcs(receipt);budget()
     fd=os.open(target/'archive-receipt.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as stream:
