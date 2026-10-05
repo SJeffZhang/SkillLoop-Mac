@@ -205,6 +205,15 @@ def review_campaign():
     from skillloop.proxy.archive_projection import verify_source_history
     archived_sources=verify_source_history(source_history,campaign=campaign,epoch=record['deployment_epoch'],
         config_digest=record['config_digest'],trust_revision=record['trust_revision'])
+    inference=source_history['development_inference_history']
+    development_intents={reference['intent_digest'] for reference in devjob['executions']}
+    evaluated_runs={e['result']['body']['run_id'] for e in evaluations
+        if e['intent_digest'] in development_intents}
+    inventoried_runs={row['run_id'] for row in inference['runtime_attempts']}
+    # The Proxy's consistent authority snapshot includes reservations that
+    # never produced an evaluation. Keep those as incomplete attempts instead
+    # of silently reducing only the successful development task set.
+    inference_run_gap=evaluated_runs!=inventoried_runs
     chains={};reductions=[];reviewed={};subjects=bindings['subjects']
     with current_authority('/authority-projection',epoch=record['deployment_epoch'],config_digest=record['config_digest'],
             trust_revision=record['trust_revision'],approval_digests=record['approval_digests'],campaign=campaign) as live:
@@ -232,8 +241,10 @@ def review_campaign():
             incomplete=[]
             if development.get('all_attempt_history_complete') is not True:
                 incomplete.append('development_attempt_history_incomplete')
-            if source_history['development_inference_history']['unknown_count']:
+            if inference['unknown_count']:
                 incomplete.append('development_inference_unknown')
+            if inference_run_gap:
+                incomplete.append('development_inference_task_inventory_mismatch')
             context=make_envelope('GateContext',{'contract_approved':True,'approval_digest':next(iter(approvals)),
                 'runtime_verified':True,'source_immutable':True,'scanner_complete':True,
                 'authorization_verified':True,'evidence_verified':True,'unresolved_high_findings':high,

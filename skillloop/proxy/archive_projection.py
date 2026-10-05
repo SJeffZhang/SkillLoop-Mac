@@ -24,13 +24,20 @@ def development_inference_history(db,*,campaign,epoch,config_digest,budget):
     tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if 'runtime_inference_attempts' not in tables:
         raise ValueError('source_archive_actual_inference_authority_missing')
-    rows=db.execute('SELECT run_id,round_index,request_digest,reservation_json,response_digest,raw_response_digest,completed_at '
-        'FROM runtime_inference_attempts ORDER BY run_id,round_index LIMIT 6145').fetchall()
+    # Scope the bounded inventory in SQL. A prior campaign in the same
+    # authority must not consume this campaign's review limit, and Python
+    # filtering after LIMIT could silently omit later current-campaign rows.
+    rows=db.execute('SELECT i.run_id,i.round_index,i.request_digest,i.reservation_json,'
+        'i.response_digest,i.raw_response_digest,i.completed_at FROM runtime_inference_attempts i '
+        'JOIN runs r ON r.run_id=i.run_id WHERE r.campaign_id=? '
+        'ORDER BY i.run_id,i.round_index LIMIT 6145',(campaign,)).fetchall()
     if len(rows)>6144:raise ValueError('source_archive_original_inference_history_capacity')
     runtime=[];proposals=[]
     for run,ordinal,request_digest,raw,response,raw_response,completed in rows:
         budget();reserved=decode_json(raw);request=reserved['request']
-        if request['campaign_id']!=campaign or request['phase']!='dev':continue
+        if request['campaign_id']!=campaign:
+            raise ValueError('source_archive_actual_runtime_campaign_binding')
+        if request['phase']!='dev':continue
         if (reserved.get('kind')!='ProxyRuntimeInferenceReserved'
                 or reserved.get('digest')!=digest_jcs({k:v for k,v in reserved.items() if k!='digest'})
                 or request['digest']!=digest_jcs({k:v for k,v in request.items() if k!='digest'})
