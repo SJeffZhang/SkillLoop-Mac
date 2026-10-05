@@ -211,6 +211,9 @@ def prepare_launch_reference(*, authority, action, projection_directory, receipt
     if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
         raise TimeoutError('private_launch_current_task_expired')
     inbox = _directory(controller_inbox, 21004, 21001, 0o750)
+    # A task gets its own declared inbox. The fixed alias lets the frozen
+    # caller locate the current opaque reference without guessing its nonce.
+    if any(inbox.iterdir()):raise FileExistsError('private_launch_fresh_per_task_inbox_required')
     ref = 'private-run-' + secrets.token_hex(16)
     launch = {'kind': 'EvaluatorOpaqueRunReference', 'opaque_ref': ref,
         'campaign_id': action['campaign_id'], 'deployment_epoch': intent['deployment_epoch'],
@@ -228,6 +231,7 @@ def prepare_launch_reference(*, authority, action, projection_directory, receipt
     authority.claim_formal_launch(key=prepared['session_key'], action_digest=action['digest'], reference=launch)
     _publish(projection / (action['digest'][7:] + '.launch.json'), private_receipt, 21004)
     _publish(inbox / (ref + '.json'), launch, 21001, handoff=True)
+    _publish(inbox / 'reference.json', launch, 21001, handoff=True)
     return private_receipt
 
 

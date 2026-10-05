@@ -18,6 +18,27 @@ from skillloop.repair.budget import SpendingLedger
 from skillloop.ci.campaign_registry import CampaignRegistry
 
 
+def resolve_session_keeper(template,*,deployment_epoch):
+    """Consume the original deployment Keeper receipt, never a guessed ID."""
+    if 'keeper_reference' not in template:return dict(template)
+    if os.geteuid()!=21001:raise PermissionError('private_keeper_reference_actual_controller')
+    reference=template['keeper_reference']
+    if (type(reference) is not dict or set(reference)!={'kind','journal_directory','manifest_digest'}
+            or reference['kind']!='whole_deployment' or type(reference['journal_directory']) is not str
+            or not Path(reference['journal_directory']).is_absolute() or '..' in Path(reference['journal_directory']).parts
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',reference['manifest_digest']) or 'keeper_id' in template):
+        raise ValueError('private_keeper_original_deployment_locator')
+    from skillloop.runtime.protected_flow import _controller_record
+    original=_controller_record(Path(reference['journal_directory'])/'provisioned.json')
+    keeper=original.get('keeper',{})
+    if (original.get('kind')!='WholeRoleProvisionCompletion' or original.get('manifest_digest')!=reference['manifest_digest']
+            or keeper.get('Image')!=template['image'] or keeper.get('Config',{}).get('User')!='21001:21001'
+            or keeper.get('Config',{}).get('Labels')!={'skillloop.deployment_epoch':deployment_epoch,'skillloop.role':'deployment_keeper'}
+            or not re.fullmatch(r'[0-9a-f]{64}',keeper.get('Id',''))):
+        raise ValueError('private_keeper_original_deployment_receipt')
+    return {**{k:v for k,v in template.items() if k!='keeper_reference'},'keeper_id':keeper['Id']}
+
+
 def resolve_session_policy(policy_path):
     """Resolve a dispatch digest from the current Evaluator opaque receipt."""
     if os.geteuid()!=21001:raise PermissionError('private_session_production_actual_controller')
@@ -27,7 +48,8 @@ def resolve_session_policy(policy_path):
     fields={'kind','image','campaign_deadline','campaign_digest','whole_round_manifest_digest',
         'maximum_evidence_bytes','timeout_seconds','keeper_id','mounts'}
     if (set(policy)!={'kind','stage','production_policy_digest','dispatch_template','action_reference_path','runtime_reference_path','digest'}
-            or type(policy['dispatch_template']) is not dict or set(policy['dispatch_template'])!=fields):
+            or type(policy['dispatch_template']) is not dict
+            or set(policy['dispatch_template']) not in (fields,(fields-{'keeper_id'})|{'keeper_reference'})):
         raise ValueError('private_session_production_frozen_recipe')
     template=policy['dispatch_template']
     action=read_owned(policy['action_reference_path'],uid=21004,gid=21001,limit=262144)
@@ -51,7 +73,8 @@ def resolve_session_policy(policy_path):
             or not re.fullmatch(r'sha256:[0-9a-f]{64}',action.get('action_digest',''))
             or gate!=(action.get('stage') in {'task_gate','archive_gate','retirement_gate'})):
         raise ValueError('private_session_production_current_action')
-    resolved={**template,'action_digest':action['action_digest']}
+    resolved={**resolve_session_keeper(template,deployment_epoch=reference['deployment_epoch']),
+        'action_digest':action['action_digest']}
     resolved['digest']=digest_jcs(resolved)
     return resolved
 
@@ -173,12 +196,20 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
     def keeper():
         actual = engine.inspect(policy['keeper_id'])
         pin = policy['mounts']['private_authority' if retirement else 'archive' if archive_gate else 'runtime' if gate else 'private']
+        whole_keeper=actual.get('Config',{}).get('Labels')=={
+            'skillloop.deployment_epoch':whole['deployment_epoch'],'skillloop.role':'deployment_keeper'}
         matches = [m for m in actual.get('HostConfig',{}).get('Mounts',[])
             if m.get('Type') == 'volume' and m.get('Source') == pin['volume']
             and m.get('ReadOnly') is True
-            and m.get('VolumeOptions',{}).get('Subpath') == pin['subpath']]
+            and (m.get('VolumeOptions',{}).get('Subpath') == pin['subpath'] or whole_keeper
+                and not m.get('VolumeOptions',{}).get('Subpath') and m.get('Target')=='/deployment-data')]
+        host=actual.get('HostConfig',{});config=actual.get('Config',{});command=config.get('Cmd',[])
         if (actual.get('Id') != policy['keeper_id'] or actual.get('Image') != policy['image']
-                or actual.get('Config',{}).get('User') != '21001:21001'
+                or config.get('User') != '21001:21001' or config.get('Entrypoint')!=['python']
+                or len(command)!=2 or command[0]!='-c' or not re.fullmatch(r'import time; ?time.sleep\([0-9]+\)',command[1])
+                or host.get('NetworkMode')!='none' or host.get('ReadonlyRootfs') is not True
+                or host.get('CapDrop')!=['ALL'] or 'no-new-privileges' not in host.get('SecurityOpt',[])
+                or host.get('LogConfig',{}).get('Type')!='none' or len(host.get('Mounts',[]))!=1
                 or actual.get('State',{}).get('Running') is not True or len(matches) != 1):
             raise ValueError('formal_session_private_keeper_required')
         return actual

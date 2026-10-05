@@ -23,7 +23,7 @@ def closing_producer_template(recipe,*,stage,reference_path):
             or recipe['digest']!=digest_jcs({k:v for k,v in recipe.items() if k!='digest'})
             or recipe['stage']!=stage or recipe['current_reference_path']!=reference_path
             or type(recipe['dispatch_template']) is not dict
-            or set(recipe['dispatch_template'])!=template_fields
+            or set(recipe['dispatch_template']) not in (template_fields,(template_fields-{'keeper_id'})|{'keeper_reference'})
             or recipe['dispatch_template']['kind']!='FrozenOpaquePrivateSessionDispatch'):
         raise ValueError('private_closing_delegation_frozen_recipe')
     from skillloop.protection.closing_actions import STAGES
@@ -48,7 +48,9 @@ def produce_closing_dispatch(*,recipe,stage,reference_path,whole,ledger,registry
     job={'kind':'ControllerPrivateClosingActionProduction','policy_digest':recipe['production_policy_digest'],
         'reference_digest':reference['digest'],'stage':stage}
     job['digest']=digest_jcs(job)
-    policy={**template,'action_digest':job['digest']};policy['digest']=digest_jcs(policy)
+    from skillloop.runtime.private_session_dispatch import resolve_session_keeper
+    policy={**resolve_session_keeper(template,deployment_epoch=whole['deployment_epoch']),'action_digest':job['digest']}
+    policy['digest']=digest_jcs(policy)
     root=_directory(journal_directory,21001,21001,0o700)
     assignment=_directory(recipe['assignment_directory'],21001,21004,0o750)
     filename=stage+'.production-policy.json';path=root/filename
