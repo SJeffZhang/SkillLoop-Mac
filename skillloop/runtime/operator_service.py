@@ -23,6 +23,7 @@ class OperatorService:
         self.dispatcher=dispatcher;self.stop=threading.Event();self.inflight_preserved=False
         self.admission_lock=threading.Lock()
         self.store=OperatorOperationStore(cfg['store'],cfg['deployment_epoch'])
+        self.dispatcher.operation_store=self.store
         self.routes={}
         for path in cfg['routes']:
             route=read_owned(path,uid=21010,gid=21001,limit=2097152)

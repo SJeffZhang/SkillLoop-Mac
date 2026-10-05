@@ -11,6 +11,7 @@ ACTION_FIELDS={
     'import_source':{'approved_repository'},
     'archive_role':{'policy_path','journal_directory'},
     'archive_close':{'policy_path','dispatch_journal','review_path','journal_directory'},
+    'operation_archive':{'policy_path','journal_directory'},
     'registry_snapshot':{'policy_path','journal_directory'},
     'registry_withdraw':{'withdrawal_path','qualification_path','expected_active_revision'},
     'register_campaign':{'registration_path','authority_directory'},
@@ -323,6 +324,10 @@ class CampaignDispatcher:
                 result=self.registry.withdraw_for_archive(withdrawal_path=step['withdrawal_path'],
                     qualification_path=step['qualification_path'],
                     expected_active_revision=step['expected_active_revision'],operation_id=request['operation_id'])
+            elif step['action']=='operation_archive':
+                from skillloop.runtime.operation_archive import preserve_operation_history
+                result=preserve_operation_history(policy_path=step['policy_path'],journal_directory=step['journal_directory'],
+                    store=self.operation_store,ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
             elif step['action']=='registry_snapshot':
                 from skillloop.ci.registry_archive import dispatch_registry_snapshot
                 result=dispatch_registry_snapshot(registry=self.registry,policy_path=step['policy_path'],

@@ -126,3 +126,9 @@ Registry 使用已提交的 RegistryArchiveWithdrawal 原操作结果阻断该 c
 ### 正式入口的结果绑定职责修正
 
 完整 route 的 stage history 仅 Controller 持有，因此 OperatorFinalResultBinding 由 Controller 在核验实际角色输出后产生，独立保存到 Controller-owned 只读公共授权目录。业务结果本身仍由 route 声明的实际角色持有；CIResult/HardenResult 必须来自 Gate，调度器不能生成。原操作恢复同时读取实际角色结果与 Controller 的已完成 stage journal，逐摘要核对 request、route、结果 producer UID 和完整步骤链。新部署必须为 result_binding_path 配置 Controller 所有权；旧冻结 route/目录不改。
+
+### 操作恢复库与开发失败原件保全
+
+OperatorService 将自身实际 OperatorOperationStore 交给正式 dispatcher；operation_archive action 读取 Admin 冻结策略，预收原预算后保存实际操作 SQLite backup 与声明的 Controller/Generator/Patcher/Gateway 历史字节。逐文件核对原所有权、权限、大小、读取稳定性和目录变化；未知、失败、accepted/running 状态按原记录保留。保护角色库被排除，不扩大 Controller 私有读取权限。空 spending.lock 仅保留元数据，不修改原锁权限。
+
+加密归档审查要求实际操作快照和每份历史副本均进入 inventory，并重开操作库验证原 epoch、请求、route、ticket 和状态。此链还不能证明物理 evidence lease、穷尽所有模型尝试或完整删除/恢复边界，相关类别保持未闭合。未启动组件或整轮实验。
