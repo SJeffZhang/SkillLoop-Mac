@@ -35,10 +35,11 @@ class WholeRoleDeployment:
         self.root=_directory(journal_directory,21001,21001,0o700)
         p=self.plan
         if (set(p)!={'kind','campaign_digest','whole_round_manifest_digest','deployment_epoch','deadline','image','source_digest','bootstrap_mount','volume',
-            'volume_bytes','operator_uids','directories','documents','external_volumes','roles','bootstrap_seconds','digest'} or p['kind']!='FrozenWholeRoleDeployment'
+            'storage_backend','provisioning_bytes','operator_uids','directories','documents','external_volumes','roles','bootstrap_seconds','digest'} or p['kind']!='FrozenWholeRoleDeployment'
                 or set(p['roles'])!=set(ROLES) or not re.fullmatch(r'sha256:[0-9a-f]{64}',p['image'])
                 or not re.fullmatch(r'sha256:[0-9a-f]{64}',p['source_digest'])
-                or type(p['volume_bytes']) is not int or not 1048576<=p['volume_bytes']<=2147483648
+                or p['storage_backend']!='local_persistent'
+                or type(p['provisioning_bytes']) is not int or not 1048576<=p['provisioning_bytes']<=16777216
                 or type(p['bootstrap_seconds']) is not int or not 1<=p['bootstrap_seconds']<=120):
             raise ValueError('whole_deployment_complete_frozen_roles')
         if type(p['operator_uids']) is not list or any(type(uid) is not int or uid<1 or uid in range(21002,21010) or uid==21011 for uid in p['operator_uids']):
@@ -135,10 +136,16 @@ class WholeRoleDeployment:
         _save(self.root,'provision-intent.json',{'kind':'WholeRoleProvisionIntent','manifest_digest':p['digest']})
         spending=self.ledger.consume_auxiliary(manifest=self.whole,campaign=p['campaign_digest'],
             stage='approval_deployment',operation_key='deploy-'+p['digest'][7:],seconds=p['bootstrap_seconds']+120,
-            input_tokens=0,output_tokens=0,disk_bytes=p['volume_bytes']+2097152)
+            input_tokens=0,output_tokens=0,disk_bytes=p['provisioning_bytes'])
         _save(self.root,'spending.json',{'kind':'WholeRoleProvisionSpending','spending':spending})
-        volume=self.engine.create_volume(p['volume'],driver_options={'type':'tmpfs','device':'tmpfs',
-            'o':'size='+str(p['volume_bytes'])+',mode=0700'},labels={'skillloop.deployment_epoch':p['deployment_epoch']})
+        # Long-lived authority stores must share the actual persistent disk's
+        # free floor. A <=2GiB tmpfs can never admit a 2GiB floor plus DB/WAL.
+        # Per-task bounded tmpfs and its original Keeper are separate callers.
+        volume=self.engine.create_volume(p['volume'],driver_options={},labels={'skillloop.deployment_epoch':p['deployment_epoch']})
+        if (volume.get('Name')!=p['volume'] or volume.get('Driver')!='local'
+                or volume.get('Options') not in (None,{})
+                or volume.get('Labels',{}).get('skillloop.deployment_epoch')!=p['deployment_epoch']):
+            raise ValueError('whole_deployment_actual_persistent_volume_required')
         _save(self.root,'volume.json',{'kind':'WholeRoleDeploymentVolume','inspection':volume})
         # The readonly Keeper starts before the first directory/config write.
         keeper_config={'Image':p['image'],'User':'21001:21001','Entrypoint':['python'],
@@ -169,6 +176,7 @@ class WholeRoleDeployment:
             raise RuntimeError('whole_role_bootstrap_failed_volume_preserved')
         return _save(self.root,'provisioned.json',{'kind':'WholeRoleProvisionCompletion','manifest_digest':p['digest'],
             'keeper':self.engine.inspect(keeper),'bootstrap':actual,'role_uids':ROLES,
+            'storage_backend':'local_persistent','campaign_capacity_verified':False,
             'runtime_acceptance_complete':False,'qualification_issued':False})
     def create_role(self,role,operation_id):
         if role not in ROLES or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',operation_id):raise ValueError('whole_role_operation')

@@ -162,3 +162,9 @@ OperatorService 重启时先恢复原最终结果；若没有最终结果，则�
 AES-GCM 独立 Gate 审查完成后，从实际 ciphertext、原 inventory 和原 export intent/receipt 创建时间生成冻结 API4 ArchiveManifest，保存为 Gate-owned 只读结果。正式 admin export route 可以绑定该 manifest，再由 Controller 发布自己的步骤绑定。manifest 只证明冻结 CLI 所要求的 verified encrypted export，不宣称完整 campaign 验收、资格恢复或允许删除；coverage/deletion 仍独立保留未闭合状态。
 
 Admin 通用 role_command 不再发送尚无业务实现的 Proxy export/archive/restore RPC。路由准入先拒绝这种断开的调用路径，导出必须走实际 archive_role export→review；archive/restore 的完整资源和新部署收尾仍需实现。未改冻结 RPC enum，未运行实验。
+
+### 长期角色数据与临时任务卷分离
+
+统一部署原来把所有长期角色库放入最多 2GiB tmpfs，而 FormalStorageStore 在同一 FS 要求 2GiB free floor 加 DB/WAL 预分配，正式 Proxy 必然无法准入。新内部部署 manifest 必须明确 storage_backend=local_persistent，并单列 provisioning_bytes（初始化配置、目录和元数据上限）；不再把 tmpfs 大小当作真实 evidence reserve，也不把整个共享卷的额度重复计入初始化成本。
+
+部署实际核对 Docker local volume 的 Options/epoch，bootstrap 在首次写入前核对实际持久 FS free floor 和完整初始化预算。原每任务有界 tmpfs、Keeper 和临时证据保全流程独立保留；长期数据仍按原角色子目录权限授权。只对新部署身份生效，旧 manifest/卷不迁移、不重启。整个 campaign 的共享物理预留和释放仍未闭合，provision completion 明确 campaign_capacity_verified=false。未构建或运行新部署。

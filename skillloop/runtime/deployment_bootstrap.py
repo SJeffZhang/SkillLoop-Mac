@@ -10,6 +10,10 @@ def validate_directory_manifest(value):
     import re
     from skillloop.protocol import canonical_json_line
     operators=value.get('operator_uids')
+    if (value.get('storage_backend')!='local_persistent'
+            or type(value.get('provisioning_bytes')) is not int
+            or not 1048576<=value['provisioning_bytes']<=16777216):
+        raise ValueError('bootstrap_frozen_persistent_provisioning_budget')
     if (type(operators) is not list or len(operators)!=len(set(operators))
             or any(type(uid) is not int or uid<1 for uid in operators)):
         raise ValueError('bootstrap_operator_identity_shape')
@@ -51,7 +55,8 @@ def validate_directory_manifest(value):
                 or document['value'].get('digest')!=digest_jcs({k:v for k,v in document['value'].items() if k!='digest'})):
             raise ValueError('bootstrap_sealed_configuration_only')
         total+=len(canonical_json_line(document['value']))
-        if total>2097152:raise ValueError('bootstrap_original_total_document_budget')
+        if total>2097152 or total+(len(directories)+len(documents))*4096+1048576>value['provisioning_bytes']:
+            raise ValueError('bootstrap_original_total_document_budget')
     return seen
 
 
@@ -67,6 +72,9 @@ def main():
     validate_directory_manifest(value)
     root=Path('/deployment-data')
     if any(root.iterdir()):raise ValueError('bootstrap_new_volume_required')
+    fs=os.statvfs(root)
+    if fs.f_bavail*fs.f_frsize<2147483648+value['provisioning_bytes']:
+        raise OSError('bootstrap_actual_persistent_disk_free_floor')
     directories=value['directories'];seen=set()
     # Sort parents before children; every parent is declared, never inferred
     # with permissive ownership or a world-readable default.
