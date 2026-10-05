@@ -7,7 +7,7 @@ step without proof is blocked rather than called again.
 from datetime import datetime,timezone
 import os
 from pathlib import Path
-import re
+import re,time
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import decode_json,digest_jcs
 from skillloop.runtime.proposal_dispatch import _save
@@ -62,6 +62,8 @@ class ProtectedTaskCloser:
 
     def close(self,plan_path):
         plan=read_owned(plan_path,uid=21010,gid=21001,limit=2097152)
+        if plan.get('kind')=='FrozenProtectedClosingProduction':
+            plan=self._produce_plan(plan)
         fields={'kind','campaign_digest','deployment_epoch','whole_round_manifest_digest','campaign_deadline',
                 'reference_path','runtime_completion_path','runtime_completion_digest','steps',
                 'retirement_grant_path','retirement_journal','cleanup_journal','retirement_seconds','cleanup_seconds','digest'}
@@ -115,7 +117,8 @@ class ProtectedTaskCloser:
                 sum(p['timeout_seconds']+60 for p in remaining)+plan['retirement_seconds']+plan['cleanup_seconds']+120):
             raise TimeoutError('protected_flow_full_remaining_chain_not_admitted')
         if not (self.root/'flow-intent.json').exists():
-            if any(self.root.iterdir()):raise ValueError('protected_flow_unrecognized_existing_journal')
+            if any(p.name!='production.json' for p in self.root.iterdir()):
+                raise ValueError('protected_flow_unrecognized_existing_journal')
             _save(self.root,'flow-intent.json',{'kind':'ProtectedTaskClosingIntent','plan_digest':plan['digest'],
                 'reference_digest':reference['digest'],'completion_digest':completion['digest']})
         elif _controller_record(self.root/'flow-intent.json')['plan_digest']!=plan['digest']:
@@ -179,6 +182,73 @@ class ProtectedTaskCloser:
             'runtime_retirement_digest':released['digest'],'auxiliary_cleanup_digest':cleanup['digest'],
             'private_evidence_preserved':True,'qualification_issued':False})
 
+
+    def _produce_plan(self,recipe):
+        """Bind the closing recipe to the original opaque Runtime receipt.
+
+        Only Controller metadata is read here. Private assignments and all
+        Evaluator/Gate outputs remain in their existing role-owned mounts.
+        A partial publication is never regenerated from a newer completion.
+        """
+        fields={'kind','campaign_digest','deployment_epoch','whole_round_manifest_digest','campaign_deadline',
+                'reference_path','runtime_completion_path','steps','retirement_grant_path',
+                'retirement_journal','cleanup_journal','retirement_seconds','cleanup_seconds'}
+        if (set(recipe)!={'kind','flow_template','digest'} or type(recipe['flow_template']) is not dict
+                or set(recipe['flow_template'])!=fields
+                or recipe['flow_template']['kind']!='FrozenProtectedTaskClosingFlow'):
+            raise ValueError('protected_flow_production_recipe')
+        plan=dict(recipe['flow_template'])
+        if (plan['deployment_epoch']!=self.controller.epoch
+                or plan['deployment_epoch']!=self.whole['deployment_epoch']
+                or plan['whole_round_manifest_digest']!=self.whole['digest']
+                or plan['campaign_digest'] not in {c['campaign_digest'] for c in self.whole['campaigns']}):
+            raise ValueError('protected_flow_production_original_deployment')
+        for key in ('reference_path','runtime_completion_path'):
+            path=Path(plan[key])
+            if not path.is_absolute() or '..' in path.parts:
+                raise ValueError('protected_flow_production_original_path')
+        reference=read_owned(plan['reference_path'],uid=21004,gid=21001,limit=262144)
+        completion=_controller_record(plan['runtime_completion_path'])
+        if (reference.get('kind')!='EvaluatorOpaqueRunReference'
+                or reference.get('campaign_id')!=plan['campaign_digest']
+                or reference.get('deployment_epoch')!=plan['deployment_epoch']
+                or completion.get('kind')!='OpaquePrivateRuntimeCompletion'
+                or completion.get('reference_digest')!=reference['digest']
+                or completion.get('evidence_released') is not False):
+            raise ValueError('protected_flow_production_original_runtime')
+        plan['runtime_completion_digest']=completion['digest'];plan['digest']=digest_jcs(plan)
+        path=self.root/'production.json'
+        if os.path.lexists(path):
+            original=_controller_record(path)
+            if (original.get('kind')!='ProtectedClosingPlanProduced'
+                    or original.get('recipe_digest')!=recipe['digest']
+                    or original.get('reference_digest')!=reference['digest']
+                    or original.get('plan')!=plan
+                    or original.get('budget_closure')!='within_original_budget'):
+                raise ValueError('protected_flow_production_original_conflict')
+            return original['plan']
+        if any(self.root.iterdir()):raise RuntimeError('protected_flow_production_partial_unknown')
+        deadline=datetime.fromisoformat(plan['campaign_deadline'].replace('Z','+00:00'))
+        if (deadline.tzinfo is None or self.ledger.campaign_started_at is None
+                or deadline.timestamp()!=self.ledger.campaign_started_at+28800
+                or (deadline-datetime.now(timezone.utc)).total_seconds()<=30):
+            raise TimeoutError('protected_flow_production_original_clock')
+        with self.registry.private_scope(campaign=plan['campaign_digest']) as state:
+            if state['gate_freeze']['deadline']!=plan['campaign_deadline']:
+                raise ValueError('protected_flow_production_current_registry')
+            began=time.monotonic()
+            cost=self.ledger.consume_auxiliary(manifest=self.whole,campaign=plan['campaign_digest'],
+                stage='protected',operation_key='private-closing-plan-'+recipe['digest'][7:],
+                seconds=30,input_tokens=0,output_tokens=0,disk_bytes=1048576)
+            elapsed=time.monotonic()-began
+            within=elapsed<=30 and datetime.now(timezone.utc)<deadline
+            _save(self.root,'production.json',{'kind':'ProtectedClosingPlanProduced',
+                'recipe_digest':recipe['digest'],'reference_digest':reference['digest'],
+                'plan':plan,'spending':cost,'elapsed_seconds':elapsed,
+                'budget_closure':'within_original_budget' if within else 'inconclusive_expired_budget_closure',
+                'qualification_issued':False})
+            if not within:raise TimeoutError('protected_flow_production_original_budget_expired')
+            return plan
 
 
     def _terminal_cost(self,plan,stage,seconds):
