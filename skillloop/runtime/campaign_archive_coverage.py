@@ -13,10 +13,13 @@ from scripts.spec_v22_core import execution_record
 from skillloop.runtime.archive_files import open_original,require_unchanged
 
 
-# These categories need producers bound to actual owner snapshots, rather than
-# caller-declared booleans or arbitrary collections of files.
+# Source coverage is assessed before encryption completes. The encryption and
+# later restore receipts cannot be inputs to their own original inventory;
+# their acceptance remains a separate post-archive review, and this review
+# never authorizes deletion of the source evidence.
+# The remaining category needs actual owner snapshots rather than a flag.
 UNBOUND_CATEGORIES=('qualification_and_registry_snapshots',
-    'operation_recovery_and_resource_ownership','archive_and_restore_lifecycle')
+    'operation_recovery_and_resource_ownership')
 
 
 def review_campaign_inventory(*,policy,inventory,budget):
@@ -448,6 +451,7 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'withdrawn_registry_database_verified':True,'registry_snapshot_digest':registry_snapshot['digest'],
         'operation_transition_histories_verified':operation_histories,
         'operation_history_original_bytes_verified':True,
+        'archive_restore_lifecycle_pending':True,
         'missing_categories':[c for c in UNBOUND_CATEGORIES if c!='qualification_and_registry_snapshots'],'campaign_coverage_complete':False,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)
