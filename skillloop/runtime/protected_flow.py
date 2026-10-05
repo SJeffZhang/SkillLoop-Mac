@@ -140,12 +140,10 @@ class ProtectedTaskCloser:
                 previous=_controller_record(started)
                 if previous['policy_digest']!=policy['digest']:raise ValueError('protected_flow_changed_started_step')
                 # Only the original process's committed completion can advance.
-                result=_controller_record(Path(step['journal_directory'])/'completion.json')
-                actual=self.engine.inspect(result['inspection']['Id'])
-                if (result.get('kind')!='OpaquePrivateSessionProcessCompletion' or result.get('action_digest')!=policy['action_digest']
-                        or result['wait'].get('StatusCode')!=0 or actual.get('State',{}).get('Running') is not False
-                        or actual.get('State',{}).get('ExitCode')!=0 or actual.get('Config')!=result['inspection'].get('Config')
-                        or actual.get('Image')!=policy['image']):
+                from skillloop.runtime.private_session_dispatch import recover_session_completion
+                result=recover_session_completion(journal_directory=step['journal_directory'],
+                    engine=self.engine,policy=policy)
+                if result is None:
                     raise RuntimeError('protected_flow_unknown_original_dispatch_no_replay')
             else:
                 _save(self.root,started.name,{'kind':'ProtectedClosingStepStarted','policy_digest':policy['digest'],

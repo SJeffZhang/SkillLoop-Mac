@@ -175,6 +175,37 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action'] in {'private_runtime','private_session','protected_close'}:
+                campaign=route['campaign_digest']
+                if step['action']=='private_runtime':
+                    from skillloop.runtime.private_runtime_dispatch import recover_private_runtime_completion
+                    original=_controller_record(Path(step['journal_directory'])/'intent.json')
+                    policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=262144)
+                    reference=read_owned(step['reference_path'],uid=21004,gid=21001,limit=262144)
+                    lease=read_owned(step['started_path'],uid=21001,gid=21004,limit=262144)
+                    if (original.get('policy')!=policy or original.get('reference')!=reference
+                            or original.get('started')!=lease):
+                        raise ValueError('campaign_private_recovery_original_dispatch')
+                    result=recover_private_runtime_completion(journal_directory=step['journal_directory'],
+                        engine=self.engine,expected_campaign=campaign)
+                elif step['action']=='private_session':
+                    from skillloop.runtime.private_session_dispatch import recover_session_completion
+                    policy=read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                    if policy.get('campaign_digest')!=campaign:
+                        raise ValueError('campaign_private_recovery_original_session')
+                    result=recover_session_completion(journal_directory=step['journal_directory'],
+                        engine=self.engine,policy=policy)
+                else:
+                    # Only an existing flow intent allows continuing proved
+                    # original step receipts and their unstarted closing tail.
+                    if not (Path(step['journal_directory'])/'flow-intent.json').exists():return
+                    result=self.registry.close_protected_task(plan_path=step['plan_path'],controller=self.controller,
+                        ledger=self.ledger,engine=self.engine,whole_round_manifest_path=self.manifest_path,
+                        journal_directory=step['journal_directory'])
+                if result is None:return
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action']=='campaign_gate_assignment':
                 if not (Path(step['assignment_directory'])/'production.json').exists():return
                 from skillloop.runtime.campaign_gate_assignment import produce_campaign_gate_assignment

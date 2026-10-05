@@ -133,14 +133,17 @@ def dispatch_private_runtime(*, policy_path, reference_path, started_path, journ
         if state['gate_freeze']['deadline'] != policy['campaign_deadline']:
             raise ValueError('private_runtime_frozen_registry_scope')
         _save(root, 'intent.json', {'kind': 'OpaquePrivateRuntimeIntent', 'policy': policy,
-              'reference': reference, 'started': started, 'configuration': config, 'keeper': keeper()})
+              'reference': reference, 'started': started, 'configuration': config, 'keeper': keeper(),
+              'container_name':'skillloop-'+reference['opaque_ref'],'campaign_id':policy['campaign_id'],
+              'campaign_deadline':policy['campaign_deadline'],'started_at':datetime.now(timezone.utc).isoformat(),
+              'reserved_seconds':ledger.victim_seconds})
         # Consumed before create: response loss and any initialized process stay
         # spent. An opaque key does not expose a private case/suite digest.
         spending = ledger.consume(reference['opaque_ref'], 0)
         _save(root, 'spending.json', {'kind': 'OpaquePrivateRuntimeSpending', 'spending': spending})
-        identifier = engine.create('skillloop-' + reference['opaque_ref'], config)
-        _save(root, 'created.json', {'kind': 'OpaquePrivateRuntimeCreated', 'container_id': identifier})
         try:
+            identifier = engine.create('skillloop-' + reference['opaque_ref'], config)
+            _save(root, 'created.json', {'kind': 'OpaquePrivateRuntimeCreated', 'container_id': identifier})
             actual = engine.inspect(identifier); _verify_role_process(actual, identifier, config, mounts)
             if actual['HostConfig'].get('LogConfig', {}).get('Type') != 'none':
                 raise PermissionError('private_runtime_no_controller_logs')
@@ -169,15 +172,84 @@ def dispatch_private_runtime(*, policy_path, reference_path, started_path, journ
             return completion
         except BaseException as error:
             try:
-                actual = engine.inspect(identifier); _verify_role_process(actual, identifier, config, mounts)
-                if actual['State']['Running']:
-                    engine.request('POST', '/containers/' + identifier + '/stop?t=1', timeout=5)
-                _save(root, 'failure.json', {'kind': 'OpaquePrivateRuntimeFailure',
-                    'container_id': identifier, 'reason_type': type(error).__name__,
-                    'automatic_reexecution_allowed': False, 'evidence_released': False})
+                from skillloop.runtime.private_process_preservation import preserve_original_private_process
+                preserve_original_private_process(journal_directory=root,dispatch='runtime',engine=engine,
+                    expected_campaign=policy['campaign_id'],error_type=type(error).__name__)
             except BaseException as secondary:
                 error.add_note('private_runtime_requires_original_recovery:' + type(secondary).__name__)
             raise
+
+
+
+def recover_private_runtime_completion(*,journal_directory,engine,expected_campaign):
+    """Recover an original committed transport receipt or contain uncertainty."""
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('private_runtime_recovery_actual_controller')
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.private_process_preservation import preserve_original_private_process
+    from skillloop.protection.current_task import _publish
+    root=Path(journal_directory)
+    intent=_controller_record(root/'intent.json');cost=_controller_record(root/'spending.json')
+    policy=intent['policy'];reference=intent['reference'];started=intent['started']
+    if (intent.get('kind')!='OpaquePrivateRuntimeIntent' or cost.get('kind')!='OpaquePrivateRuntimeSpending'
+            or policy.get('campaign_id')!=expected_campaign or reference.get('campaign_id')!=expected_campaign
+            or started.get('reference_digest')!=reference['digest']):
+        raise ValueError('private_runtime_recovery_original_binding')
+    if not os.path.lexists(root/'completion.json'):
+        failure=None
+        try:
+            if os.path.lexists(root/'handoff-spending.json'):
+                preserve_original_private_process(journal_directory=root,dispatch='handoff',engine=engine,
+                    expected_campaign=expected_campaign)
+        except BaseException as error:failure=error
+        try:
+            preserve_original_private_process(journal_directory=root,dispatch='runtime',engine=engine,
+                expected_campaign=expected_campaign)
+        except BaseException as error:
+            if failure is None:raise
+            failure.add_note('private_runtime_preservation_unconfirmed:'+type(error).__name__)
+        if failure is not None:raise failure
+        return None
+    completion=_controller_record(root/'completion.json');created=_controller_record(root/'created.json')
+    if (created.get('kind')!='OpaquePrivateRuntimeCreated'
+            or completion.get('kind')!='OpaquePrivateRuntimeCompletion'
+            or completion.get('reference_digest')!=reference['digest']
+            or completion.get('started_digest')!=started['digest']
+            or completion.get('spending_state_digest')!=digest_jcs(cost['spending'])
+            or completion.get('evidence_released') is not False):
+        raise ValueError('private_runtime_recovery_original_completion')
+    actual=engine.inspect(created['container_id']);config=intent['configuration']
+    _verify_role_process(actual,created['container_id'],config,config['HostConfig']['Mounts'])
+    if (actual.get('State',{}).get('Running') is not False
+            or actual.get('State',{}).get('ExitCode')!=completion['wait']['StatusCode']
+            or completion['inspection'].get('Id')!=actual['Id']
+            or completion['inspection'].get('Config')!=actual['Config']):
+        raise ValueError('private_runtime_recovery_original_terminal_process')
+    handoff=_controller_record(root/'handoff-completion.json')
+    handoff_intent=_controller_record(root/'handoff-intent.json')
+    if (handoff!=completion.get('handoff') or handoff.get('kind')!='OpaquePrivateHandoffCompletion'
+            or handoff.get('wait',{}).get('StatusCode')!=0):
+        raise ValueError('private_runtime_recovery_original_handoff')
+    helper=engine.inspect(handoff['inspection']['Id']);hconfig=handoff_intent['configuration']
+    _verify_role_process(helper,handoff['inspection']['Id'],hconfig,hconfig['HostConfig']['Mounts'])
+    if helper.get('State',{}).get('Running') is not False or helper.get('State',{}).get('ExitCode')!=0:
+        raise ValueError('private_runtime_recovery_original_handoff_process')
+    keeper=engine.inspect(policy['keeper_id'])
+    if (keeper.get('Id')!=completion['keeper'].get('Id')
+            or keeper.get('Config')!=completion['keeper'].get('Config')
+            or keeper.get('HostConfig')!=completion['keeper'].get('HostConfig')
+            or keeper.get('Image')!=policy['image']
+            or keeper.get('State',{}).get('Running') is not True):
+        raise RuntimeError('private_runtime_recovery_original_custody_required')
+    # Lost publication may finish the same metadata handoff, never Runtime work.
+    from skillloop.protection.current_task import _directory
+    directory=_directory(policy['handoff']['completion_directory'],21001,21004,0o750)
+    path=directory/(reference['opaque_ref']+'.json')
+    if os.path.lexists(path):
+        if read_owned(path,uid=21001,gid=21004,limit=8388608)!=completion:
+            raise ValueError('private_runtime_recovery_published_completion_conflict')
+    else:_publish(path,completion,21004,handoff=True)
+    return completion
 
 
 def _dispatch_handoff(*,policy,reference,whole,ledger,engine,root,keeper):
@@ -204,14 +276,17 @@ def _dispatch_handoff(*,policy,reference,whole,ledger,engine,root,keeper):
             'CapDrop':['ALL'],'SecurityOpt':['no-new-privileges'],'Memory':1073741824,
             'NanoCpus':2000000000,'PidsLimit':64,'Ulimits':[{'Name':'nofile','Soft':128,'Hard':128}],
             'LogConfig':{'Type':'none','Config':{}},'Tmpfs':{'/tmp':'rw,nosuid,nodev,size=64m'},'Mounts':mounts}}
-    _save(root,'handoff-intent.json',{'kind':'OpaquePrivateHandoffIntent','configuration':config,'keeper':keeper()})
+    _save(root,'handoff-intent.json',{'kind':'OpaquePrivateHandoffIntent','configuration':config,'keeper':keeper(),
+        'container_name':'skillloop-handoff-'+reference['opaque_ref'],'campaign_id':policy['campaign_id'],
+        'campaign_deadline':policy['campaign_deadline'],'started_at':datetime.now(timezone.utc).isoformat(),
+        'reserved_seconds':transfer['timeout_seconds']+60})
     cost=ledger.consume_auxiliary(manifest=whole,campaign=policy['campaign_id'],stage='protected',
         operation_key=reference['opaque_ref']+'-evidence-handoff',seconds=transfer['timeout_seconds']+60,
         input_tokens=0,output_tokens=0,disk_bytes=transfer['maximum_bytes'])
     _save(root,'handoff-spending.json',{'kind':'OpaquePrivateHandoffSpending','spending':cost})
-    identifier=engine.create('skillloop-handoff-'+reference['opaque_ref'],config)
-    _save(root,'handoff-created.json',{'kind':'OpaquePrivateHandoffCreated','container_id':identifier})
     try:
+        identifier=engine.create('skillloop-handoff-'+reference['opaque_ref'],config)
+        _save(root,'handoff-created.json',{'kind':'OpaquePrivateHandoffCreated','container_id':identifier})
         actual=engine.inspect(identifier);_verify_role_process(actual,identifier,config,mounts)
         if actual['HostConfig'].get('LogConfig',{}).get('Type')!='none':raise PermissionError('private_handoff_logs')
         keeper();engine.start(identifier);wait=engine.wait(identifier,transfer['timeout_seconds'])
@@ -223,9 +298,8 @@ def _dispatch_handoff(*,policy,reference,whole,ledger,engine,root,keeper):
         return result
     except BaseException as error:
         try:
-            actual=engine.inspect(identifier);_verify_role_process(actual,identifier,config,mounts)
-            if actual['State']['Running']:engine.request('POST','/containers/'+identifier+'/stop?t=1',timeout=5)
-            _save(root,'handoff-failure.json',{'kind':'OpaquePrivateHandoffFailure','container_id':identifier,
-                'reason_type':type(error).__name__,'automatic_reexecution_allowed':False,'evidence_released':False})
+            from skillloop.runtime.private_process_preservation import preserve_original_private_process
+            preserve_original_private_process(journal_directory=root,dispatch='handoff',engine=engine,
+                expected_campaign=policy['campaign_id'],error_type=type(error).__name__)
         except BaseException as secondary:error.add_note('private_handoff_requires_recovery:'+type(secondary).__name__)
         raise

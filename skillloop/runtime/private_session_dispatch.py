@@ -139,14 +139,17 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
             raise ValueError('formal_session_private_keeper_required')
         return actual
     _save(journal,'intent.json',{'kind':'OpaquePrivateSessionDispatchIntent',
-        'configuration':config,'policy_digest':policy['digest'],'keeper':keeper()})
+        'configuration':config,'policy_digest':policy['digest'],'keeper':keeper(),
+        'container_name':'skillloop-session-'+policy['action_digest'][7:39],'campaign_id':policy['campaign_digest'],
+        'campaign_deadline':policy['campaign_deadline'],'started_at':datetime.now(timezone.utc).isoformat(),
+        'reserved_seconds':policy['timeout_seconds']+60})
     spending=ledger.consume_auxiliary(manifest=whole,campaign=policy['campaign_digest'],stage='protected',
         operation_key='private-session-'+policy['action_digest'][7:],seconds=policy['timeout_seconds']+60,
         input_tokens=0,output_tokens=0,disk_bytes=policy['maximum_evidence_bytes'])
     _save(journal,'spending.json',{'kind':'OpaquePrivateSessionSpending','spending':spending})
-    identifier = engine.create('skillloop-session-'+policy['action_digest'][7:39],config)
-    _save(journal,'created.json',{'kind':'PrivateSessionProcessCreated','container_id':identifier})
     try:
+        identifier = engine.create('skillloop-session-'+policy['action_digest'][7:39],config)
+        _save(journal,'created.json',{'kind':'PrivateSessionProcessCreated','container_id':identifier})
         initial=engine.inspect(identifier)
         _verify_role_process(initial,identifier,config,mounts)
         if initial.get('HostConfig',{}).get('LogConfig',{}).get('Type')!='none':
@@ -172,22 +175,55 @@ def _dispatch_session_under_scope(*,policy,journal_directory,engine,ledger,regis
         completion = {'kind':'OpaquePrivateSessionProcessCompletion',
             'action_digest':policy['action_digest'],'inspection':actual,'wait':wait,
             'keeper':keeper(),'qualification_issued':False,'private_result_verified':False}
-        _save(journal,'completion.json',completion)
+        completion=_save(journal,'completion.json',completion)
         if actual['State']['Running'] or wait['StatusCode'] or actual['State']['ExitCode']:
             raise RuntimeError('formal_session_failed_private_custody_preserved')
         return completion
     except BaseException as error:
         try:
-            actual = engine.inspect(identifier)
-            _verify_role_process(actual,identifier,config,mounts)
-            if actual['State']['Running']:
-                engine.request('POST','/containers/'+identifier+'/stop?t=1',timeout=5)
-            _save(journal,'failure.json',{'kind':'PrivateSessionProcessFailure',
-                'reason_type':type(error).__name__,'automatic_reexecution_allowed':False,
-                'private_evidence_released':False})
+            from skillloop.runtime.private_process_preservation import preserve_original_private_process
+            preserve_original_private_process(journal_directory=journal,dispatch='session',engine=engine,
+                expected_campaign=policy['campaign_digest'],error_type=type(error).__name__)
         except BaseException as secondary:
             error.add_note('private_session_requires_recovery:'+type(secondary).__name__)
         raise
+
+
+def recover_session_completion(*,journal_directory,engine,policy):
+    """Reuse a successful original receipt; never repeat a session action."""
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('private_session_recovery_actual_controller')
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.private_process_preservation import preserve_original_private_process
+    root=Path(journal_directory);intent=_controller_record(root/'intent.json')
+    cost=_controller_record(root/'spending.json')
+    if (intent.get('kind')!='OpaquePrivateSessionDispatchIntent'
+            or intent.get('policy_digest')!=policy['digest']
+            or cost.get('kind')!='OpaquePrivateSessionSpending'):
+        raise ValueError('private_session_recovery_original_intent')
+    if not os.path.lexists(root/'completion.json'):
+        preserve_original_private_process(journal_directory=root,dispatch='session',engine=engine,
+            expected_campaign=policy['campaign_digest'])
+        return None
+    result=_controller_record(root/'completion.json');created=_controller_record(root/'created.json')
+    if (result.get('kind')!='OpaquePrivateSessionProcessCompletion'
+            or result.get('action_digest')!=policy['action_digest']
+            or created.get('kind')!='PrivateSessionProcessCreated'
+            or result.get('inspection',{}).get('Id')!=created.get('container_id')
+            or result.get('wait',{}).get('StatusCode')!=0):
+        raise RuntimeError('private_session_recovery_failed_or_unknown_no_reexecution')
+    actual=engine.inspect(created['container_id']);config=intent['configuration']
+    _verify_role_process(actual,created['container_id'],config,config['HostConfig']['Mounts'])
+    if (actual.get('State',{}).get('Running') is not False or actual.get('State',{}).get('ExitCode')!=0
+            or actual.get('Config')!=result['inspection'].get('Config')):
+        raise ValueError('private_session_recovery_original_process')
+    keeper=engine.inspect(policy['keeper_id'])
+    if (keeper.get('Id')!=result['keeper'].get('Id') or keeper.get('Image')!=policy['image']
+            or keeper.get('Config')!=result['keeper'].get('Config')
+            or keeper.get('HostConfig')!=result['keeper'].get('HostConfig')
+            or keeper.get('State',{}).get('Running') is not True):
+        raise RuntimeError('private_session_recovery_original_custody_required')
+    return result
 
 
 def dispatch_session_action(*,policy,journal_directory,engine,ledger,registry,whole_round_manifest_path,archive_mount_policy_path=None,archive_attestation_directory=None):
