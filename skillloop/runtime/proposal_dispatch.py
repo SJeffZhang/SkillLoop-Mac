@@ -125,9 +125,7 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
         operation_key='gateway-'+policy['digest'][7:],seconds=policy['startup_seconds']+policy['closure_seconds'],
         input_tokens=0,output_tokens=0,disk_bytes=policy['maximum_evidence_bytes'])
     _save(directory,'spending.json',{'kind':'FormalNativeGatewaySpending','spending':spending})
-    identifier=engine.create('skillloop-gateway-'+policy['digest'][7:39],config)
-    _save(directory,'created.json',{'kind':'FormalNativeGatewayCreated','container_id':identifier,
-                                   'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest']})
+    identifier=None
     def identity(observed):
         _verify_role_process(observed,identifier,config,mounts)
         if (observed.get('Id')!=identifier or observed.get('Image')!=whole['image']
@@ -150,6 +148,9 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
                     or matches[0].get('VolumeOptions',{}).get('Subpath')!=wanted['VolumeOptions']['Subpath']):
                 raise ValueError('native_gateway_actual_mount_binding')
     try:
+        identifier=engine.create('skillloop-gateway-'+policy['digest'][7:39],config)
+        _save(directory,'created.json',{'kind':'FormalNativeGatewayCreated','container_id':identifier,
+                                       'dispatch_digest':policy['digest'],'gateway_policy_digest':gateway_policy['digest']})
         identity(engine.inspect(identifier));engine.start(identifier)
         started=time.monotonic()
         while True:
@@ -179,14 +180,80 @@ def dispatch_model_bridge(*, policy, gateway_policy_directory, bridge_directory,
             'fresh_backend_lifecycle_verified':protected,'evidence_released':False})
     except BaseException as error:
         try:
-            observed=engine.inspect(identifier);identity(observed)
-            if observed['State']['Running']:engine.request('POST','/containers/'+identifier+'/stop?t=1',timeout=5)
-            logs_digest=_preserve_logs(engine,identifier,directory,'failure-process.log')
-            _save(directory,'failure.json',{'kind':'FormalNativeGatewayFailure','container_id':identifier,
-                'reason':str(error),'error_type':type(error).__name__,'logs_digest':logs_digest,
-                'spent':True,'automatic_replay_allowed':False,'evidence_released':False})
-        except BaseException as secondary:error.add_note('native_gateway_preservation_requires_recovery:'+type(secondary).__name__)
+            preserve_failed_model_bridge(journal_directory=directory,engine=engine)
+        except BaseException as secondary:
+            error.add_note('native_gateway_preservation_requires_recovery:'+type(secondary).__name__)
+        if not os.path.lexists(directory/'failure.json'):
+            try:
+                _save(directory,'failure.json',{'kind':'FormalNativeGatewayFailure','container_id':identifier,
+                    'reason':str(error),'error_type':type(error).__name__,'spent':True,
+                    'automatic_replay_allowed':False,'evidence_released':False})
+            except BaseException as secondary:
+                error.add_note('native_gateway_failure_record_requires_recovery:'+type(secondary).__name__)
         raise
+
+
+def preserve_failed_model_bridge(*,journal_directory,engine,expected_campaign=None):
+    """Contain an original possibly-created gateway without creating/restarting."""
+    from skillloop.runtime.protected_flow import _controller_record
+    from skillloop.runtime.docker_api import DockerEngineError
+    if os.geteuid()!=21001 or type(engine) is not DockerEngine:
+        raise PermissionError('native_gateway_failure_actual_controller')
+    root=Path(journal_directory);intent=_controller_record(root/'dispatch-intent.json')
+    spending=_controller_record(root/'spending.json')
+    if (intent.get('kind')!='FormalNativeGatewayDispatchIntent'
+            or spending.get('kind')!='FormalNativeGatewaySpending'
+            or spending['spending']['operation_key']!='gateway-'+intent['dispatch_digest'][7:]
+            or expected_campaign is not None and intent['campaign_digest']!=expected_campaign):
+        raise ValueError('native_gateway_failure_original_intent')
+    name='skillloop-gateway-'+intent['dispatch_digest'][7:39]
+    try:observed=engine.inspect(name)
+    except DockerEngineError as error:
+        if error.status!=404:raise
+        # A 404 after an unknown create response cannot prove that an in-flight
+        # server request will never complete. Keep the slot unknown and spent.
+        value={'kind':'FormalNativeGatewayContainment','dispatch_digest':intent['dispatch_digest'],
+            'container_name':name,'container_id':None,'observation':'not_observed_create_unknown',
+            'spent':True,'automatic_replay_allowed':False,'evidence_released':False}
+    else:
+        config=intent['configuration'];identifier=observed['Id']
+        if not re.fullmatch(r'[0-9a-f]{64}',identifier) or observed.get('Name')!='/'+name:
+            raise ValueError('native_gateway_failure_exact_original_name')
+        _verify_role_process(observed,identifier,config,config['HostConfig']['Mounts'])
+        if intent['protected'] and observed['HostConfig'].get('LogConfig',{}).get('Type')!='none':
+            raise PermissionError('protected_gateway_failure_private_logs')
+        if (root/'created.json').exists():
+            created=_controller_record(root/'created.json')
+            if (created.get('kind')!='FormalNativeGatewayCreated' or created['container_id']!=identifier
+                    or created['dispatch_digest']!=intent['dispatch_digest']):
+                raise ValueError('native_gateway_failure_original_created')
+        if observed['State']['Running'] is True:
+            engine.request('POST','/containers/'+identifier+'/stop?t=1',timeout=5)
+        observed=engine.inspect(identifier)
+        _verify_role_process(observed,identifier,config,config['HostConfig']['Mounts'])
+        if observed['State']['Running'] is not False:
+            raise RuntimeError('native_gateway_failure_stop_unconfirmed')
+        value={'kind':'FormalNativeGatewayContainment','dispatch_digest':intent['dispatch_digest'],
+            'container_name':name,'container_id':identifier,'observation':'original_process_stopped',
+            'inspection':observed,'spent':True,'automatic_replay_allowed':False,'evidence_released':False}
+        if not intent['protected'] and not os.path.lexists(root/'failure-process.log'):
+            value['logs_digest']=_preserve_logs(engine,identifier,root,'failure-process.log')
+    now=datetime.now(timezone.utc)
+    started=datetime.fromisoformat(intent['started_at'])
+    deadline=datetime.fromisoformat(intent['campaign_deadline'].replace('Z','+00:00'))
+    if started.tzinfo is None or deadline.tzinfo is None or now<started:
+        raise ValueError('native_gateway_original_containment_clock')
+    elapsed=(now-started).total_seconds()
+    value['observed_at']=now.isoformat();value['elapsed_seconds']=elapsed
+    value['budget_closure']=('within_original_budget' if now<deadline
+        and elapsed<=intent['startup_seconds']+intent['closure_seconds']
+        else 'inconclusive_expired_budget_closure')
+    # Preserve sequential original observations rather than overwrite an earlier
+    # 404 with a later successful containment or pretend it was a new attempt.
+    records=list(root.glob('containment-*.json'))
+    if len(records)>=16:raise RuntimeError('native_gateway_containment_observation_capacity')
+    return _save(root,'containment-'+str(len(records)).zfill(2)+'.json',value)
+
 
 
 

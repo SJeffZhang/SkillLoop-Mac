@@ -177,7 +177,14 @@ class CampaignDispatcher:
             if step['action'] in {'native_gateway','native_gateway_close'}:
                 from skillloop.runtime.proposal_dispatch import recover_model_bridge, close_model_bridge
                 if step['action']=='native_gateway':
-                    if not (Path(step['journal_directory'])/'ready.json').exists():return
+                    if not (Path(step['journal_directory'])/'ready.json').exists():
+                        # Reconcile a possibly-created original process only.
+                        # Containment is never a successful start receipt.
+                        if (Path(step['journal_directory'])/'spending.json').exists():
+                            from skillloop.runtime.proposal_dispatch import preserve_failed_model_bridge
+                            preserve_failed_model_bridge(journal_directory=step['journal_directory'],
+                                engine=self.engine,expected_campaign=route['campaign_digest'])
+                        return
                     result=recover_model_bridge(journal_directory=step['journal_directory'],engine=self.engine)
                 else:
                     if not (Path(step['journal_directory'])/'intent.json').exists():return

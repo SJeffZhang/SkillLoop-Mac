@@ -531,3 +531,7 @@ NativeProposalSession的原请求、成功及未知响应均保存严格封印�
 Application Gate重读原请求/响应封印与grant引用一致性，并解析实际backend原字节核验SHA256及完整JSON对应，不能只信重序列化结果。该检查不是Proxy实际proposal授权表的独立snapshot审查；全attempt catalog和实际权威快照覆盖仍需接通，all_attempt_history_complete继续false。未运行组件、模型、数据库或容器实验，仅源码审查及AST。
 
 Gateway预算收尾审查：启动计时从生产调用开始，ready必须在原startup_seconds内完成；停止必须在原closure_seconds内完成，不使用未预留的额外60秒作为通过余量。超限停止记录仍保全且inconclusive，原时钟不重置。
+
+### Gateway未知创建响应的原进程保全
+
+原create和created-journal写入现在均包含在失败保全范围内；没有返回ID时只通过原唯一name查询Docker实际进程，核对全配置、标签、volume、UID和名字后停止，不再次创建/启动。404保留create_unknown，不当成可重用槽。已发现原进程保留实际inspection和开发日志；保护日志仍不外带。原操作恢复可接续这种停止保全，但不能写成功启动receipt或把unknown改成成功。连续观测分别保留、上限16，完整原启动/关闭成本和deadline仍审查，过期状态保留。
