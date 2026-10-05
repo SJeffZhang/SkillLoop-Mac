@@ -303,3 +303,10 @@ Gate通用角色证据读取及Controller原恢复记录现在复用完整路径
 正式开发phase现在逐任务持久保存原unit/intent身份、原Lease观察、Runtime调用前不可重发标记、实际成功收尾receipt摘要及即时失败记录。进程在汇总前退出时，原投递边界与失败不会仅存在于内存；未完成任务仍为unknown，不补投、不补槽。原控制服务已经另存发送请求与Lease，此处将其连续关联到当前phase。
 
 完整phase已写summary而外层route响应丢失时，Controller只读原Admission、全部任务记录、独立Task Gate、Archive Gate和预算内retirement receipt，核对完整覆盖后完成原stage，再接续原未启动route尾部。没有summary、部分phase、缺少原记录或审查链不完整均拒绝恢复成功。恢复不调用模型、Proxy start、评估器或归档导出；下一轮仍必须全新身份完整复跑。新增journal逐记录限制262144字节；全成本生产者必须将这些记录计入实际辅助证据上界，物理资源链及配置冻结仍待整链准备。仅源码检查，无运行实验。
+
+
+### 正式操作失败的统一私有问题记录
+
+Operator的生产dispatcher失败现在先在原Controller专属恢复目录保留请求/route摘要、实际异常类型和Controller traceback，再写原操作的稳定失败状态。公共查询仍只有稳定代码，不返回路径、私有worker日志或逐题详情；原模型/私有角色日志仍留在原角色。重复错误保留首次记录，不覆盖。Controller诊断上限65536 UTF8字节，超限明确diagnostics_complete=false，不能冒称完整错误取证。
+
+这补上启动前跨模块校验失败没有统一具体根因记录的缺口；目录不可写或写入失败仍保留原操作未知/失败边界，不重发业务。新增诊断容量需要在正式配置成本生产中预留，与完整资源链一并审查。仅源码与AST检查，未触发组件故障实验。

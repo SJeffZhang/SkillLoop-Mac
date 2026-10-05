@@ -107,6 +107,35 @@ class CampaignDispatcher:
         self.manifest_path=whole_round_manifest_path
         self.phase=FormalPhaseExecutor(controller=controller,ledger=ledger,tokenizer=tokenizer,
             journal_directory=phase_journal,whole_round_manifest_path=whole_round_manifest_path)
+    def preserve_failure(self,request,route,error):
+        """Keep Controller diagnostics private before publishing stable failure."""
+        import traceback
+        from datetime import datetime,timezone
+        from skillloop.protection.current_task import _directory
+        from skillloop.runtime.proposal_dispatch import _save
+        if os.geteuid()!=21001:raise PermissionError('campaign_failure_actual_controller')
+        validate_dispatch_route(route)
+        journal=_directory(route['journal_directory'],21001,21001,0o700)
+        name='failure-'+request['digest'][7:]+'.json'
+        if os.path.lexists(journal/name):
+            original=_controller_record(journal/name)
+            if (original.get('kind')!='ControllerCampaignDispatchFailure'
+                    or original.get('request_digest')!=request['digest']
+                    or original.get('route_digest')!=route['digest']):
+                raise ValueError('campaign_original_failure_identity')
+            return original
+        details=''.join(traceback.format_exception(type(error),error,error.__traceback__))
+        raw=details.encode('utf-8')
+        # This is bounded Controller diagnostics, not an import of private
+        # worker logs or a claim that a truncated traceback is complete.
+        truncated=len(raw)>65536
+        details=raw[:65536].decode('utf-8','replace')
+        return _save(journal,name,{'kind':'ControllerCampaignDispatchFailure',
+            'request_digest':request['digest'],'route_digest':route['digest'],
+            'error_type':type(error).__name__,'controller_traceback':details,
+            'diagnostics_complete':not truncated,'recorded_at':datetime.now(timezone.utc).isoformat(),
+            'automatic_reexecution_allowed':False,'evidence_released':False,
+            'public_error_code':'unavailable'})
     def reconcile_original_retirements(self,request,route):
         """Continue a recorded process removal, never an inference or delivery.
 

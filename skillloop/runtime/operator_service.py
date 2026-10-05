@@ -87,9 +87,12 @@ class OperatorService:
             if item is None:self.stop.wait(0.25);continue
             ref,request,route=item
             try:self.store.complete(ref,self.dispatcher.execute(request,route))
-            except BaseException:
+            except BaseException as error:
                 # Detailed production journals remain private. Public status
                 # does not contain private paths, case errors or traceback.
+                try:self.dispatcher.preserve_failure(request,route,error)
+                except BaseException as custody_error:
+                    error.add_note('controller_failure_custody_unavailable:'+type(custody_error).__name__)
                 self.store.fail(ref)
     def serve(self):
         # One controller owns admission and recovery at a time. Keep the lock
