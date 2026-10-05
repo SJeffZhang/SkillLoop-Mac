@@ -440,6 +440,13 @@ class OllamaGateway:
                 'raw_response_b64':base64.b64encode(raw[:4194304]).decode('ascii'),
                 'raw_response_truncated':len(raw)>4194304}
             if status!=200 or len(raw)>4194304:
+                if status==502 and len(raw)<=4194304:
+                    try:failure=decode_json(raw)
+                    except (ValueError,UnicodeError):failure=None
+                    if (type(failure) is dict and failure.get('kind')=='LocalModelTransportFailure'
+                            and failure.get('body_read_incomplete') is True):
+                        diagnostic['body_read_incomplete']=True
+                        raise GatewayError('provider_timeout',response=diagnostic)
                 raise GatewayError('provider_response_invalid',response=diagnostic)
             try:return decode_json(raw)
             except (ValueError,UnicodeError) as error:

@@ -12,6 +12,7 @@ import os
 import http.client
 import json
 import hashlib
+import base64
 import selectors
 import socket
 import socketserver
@@ -126,6 +127,22 @@ class HostModelBridge:
             def log_message(self, *_args):
                 pass
 
+            def _model_failure(self, code, raw=b'', status=None, *, incomplete=False):
+                # Only the already authenticated current caller receives this
+                # bounded diagnostic. Never write prompt/response bytes to logs.
+                document={'kind':'LocalModelTransportFailure','error_code':code,
+                    'upstream_http_status':status,'body_read_incomplete':incomplete,
+                    'observed_response_bytes':len(raw),
+                    'observed_response_digest':'sha256:'+hashlib.sha256(raw).hexdigest(),
+                    'raw_response_b64':base64.b64encode(raw[:131072]).decode('ascii'),
+                    'raw_response_truncated':len(raw)>131072}
+                payload=json.dumps(document,sort_keys=True,separators=(',',':')).encode()
+                self.send_response(502)
+                self.send_header('Content-Type','application/json')
+                self.send_header('Content-Length',str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
             def _forward(self, method: str, body: bytes | None = None, expected_prompt_tokens=None):
                 from skillloop.runtime.model_http import ModelHTTPIncomplete, request_model
                 parsed = None
@@ -142,7 +159,7 @@ class HostModelBridge:
                     if len(payload) > 8_388_608:
                         if method == 'POST' and bridge.evidence_observer is not None:
                             bridge.evidence_observer('response_oversized', body, payload, status)
-                        self.send_error(502, "model_response_too_large")
+                        self._model_failure('model_response_too_large',payload,status,incomplete=True)
                         return
                     if method == "POST":
                         if bridge.evidence_observer is not None:
@@ -150,7 +167,7 @@ class HostModelBridge:
                         try:
                             parsed = json.loads(payload)
                             if bridge.backend == "ollama" and parsed.get("model") != bridge.model_id:
-                                self.send_error(502, "model_identity_mismatch")
+                                self._model_failure('model_identity_mismatch',payload,status)
                                 return
                             usage = ({"prompt_tokens": parsed.get("prompt_eval_count"),
                                       "completion_tokens": parsed.get("eval_count")} if bridge.native_chat
@@ -161,7 +178,7 @@ class HostModelBridge:
                                     "request_digest": "sha256:" + hashlib.sha256(body or b"").hexdigest(), "thinking": False,
                                     "http_status": status, "token_mismatch": token_mismatch})
                             if token_mismatch:
-                                self.send_error(502, "model_tokenizer_mismatch")
+                                self._model_failure('model_tokenizer_mismatch',payload,status)
                                 return
                         except (ValueError, AttributeError):
                             pass
@@ -169,7 +186,7 @@ class HostModelBridge:
                         if (not isinstance(parsed,dict) or parsed.get('done') is not True or parsed.get('done_reason')!='stop'
                                 or parsed.get('message',{}).get('thinking') or parsed.get('message',{}).get('tool_calls')
                                 or type(parsed.get('eval_count')) is not int or not 0<=parsed['eval_count']<=bridge.max_output_tokens):
-                            self.send_error(502,'semantic_model_terminal_incomplete');return
+                            self._model_failure('semantic_model_terminal_incomplete',payload,status);return
                         payload=json.dumps({'id':'semantic-local','object':'chat.completion','model':bridge.model_id,
                             'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':parsed['message']['content']}}],
                             'usage':{'prompt_tokens':parsed['prompt_eval_count'],'completion_tokens':parsed['eval_count'],
@@ -187,9 +204,9 @@ class HostModelBridge:
                 except ModelHTTPIncomplete as error:
                     if method == 'POST' and bridge.evidence_observer is not None:
                         bridge.evidence_observer('response_incomplete', body, error.partial, error.status)
-                    self.send_error(502, "local_model_unavailable")
+                    self._model_failure('local_model_unavailable',error.partial,error.status,incomplete=True)
                 except (OSError, TimeoutError, http.client.HTTPException, KeyError, TypeError, ValueError):
-                    self.send_error(502, "local_model_unavailable")
+                    self._model_failure('local_model_unavailable',incomplete=True)
 
             def do_GET(self):
                 if bridge.allowed_client_uid is not None:

@@ -377,3 +377,9 @@ Supervisor的多次身份查询共享原startup截止，而不是每个GET另获
 正式operation archive直接从原Controller权威库执行一致VACUUM INTO快照，保留全部request/ticket/route/原结果和不可变transition，不重复在线16MiB数据库的预分配空闲页。实际源page size/count、输出上限、2倍源页临时峰值与2GiB free floor在写入前检查，完成后核验完整integrity、identity、transition链和freelist=0；不能据此恢复在线资格或调用原操作。
 
 历史raw复制在实际目标inode写入前执行物理allocation，再核对原文件身份、完整字节和原目录变化；部分导出继续保全。未把这些逐输出检查说成完整campaign物理预留，resource ownership类别仍未闭合。未执行SQLite、导出或旧raw复算；仅源码/AST检查。
+
+### 模型失败经原 Runtime 接回私有证据
+
+桥接器的超量、身份、tokenizer和不完整终止错误，不再只返回丢失上游信息的HTTP错误页：向当前已认证UDS调用者返回实际状态、已观察字节数/摘要、有界原响应前缀、截断及不完整标识。它不写入公共日志或扩大Controller读取权限。原Runtime Gateway保存精确错误响应字节；不完整上游继续归为provider_timeout，沿原未知/私有session保全路径收尾，不自动重投。
+
+诊断前缀上限128KiB，完整观察摘要不替代缺失字节；超量/丢失仍是失败或不完整，不能标完整原始响应或通过资格。语义Observer另保留其原授权raw。role/run/privacy实际绑定及正式raw全覆盖仍须继续连接。仅源码检查，无新实验。
