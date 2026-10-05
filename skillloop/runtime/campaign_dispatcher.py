@@ -16,7 +16,7 @@ ACTION_FIELDS={
     'registry_withdraw':{'withdrawal_path','qualification_path','expected_active_revision'},
     'register_campaign':{'registration_path','authority_directory'},
     'deployment':{'manifest_path','journal_directory','start_roles'},
-    'role_command':{'role','assignment_directory','role_command','rpc_params','manifest_path','deployment_journal','timeout_seconds','result_path'},
+    'role_command':{'role','assignment_directory','role_command','rpc_params','manifest_path','deployment_journal','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory','result_path'},
     'proxy_controller':{'method','rpc_params','journal_directory'},
     'development':{'plan_path'},
     'roster_freeze':{'policy_path','assignment_directory','roster_directory','journal_directory','authority_directory'},
@@ -72,7 +72,9 @@ def validate_dispatch_route(route):
             raise PermissionError('campaign_worker_requires_original_task_admission')
         if action=='role_command' and (step['role'] not in {'admin','report'}
                 or type(step['rpc_params']) is not dict or type(step['timeout_seconds']) is not int
-                or not 1<=step['timeout_seconds']<=120):
+                or not 1<=step['timeout_seconds']<=120
+                or type(step['closure_seconds']) is not int or not 30<=step['closure_seconds']<=120
+                or type(step['maximum_evidence_bytes']) is not int or not 4194304<=step['maximum_evidence_bytes']<=8388608):
             raise ValueError('campaign_role_command_bound')
         if action=='role_command':
             from skillloop.runtime.role_command_worker import ADMIN_PROXY_COMMANDS
@@ -133,6 +135,13 @@ class CampaignDispatcher:
             if (begin.get('kind')!='CampaignStageStarted' or begin.get('request_digest')!=request['digest']
                     or begin.get('step_digest')!=digest_jcs(step)):
                 raise ValueError('campaign_recovery_original_started_stage')
+            if step['action']=='role_command':
+                if not (Path(step['journal_directory'])/'removing.json').exists():return
+                from skillloop.runtime.role_command_dispatch import recover_role_command_retirement
+                result=recover_role_command_retirement(step=step,engine=self.engine)
+                _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
+                    'request_digest':request['digest'],'result':result})
+                return
             if step['action']=='lifecycle_review':
                 # A raw review without a recorded removal is not retryable.
                 removing=Path(step['journal_directory'])/'removing.json'
@@ -288,24 +297,9 @@ class CampaignDispatcher:
                         raise PermissionError('campaign_worker_requires_original_task_admission')
                     deployment.start_role(role,request['operation_id']+'-'+role)
             elif step['action']=='role_command':
-                from skillloop.runtime.whole_deployment import WholeRoleDeployment
-                from skillloop.protection.current_task import _directory,_publish
-                role=step['role']
-                if role not in {'admin','report'}:raise PermissionError('operator_delegated_role_scope')
-                uid=21010 if role=='admin' else 21009
-                directory=_directory(step['assignment_directory'],21001,uid,0o750)
-                job={'kind':'DelegatedRoleCommand','command':step['role_command'],
-                    'operation_id':request['operation_id'],'params':step['rpc_params']}
-                job['digest']=digest_jcs(job)
-                _publish(directory/'job.json',job,uid)
-                deployment=WholeRoleDeployment(manifest_path=step['manifest_path'],journal_directory=step['deployment_journal'],
-                    engine=self.engine,ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
-                observed=deployment.start_role(role,request['operation_id']+'-'+role)
-                identifier=observed['inspection']['Id']
-                wait=self.engine.wait(identifier,step['timeout_seconds']);actual=self.engine.inspect(identifier)
-                if wait.get('StatusCode')!=0 or actual.get('State',{}).get('Running') is not False or actual.get('State',{}).get('ExitCode')!=0:
-                    raise RuntimeError('operator_delegated_original_role_failed')
-                result=read_owned(step['result_path'],uid=uid,gid=21001,limit=2097152)
+                from skillloop.runtime.role_command_dispatch import dispatch_role_command
+                result=dispatch_role_command(step=step,operation_id=request['operation_id'],
+                    whole_round_manifest_path=self.manifest_path,ledger=self.ledger,engine=self.engine)
             elif step['action']=='proxy_controller':
                 # Revoke/cancel delegate to frozen Controller RPC authority;
                 # caller authorization was checked as actual Admin in service.

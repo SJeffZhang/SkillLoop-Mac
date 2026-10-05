@@ -236,3 +236,10 @@ Evaluator/Gate 与重启恢复共同检查导出方法、原页容量、峰值�
 每个 Operator 服务只接纳当前部署 campaign 或不涉及 campaign 的只读/管理 route；三个 profile 必须串行使用各自实际准入的部署、原时钟和账本。完整开发 phase 在首次 victim 投递前再次核对已持久 whole-round campaign 绑定，禁止某 route 消耗A的预算却交付B的任务。Operator 在任何物理页分配或消费初始化槽之前先验证全部 route 和原8小时截止；无效配置不产生数据库副作用。
 
 统一部署生产者按 Controller 实际只读 volume/subpath/target/嵌套挂载解析配置文档，确认每条 route 确实存在且具备 Admin→Controller 文件授权，不能把宿主路径或被覆盖的配置当成可用入口。上述为源码连接检查；完整三个 campaign 的生产配置、串行启动与恢复仍需接通并实际整轮验证。
+
+
+### Admin/Reporter 原辅助进程收尾
+
+统一 campaign 的 role_command 现在先消费对应阶段的完整 worker/收尾/证据槽，另保留原部署 role-create 的60秒成本，然后发布真实委托、启动原 Admin/Reporter、读取原结果并核验原 OCI 配置和停止状态。只有结果文件与实际成功退出一致、Keeper仍存活，才提交 reviewed/removing 并删除原停止容器；共享证据卷和Keeper不删除。Controller journal记录原开始/截止/总预留及清理结论。
+
+restart只能在原 removing 已存在时继续同一辅助进程的退休；实际404必须有原删除意图，Config/Image/HostConfig/Mounts及原结果全部核对。投递、创建或执行未知不能重跑命令。原终端空间或时间超限保留 inconclusive，失败只停止精确已观察原进程并保全输出。内部route增加closure_seconds/maximum_evidence_bytes/journal_directory以冻结成本和恢复位置，公共17 CLI/RPC/权限不变。仅源码、AST和diff检查，未启动辅助进程或实验。
