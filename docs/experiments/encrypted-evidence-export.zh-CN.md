@@ -661,3 +661,7 @@ Gate调用原finding campaign编译器产生正常对照、original/variant、At
 Admin计划修订和正式phase在whole-flow配置下必须读取该实际Gate compiled.json；禁止内嵌编译对象绕过生产Gate。计划仍追加原行、预算和时钟不重置；原摘要命名Proxy grant另有独立Admin→Controller固定plan-revision.json普通投影，以冻结定位读取真实新计划，无未来摘要猜测。正式evaluate要求发现Suite生产发生在语义发现之后、首次development之前。
 
 完成160份Python AST和diff检查；未调用模型、SQLite、Docker、Scanner或参考/组件测试。全成本生产、全部尝试库存、物理容量及其他剩余连接仍待完成，未启动第一整轮。
+
+### 原进程创建响应丢失的统一保全
+
+Generator、Patcher、Application Gate、名单 Gate 和加密归档角色在实际 Docker 创建前记录唯一原创建意图，创建后核验原进程身份与时间并持久保存观察。创建响应或观察失败时仅查询原名称、核验和停止可确认的原进程，记下 unknown 与停止状态；已有意图拒绝第二次创建。原模型槽、原资格和旧活动均不因检查而恢复或重投。本次只做生产源码与 AST 检查，实际 OCI 行为留给完整轮次。

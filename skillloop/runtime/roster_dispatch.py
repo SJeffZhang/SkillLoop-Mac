@@ -115,7 +115,9 @@ def dispatch_roster_gate(*,policy,assignment_directory,roster_directory,journal_
             'policy_digest':policy['digest'],'started_at':datetime.now(timezone.utc).isoformat(),
             'deadline':deadline.isoformat(),'reserved_seconds':policy['timeout_seconds']+60,
             'roster_directory':str(output),'keeper':keeper})
-        identifier=engine.create('skillloop-roster-'+policy['digest'][7:39],config)
+        from skillloop.runtime.original_creation import create_original_worker
+        identifier=create_original_worker(engine=engine,name='skillloop-roster-'+policy['digest'][7:39],
+            config=config,journal_directory=directory,deadline=deadline)
         _save(directory,'created.json',{'kind':'FormalDevelopmentRosterCreated','container_id':identifier})
         try:
             _verify_role_process(engine.inspect(identifier),identifier,config,mounts)

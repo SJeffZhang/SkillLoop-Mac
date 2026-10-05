@@ -539,7 +539,9 @@ def dispatch_application_gate(*, assignment_directory, reviews_directory, policy
             operation_key='application-gate-'+policy['digest'][7:],seconds=policy['timeout_seconds']+60,
             input_tokens=0,output_tokens=0,disk_bytes=policy['maximum_evidence_bytes'])
         _save(directory,'spending.json',{'kind':'FormalCandidateApplicationGateSpending','spending':spending})
-        identifier=engine.create('skillloop-application-gate-'+policy['digest'][7:39],config)
+        from skillloop.runtime.original_creation import create_original_worker
+        identifier=create_original_worker(engine=engine,name='skillloop-application-gate-'+policy['digest'][7:39],
+            config=config,journal_directory=directory,deadline=deadline)
         _save(directory,'created.json',{'kind':'FormalCandidateApplicationGateCreated','container_id':identifier})
         try:
             _verify_role_process(engine.inspect(identifier),identifier,config,mounts)
@@ -705,7 +707,9 @@ def _dispatch_proposal_open(*, assignment_directory, evidence_directory, policy,
     _publish(assignment/'inference.json',reference,uid)
     _save(directory,'inference-grant.json',{'kind':'FormalNativeProposalInferenceGrant',
         'grant':grant,'reference':reference,'automatic_replay_allowed':False})
-    identifier=engine.create('skillloop-proposal-'+policy['digest'][7:39],config)
+    from skillloop.runtime.original_creation import create_original_worker
+    identifier=create_original_worker(engine=engine,name='skillloop-proposal-'+policy['digest'][7:39],
+        config=config,journal_directory=directory,deadline=deadline)
     _save(directory,'created.json',{'kind':'FormalNativeProposalCreated','container_id':identifier,'policy_digest':policy['digest']})
     def identity(observed):
         if (observed.get('Id')!=identifier or observed.get('Image')!=policy['image']

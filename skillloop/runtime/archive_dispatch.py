@@ -89,7 +89,10 @@ def dispatch_archive_action(*,policy_path,journal_directory,whole_round_manifest
             'CapDrop':['ALL'],'SecurityOpt':['no-new-privileges'],'Memory':1073741824,
             'NanoCpus':2000000000,'PidsLimit':64,'Ulimits':[{'Name':'nofile','Soft':128,'Hard':128}],
             'LogConfig':{'Type':'none','Config':{}},'Tmpfs':{'/tmp':'rw,nosuid,nodev,size=64m'},'Mounts':mounts}}
-    identifier=engine.create('skillloop-archive-'+policy['action']+'-'+policy['digest'][7:31],config)
+    from skillloop.runtime.original_creation import create_original_worker
+    identifier=create_original_worker(engine=engine,
+        name='skillloop-archive-'+policy['action']+'-'+policy['digest'][7:31],
+        config=config,journal_directory=root,deadline=deadline)
     actual=engine.inspect(identifier);_verify_role_process(actual,identifier,config,mounts)
     _save(root,'created.json',{'kind':'ArchiveRoleCreated','id':identifier,'inspection':actual,'configuration':config})
     engine.start(identifier)
