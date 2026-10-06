@@ -247,17 +247,24 @@ class NativeBackendSupervisor:
         descendants = [row for row in before if row['pid'] in owned or row['pgid'] == self.process.pid]
         self._save('NativeBackendStopIntent', {'pid': self.process.pid, 'requested_at': _stamp(),
             'owned_process_inventory': descendants})
-        # The supervisor owns this new process group; never signal a discovered
-        # foreign server or blindly kill a PID read from an old journal.
-        try: os.killpg(self.process.pid, signal.SIGTERM)
-        except ProcessLookupError: pass
+        # Popen.poll() uses the original child relationship. If the child has
+        # exited, its PID may already name an unrelated process group; do not
+        # signal that number even when a stale inventory still mentions it.
+        # Remaining descendants then require an explicit custody review.
+        if self.process.poll() is None:
+            try: os.killpg(self.process.pid, signal.SIGTERM)
+            except ProcessLookupError: pass
         remaining = end - time.time()
         if remaining <= 0: raise TimeoutError('native_backend_original_close_clock')
         code = self.process.wait(timeout=remaining)
         try: os.killpg(self.process.pid, 0)
         except ProcessLookupError: group_absent = True
         else: group_absent = False
-        if not group_absent: raise RuntimeError('native_backend_descendants_still_alive')
+        if not group_absent:
+            self._save('NativeBackendStopIncomplete', {'reason':'process_group_still_present',
+                'pid':self.process.pid,'observed_at':_stamp(),
+                'automatic_reexecution_allowed':False})
+            raise RuntimeError('native_backend_descendants_still_alive')
         after = self._process_inventory(end)
         escaped = [row for row in descendants if row['pgid'] != self.process.pid]
         survivors = [row for row in after if any(row['pid'] == old['pid'] and row['started'] == old['started']
