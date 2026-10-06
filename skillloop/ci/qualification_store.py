@@ -79,7 +79,11 @@ class QualificationIssuer:
             existing=db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             if version!=2 and (version!=0 or existing):
                 raise ValueError('qualification_new_v2_directory_required')
-            db.executescript('''CREATE TABLE IF NOT EXISTS qualification_identity(
+            # sqlite3.executescript commits an existing transaction before its
+            # first statement. Begin inside the script so both tables, the
+            # identity row and user_version commit as one migration.
+            db.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS qualification_identity(
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT,config TEXT);
                 CREATE TABLE IF NOT EXISTS issued_campaigns(campaign TEXT PRIMARY KEY,
                 generation INTEGER,bindings_digest TEXT,proof BLOB,revoked INTEGER NOT NULL DEFAULT 0);''')
