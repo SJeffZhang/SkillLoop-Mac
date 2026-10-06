@@ -30,6 +30,14 @@ class CampaignRegistry:
             self.path=path
             with closing(sqlite3.connect(path)) as db:
                 db.execute('PRAGMA synchronous=FULL')
+                version=db.execute('PRAGMA user_version').fetchone()[0]
+                tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                expected={'projects','formal_campaigns','active_subjects','promotions',
+                    'active_campaigns','evaluation_operations','campaign_roster_freezes',
+                    'campaign_original_clocks','project_rounds'}
+                if (version==0 and tables or version==1 and tables!=expected
+                        or version not in {0,1}):
+                    raise ValueError('campaign_registry_fresh_versioned_directory_required')
                 db.executescript('''BEGIN IMMEDIATE;
                     CREATE TABLE IF NOT EXISTS projects(project TEXT PRIMARY KEY,generation INTEGER,head TEXT,config TEXT);
                     CREATE TABLE IF NOT EXISTS formal_campaigns(
@@ -45,6 +53,7 @@ class CampaignRegistry:
                     CREATE TABLE IF NOT EXISTS campaign_original_clocks(campaign TEXT PRIMARY KEY,
                     started_at REAL NOT NULL,deadline TEXT NOT NULL);
                     CREATE TABLE IF NOT EXISTS project_rounds(project TEXT PRIMARY KEY,epoch TEXT NOT NULL,generation INTEGER NOT NULL,head TEXT NOT NULL,config TEXT NOT NULL);''')
+                db.execute('PRAGMA user_version=1')
                 db.commit()
         finally:
             os.umask(previous)
