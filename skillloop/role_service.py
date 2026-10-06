@@ -85,7 +85,8 @@ class RoleObjectStore:
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
             os.close(fd)
         with closing(self.connect()) as db:
-            db.executescript('''CREATE TABLE IF NOT EXISTS identity(epoch TEXT, contract TEXT);
+            db.executescript('''BEGIN IMMEDIATE;
+            CREATE TABLE IF NOT EXISTS identity(epoch TEXT, contract TEXT);
             CREATE TABLE IF NOT EXISTS roles(role TEXT PRIMARY KEY,generation INTEGER,active INTEGER,deadline TEXT);
             CREATE TABLE IF NOT EXISTS grants(role TEXT,generation INTEGER,method TEXT,params_digest TEXT,result BLOB,
                 PRIMARY KEY(role,generation,method,params_digest));
@@ -96,7 +97,7 @@ class RoleObjectStore:
                 raise ValueError('deployment_identity_mismatch')
             if not row:
                 db.execute('INSERT INTO identity VALUES(?,?)', (epoch, registry.contract_digest))
-                db.commit()
+            db.commit()
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=2)
