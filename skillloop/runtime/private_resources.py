@@ -4,7 +4,7 @@ This is per-task custody, not a proof of the full campaign's physical quota.
 Creation and start intents precede Engine calls; unknown calls are never repeated.
 """
 from datetime import datetime,timezone
-import math,os,re
+import os,re
 from pathlib import Path
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import digest_jcs
@@ -73,8 +73,11 @@ def prepare_private_resources(*,policy_path,reference_path,journal_directory,who
             if any(root.iterdir()):raise RuntimeError('private_resources_unrecognized_partial_journal')
             remaining=(deadline-datetime.now(timezone.utc)).total_seconds()
             if remaining<=policy['timeout_seconds']+120:raise TimeoutError('private_resources_full_original_budget')
+            # The deadline closes authorization, not the only live mount of
+            # this tmpfs. A failed or delayed archive must retain its original
+            # bytes until the independently reviewed retirement stops Keeper.
             config={'Image':policy['image'],'User':'21001:21001','Entrypoint':['python'],
-                'Cmd':['-c','import time; time.sleep('+str(math.ceil(remaining))+')'],'Env':['PYTHONDONTWRITEBYTECODE=1'],
+                'Cmd':['-c','import time; time.sleep(2147483647)'],'Env':['PYTHONDONTWRITEBYTECODE=1'],
                 'Labels':{**labels,'skillloop.role':'private_evidence_keeper'},
                 'HostConfig':{'NetworkMode':'none','ReadonlyRootfs':True,'CapDrop':['ALL'],
                     'SecurityOpt':['no-new-privileges'],'Memory':67108864,'NanoCpus':1000000000,'PidsLimit':16,
