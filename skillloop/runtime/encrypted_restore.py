@@ -16,7 +16,7 @@ from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protection.current_task import _directory,_publish
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs
 from skillloop.runtime.archive_crypto import locked_crypto,read_header,verify_stream
-from skillloop.runtime.archive_files import allocate_output
+from skillloop.runtime.archive_files import allocate_output,open_original
 from skillloop.runtime.archive_key_service import unwrap_for_gate
 from skillloop.runtime.encrypted_archive import _hash
 
@@ -88,7 +88,9 @@ def run_restore(policy_path):
     cipher=Path(policy['bundle_path']);cipher_digest,before=_hash(cipher,budget)
     if (before.st_uid!=21005 or before.st_gid!=21010 or stat.S_IMODE(before.st_mode)!=0o640
             or cipher_digest!=review['encrypted_bundle_digest']):raise ValueError('restore_actual_reviewed_cipher')
-    fd=os.open(cipher,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    # Reopen through the entire original component chain. Checking only the
+    # final component would let a changed parent redirect this second read.
+    fd=open_original(cipher)
     with os.fdopen(fd,'rb') as source:
         header,_=read_header(source)
         if (header!=receipt['header'] or header['campaign']!=policy['campaign'] or header['deployment_epoch']!=policy['deployment_epoch']

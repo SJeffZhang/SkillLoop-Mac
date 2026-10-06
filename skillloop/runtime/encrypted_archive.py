@@ -177,12 +177,13 @@ def run_export(policy_path,*,review=False):
         if (meta.st_uid,meta.st_gid,stat.S_IMODE(meta.st_mode))!=(21005,21010,0o640) or meta.st_size>maximum_output:
             raise ValueError('archive_review_ciphertext_custody_capacity')
         if cipher_digest!=receipt['encrypted_bundle_digest']:raise ValueError('archive_review_ciphertext_changed')
-        with bundle.open('rb') as stream:header,_=read_header(stream)
+        with os.fdopen(open_original(bundle),'rb') as stream:header,_=read_header(stream)
         if header!=receipt['header']:raise ValueError('archive_review_original_header')
         key=unwrap_for_gate(header,policy['key_socket'])
         checksum=hashlib.sha256();size=0
         for block in _chunks(inventory,policy,budget):checksum.update(block);size+=len(block)
-        with bundle.open('rb') as stream:actual=verify_stream(source=stream,key=key,crypto=crypto,expected_header=header,budget=budget)
+        with os.fdopen(open_original(bundle),'rb') as stream:
+            actual=verify_stream(source=stream,key=key,crypto=crypto,expected_header=header,budget=budget)
         del key
         if actual!=('sha256:'+checksum.hexdigest(),size):raise ValueError('archive_review_authenticated_original_content')
         if _inventory(policy,budget)!=inventory:raise ValueError('archive_review_inventory_changed')
@@ -252,7 +253,7 @@ def run_export(policy_path,*,review=False):
         clear_digest,clear_size=encrypt_stream(output=output,chunks=_chunks(inventory,policy,budget),header=header,key=data_key,crypto=crypto,budget=budget)
         if output.tell()!=cipher_size:raise ValueError('archive_original_ciphertext_extent_length')
         output.flush();os.fsync(output.fileno())
-    with bundle.open('rb') as stream:
+    with os.fdopen(open_original(bundle),'rb') as stream:
         if verify_stream(source=stream,key=data_key,crypto=crypto,expected_header=header,budget=budget)!=(clear_digest,clear_size):
             raise ValueError('archive_producer_authenticated_write_verification')
     del data_key
