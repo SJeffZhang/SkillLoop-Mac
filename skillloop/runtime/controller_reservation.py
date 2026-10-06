@@ -47,7 +47,7 @@ class ControllerResourceAdmission:
         with self._locked(), closing(sqlite3.connect(self.path)) as db:
             os.chmod(self.path, 0o600)
             db.execute('PRAGMA synchronous=FULL')
-            db.executescript('CREATE TABLE IF NOT EXISTS admission_policy(singleton INTEGER PRIMARY KEY,digest TEXT NOT NULL);'
+            db.executescript('BEGIN IMMEDIATE;CREATE TABLE IF NOT EXISTS admission_policy(singleton INTEGER PRIMARY KEY,digest TEXT NOT NULL);'
                              'CREATE TABLE IF NOT EXISTS admissions(entry TEXT PRIMARY KEY,body TEXT NOT NULL);')
             row = db.execute('SELECT digest FROM admission_policy WHERE singleton=1').fetchone()
             if row and row[0] != self.plan['digest']:
