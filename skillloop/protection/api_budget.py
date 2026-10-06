@@ -14,7 +14,8 @@ class APIBudget:
         self.limit_micro=int(self.limit*1000000)
         binding=digest_jcs({'input_rate':input_rate,'output_rate':output_rate,'limit_rmb':limit_rmb})
         with self.connect() as db:
-            db.executescript('''CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
+            db.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
                 CREATE TABLE IF NOT EXISTS reservations(key TEXT PRIMARY KEY,reserved_micro INTEGER NOT NULL,
                 charged_micro INTEGER NOT NULL,state TEXT NOT NULL,input_tokens INTEGER,output_tokens INTEGER);''')
             old=db.execute('SELECT value FROM metadata WHERE key=?',('binding',)).fetchone()
