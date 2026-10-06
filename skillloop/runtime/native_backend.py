@@ -18,6 +18,7 @@ import time
 import threading
 
 from skillloop.protocol import canonical_json_line, decode_json, digest_jcs
+from skillloop.runtime.archive_files import open_original, require_unchanged
 
 
 def _stamp():
@@ -35,7 +36,7 @@ def _owned(path, uid, mode, *, directory=False):
 
 
 def _digest(path, deadline):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = open_original(path)
     with os.fdopen(fd, 'rb') as stream:
         before = os.fstat(stream.fileno())
         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
@@ -45,9 +46,7 @@ def _digest(path, deadline):
             if time.time() >= deadline: raise TimeoutError('native_backend_original_clock')
             result.update(block)
         after = os.fstat(stream.fileno())
-        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-            raise ValueError('native_backend_artifact_changed')
+        require_unchanged(path, before, after)
     return 'sha256:' + result.hexdigest()
 
 
