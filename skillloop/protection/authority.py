@@ -69,7 +69,8 @@ class ProtectionAuthority:
             fd=os.open(self.path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             os.close(fd)
         with self.connect() as db:
-            db.executescript('''CREATE TABLE IF NOT EXISTS epochs (
+            db.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS epochs (
                 campaign TEXT PRIMARY KEY, finalist TEXT NOT NULL, epoch TEXT UNIQUE NOT NULL,
                 projection TEXT UNIQUE NOT NULL, opaque_ref TEXT UNIQUE NOT NULL, factory TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS payloads (digest TEXT PRIMARY KEY, epoch TEXT NOT NULL);
