@@ -491,7 +491,10 @@ class ScanController:
                 '--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges',
                 '--memory','128m','--pids-limit','16','--label','skillloop.scan-operation='+fingerprint,
                 '--mount','type=volume,src='+volume+',dst=/report,readonly',
-                '--entrypoint','python',self.config['image'],'-c','import time;time.sleep('+str(max(1,int((datetime.fromisoformat(self.config['campaign_deadline'].replace('Z','+00:00'))-datetime.now(timezone.utc)).total_seconds())))+')' if 'campaign_deadline' in self.config else 'import time;time.sleep('+str(self.config['wall_budget_seconds'])+')'])
+                # The original budget limits new scanner work. It must not
+                # silently unmount the report tmpfs before an independent
+                # review or failed-operation custody recovery has finished.
+                '--entrypoint','python',self.config['image'],'-c','import time;time.sleep(2147483647)'])
             keeper_id=keeper.stdout.decode('ascii').strip()
             if not re.fullmatch('[0-9a-f]{64}',keeper_id):raise ValueError('scanner_keeper_identity')
             kept=decode_json(command(['inspect',keeper_id]).stdout)[0]
