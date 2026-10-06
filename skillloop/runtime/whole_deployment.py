@@ -220,10 +220,26 @@ class WholeRoleDeployment:
             if (original.get('kind')!='WholeRoleProvisionCompletion' or original.get('manifest_digest')!=p['digest']
                     or original.get('role_uids')!=ROLES or original.get('storage_backend')!='local_persistent'):
                 raise ValueError('whole_deployment_original_provision_identity')
+            recorded_volume=_controller_record(self.root/'volume.json').get('inspection')
+            volume=self.engine.inspect_volume(p['volume'],timeout=5)
+            if (type(recorded_volume) is not dict or any(volume.get(k)!=recorded_volume.get(k)
+                    for k in ('Name','Driver','Mountpoint','CreatedAt','Options','Labels','Scope'))
+                    or volume.get('Name')!=p['volume'] or volume.get('Driver')!='local'
+                    or volume.get('Options') not in (None,{})
+                    or volume.get('Labels',{}).get('skillloop.deployment_epoch')!=p['deployment_epoch']):
+                raise ValueError('whole_deployment_original_volume_changed')
             keeper=self.engine.inspect(original['keeper']['Id'],timeout=5)
             if (any(keeper.get(k)!=original['keeper'].get(k) for k in ('Id','Image','Config','HostConfig','Mounts'))
                     or keeper.get('State',{}).get('Running') is not True):
                 raise RuntimeError('whole_deployment_original_keeper_unavailable')
+            bootstrap=self.engine.inspect(original['bootstrap']['Id'],timeout=5)
+            status=bootstrap.get('State',{})
+            if (any(bootstrap.get(k)!=original['bootstrap'].get(k)
+                    for k in ('Id','Image','Config','HostConfig','Mounts'))
+                    or status.get('Status')!='exited' or status.get('Running') is not False
+                    or status.get('ExitCode')!=0 or status.get('OOMKilled') is not False
+                    or status.get('Error')):
+                raise RuntimeError('whole_deployment_original_bootstrap_changed')
             return original
         if any(self.root.iterdir()):return self.recover_provision()
         if self.deadline.tzinfo is None or (self.deadline-datetime.now(timezone.utc)).total_seconds()<=p['bootstrap_seconds']+120:
