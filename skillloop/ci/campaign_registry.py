@@ -30,7 +30,8 @@ class CampaignRegistry:
             self.path=path
             with closing(sqlite3.connect(path)) as db:
                 db.execute('PRAGMA synchronous=FULL')
-                db.executescript('''CREATE TABLE IF NOT EXISTS projects(project TEXT PRIMARY KEY,generation INTEGER,head TEXT,config TEXT);
+                db.executescript('''BEGIN IMMEDIATE;
+                    CREATE TABLE IF NOT EXISTS projects(project TEXT PRIMARY KEY,generation INTEGER,head TEXT,config TEXT);
                     CREATE TABLE IF NOT EXISTS formal_campaigns(
                     campaign TEXT PRIMARY KEY,project TEXT,profile TEXT,source BLOB,bindings BLOB);
                     CREATE TABLE IF NOT EXISTS active_subjects(project TEXT,profile TEXT,revision INTEGER,result BLOB,
