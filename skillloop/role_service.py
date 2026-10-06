@@ -72,14 +72,16 @@ class RoleObjectStore:
     """Separate protected SQLite store; exact role/method/params grants, epoch fenced."""
     def __init__(self, path: Path, epoch: str, registry: RoleRegistry):
         self.path, self.epoch, self.registry = Path(path), epoch, registry
-        parent = self.path.parent.stat()
-        if parent.st_uid != os.getuid() or stat.S_IMODE(parent.st_mode) & 0o077:
+        if not self.path.is_absolute() or '..' in self.path.parts:
+            raise ValueError('private_store_path')
+        parent = self.path.parent.lstat()
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid()
+                or stat.S_IMODE(parent.st_mode) != 0o700):
             raise ValueError('private_store_directory')
-        if self.path.is_symlink():
-            raise ValueError('database_symlink')
-        if self.path.exists():
-            info = self.path.stat()
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        if os.path.lexists(self.path):
+            info = self.path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
                 raise ValueError('private_database')
         else:
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
@@ -210,7 +212,15 @@ class RoleObjectServer:
         self.idle = threading.Condition(self.lock)
 
     def __enter__(self):
-        self.directory.mkdir(exist_ok=True)
+        # Only the trusted deployer may provision this directory. Clients in
+        # distinct groups may traverse it, but cannot replace role sockets.
+        if not self.directory.is_absolute() or '..' in self.directory.parts:
+            raise ValueError('socket_directory_path')
+        info = self.directory.lstat()
+        mode = stat.S_IMODE(info.st_mode)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or mode & 0o700 != 0o700 or mode & 0o022):
+            raise PermissionError('socket_directory_custody')
         try:
             for role, gid in self.gids.items():
                 path = self.directory / (role + '.sock')
@@ -218,7 +228,8 @@ class RoleObjectServer:
                     raise ValueError('socket_exists')
                 listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
                 listener.bind(str(path))
-                self.listeners.append((listener, path))
+                inode = path.lstat()
+                self.listeners.append((listener, path, inode.st_dev, inode.st_ino))
                 os.chmod(path, 0o660)
                 os.chown(path, -1, gid)
                 listener.listen(16)
@@ -272,7 +283,11 @@ class RoleObjectServer:
         self.stop()
         with self.idle:
             self.idle.wait_for(lambda: not any(self.active.values()), timeout=11)
-        for listener, path in self.listeners:
+        for listener, path, device, inode in self.listeners:
             listener.close()
-            path.unlink(missing_ok=True)
+            if os.path.lexists(path):
+                current = path.lstat()
+                if (current.st_dev, current.st_ino) != (device, inode):
+                    raise RuntimeError('role_socket_replaced')
+                path.unlink()
         self.selector.close()
