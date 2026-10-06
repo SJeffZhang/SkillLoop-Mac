@@ -304,7 +304,9 @@ def review_campaign_inventory(*,policy,inventory,budget):
     alias,relative=locator.split('/',1);database=roots[alias]/relative
     with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
         db.set_progress_handler(lambda:(budget() or 0),1000)
-        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:raise ValueError('campaign_archive_registry_database_integrity')
+        if (db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]
+                or db.execute('PRAGMA user_version').fetchone()!=(1,)):
+            raise ValueError('campaign_archive_registry_database_integrity_or_version')
         original=db.execute('SELECT bindings FROM formal_campaigns WHERE campaign=?',(policy['campaign'],)).fetchone()
         withdrawals=db.execute("SELECT result FROM promotions WHERE operation LIKE 'archive-withdraw-%'").fetchall()
         if (original is None or decode_json(original[0])!=evidence['bindings']

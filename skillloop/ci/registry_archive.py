@@ -32,7 +32,9 @@ def preserve_registry(registry,*,withdrawal,output_directory,maximum_bytes,timeo
         with closing(sqlite3.connect(registry.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as source:
             source.backup(db,pages=64,progress=bounded,sleep=0.01)
         db.set_progress_handler(lambda:int(time.monotonic()-started>=timeout_seconds),1000)
-        if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:raise ValueError('registry_archive_integrity')
+        if (db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]
+                or db.execute('PRAGMA user_version').fetchone()!=(1,)):
+            raise ValueError('registry_archive_integrity_or_version')
         rows=db.execute("SELECT result FROM promotions WHERE operation LIKE 'archive-withdraw-%'").fetchall()
         if not any(decode_json(row[0])==withdrawal for row in rows):raise ValueError('registry_archive_committed_withdrawal_missing')
         campaign=withdrawal['campaign']
