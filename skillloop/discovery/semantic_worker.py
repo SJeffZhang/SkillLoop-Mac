@@ -50,8 +50,8 @@ def execute():
             or type(job['worker_seconds']) is not int or not 1<=job['worker_seconds']<=1200
             or policy['max_chat_requests']*policy['request_timeout_seconds']+60>job['worker_seconds']):
         raise ValueError('semantic_complete_original_model_budget')
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('semantic_actual_production_source_changed')
     scope=next((c for c in whole['campaigns'] if c['campaign_digest']==job['campaign_digest']),None)
     deadline=datetime.fromisoformat(policy['campaign_deadline'].replace('Z','+00:00'))

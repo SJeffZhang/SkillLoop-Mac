@@ -129,10 +129,10 @@ def produce_deployment(policy_path):
         raise ValueError('whole_production_actual_mounted_round_document_required')
     validate_round_manifest(whole)
     scope=next((c for c in whole['campaigns'] if c['campaign_digest']==value['campaign_digest']),None)
-    from scripts.dgx_m6_repair import source_index
+    from skillloop.runtime.whole_source import whole_source_index
     if (scope is None or whole['digest']!=value['whole_round_manifest_digest']
             or any(whole[key]!=value[key] for key in ('deployment_epoch','image','source_digest'))
-            or digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']
+            or digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']
             or controller.get('victim_seconds')!=scope['victim_seconds']
             or controller.get('task_controller',{}).get('epoch')!=value['deployment_epoch']):
         raise ValueError('whole_production_controller_source_and_full_cost_binding')

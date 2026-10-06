@@ -30,8 +30,8 @@ def produce_discovery_suite(assignment_path,*,output_directory,tokenizer_path,wh
             or datetime.now(timezone.utc)>=deadline or config.get('whole_flow_required') is not True
             or config.get('deployment_epoch')!=whole['deployment_epoch'] or config.get('mac_runtime_image')!=whole['image']):
         raise ValueError('discovery_suite_original_whole_campaign')
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('discovery_suite_actual_source_changed')
     grant=read_owned(job['source_grant_path'],uid=21010,gid=21003,limit=2097152)
     if (grant.get('kind')!='AdminCampaignSourceAdmission' or grant.get('campaign_id')!=job['campaign_id']

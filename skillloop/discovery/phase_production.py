@@ -31,8 +31,8 @@ def produce_formal_phase(assignment_path):
     if set(job) not in (fields,fields|{'parent_phase_path'},generated,generated|{'parent_phase_path'}) or job['kind']!='FrozenFormalDevelopmentPhaseProduction':
         raise ValueError('phase_producer_original_assignment')
     whole=read_round_manifest(job['whole_round_manifest_path'])
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('phase_producer_actual_frozen_source')
     campaign=next((c for c in whole['campaigns'] if c['campaign_digest']==job['campaign_id']),None)
     config=job['config']

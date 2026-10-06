@@ -39,8 +39,8 @@ class NativeProposalSession:
         for name in ('whole_round_manifest_digest','source_digest','model_manifest_digest'):
             if type(policy[name]) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',policy[name]):
                 raise ValueError('native_proposal_identity_digest_required')
-        from scripts.dgx_m6_repair import source_index
-        if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=policy['source_digest']:
+        from skillloop.runtime.whole_source import whole_source_index
+        if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=policy['source_digest']:
             raise ValueError('native_proposal_actual_source_changed')
         deadline=datetime.fromisoformat(policy['campaign_deadline'].replace('Z','+00:00'))
         if (deadline.tzinfo is None or not 0<(deadline-datetime.now(timezone.utc)).total_seconds()<=28800):

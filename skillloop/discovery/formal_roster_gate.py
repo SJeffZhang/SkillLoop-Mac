@@ -87,8 +87,8 @@ def freeze_roster(*,assignment_path,whole_round_manifest_path,evaluation_directo
     if (type(job['config'].get('repair_rounds_allowed')) is not int
             or job['config']['repair_rounds_allowed']!=job['repair_rounds_allowed']):
         raise ValueError('roster_gate_original_repair_round_allowance')
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('roster_gate_current_source_changed')
     compiled=job['development'];plan=job['plan'];suite=compiled['suite']
     validate_plan(plan,suite)

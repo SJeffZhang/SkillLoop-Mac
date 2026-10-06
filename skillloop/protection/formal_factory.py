@@ -65,9 +65,9 @@ def create_private_epoch(*,assignment_path,whole_round_manifest_path,tokenizer_p
             or config.get('whole_flow_required') is not True
             or config.get('deployment_epoch')!=whole['deployment_epoch']):
         raise ValueError('private_factory_original_round_identity')
-    from scripts.dgx_m6_repair import source_index
+    from skillloop.runtime.whole_source import whole_source_index
     source=Path(__file__).resolve().parents[2]
-    if digest_jcs(source_index(source))!=whole['source_digest']:
+    if digest_jcs(whole_source_index(source))!=whole['source_digest']:
         raise ValueError('private_factory_actual_source_changed')
     factory_raw=(source/'specs/v2.2/families/private-suite-factory.json').read_bytes()
     if digest_bytes(factory_raw)!=job['factory_profile_digest']:

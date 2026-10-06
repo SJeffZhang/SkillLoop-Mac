@@ -128,8 +128,8 @@ def review_campaign():
     if (scope is None or job['whole_round_manifest_digest']!=whole['digest'] or deadline.tzinfo is None
             or bindings['deployment_epoch']!=whole['deployment_epoch'] or datetime.now(timezone.utc)>=deadline):
         raise ValueError('campaign_gate_original_round_identity')
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('campaign_gate_actual_source_changed')
     authority=ProtectionAuthority(Path('/gate-authority'),readonly=True)
     record=authority.resolve_formal_bundle(campaign=campaign,opaque_ref=job['opaque_ref'])

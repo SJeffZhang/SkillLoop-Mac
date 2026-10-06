@@ -26,8 +26,8 @@ def evaluate_capture(*, entry, intent, capture, run_directory, snapshot_director
     config=entry['config'];compiled=entry['compiled']
     private=entry.get('kind')=='protected'
     raw_owner=21004 if private else 21001
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=entry['source_index_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=entry['source_index_digest']:
         raise ValueError('formal_evaluation_actual_source_changed')
     verifier=verify_protected_entry if entry.get('kind')=='protected' else verify_formal_entry
     verifier(entry,image=config['mac_runtime_image'],source_digest=entry['source_index_digest'],

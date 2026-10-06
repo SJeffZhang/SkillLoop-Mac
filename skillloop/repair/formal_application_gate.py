@@ -71,8 +71,8 @@ def review_application(*,assignment_path,patcher_directory,tokenizer_path,
             or policy.get('whole_round_manifest_digest')!=whole['digest']
             or policy.get('source_digest')!=whole['source_digest']):
         raise ValueError('application_gate_actual_native_provenance')
-    from scripts.dgx_m6_repair import source_index
-    if digest_jcs(source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
+    from skillloop.runtime.whole_source import whole_source_index
+    if digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))!=whole['source_digest']:
         raise ValueError('application_gate_current_source_changed')
     files=job['file_set'];parent=bundle(files['files'],job['parent_policy'],
         files['obligation_digest'],files['compiler_digest'])

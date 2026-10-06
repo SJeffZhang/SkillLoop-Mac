@@ -9,7 +9,7 @@ from skillloop.protection.mac_runtime import container_execute
 from scripts.dgx_m6_calibrate import probe_suite
 from skillloop.runtime.gateway import ExactLocalTokenizer
 from skillloop.protocol import digest_jcs
-from scripts.dgx_m6_repair import source_index
+from skillloop.runtime.whole_source import whole_source_index
 from skillloop.runtime.mac_entry import verify_formal_entry,verify_protected_entry,protected_options
 
 def main():
@@ -33,9 +33,9 @@ def main():
     if args.run_entry:
         entry=json.loads(args.run_entry.read_text())
         verifier=verify_protected_entry if entry.get('kind')=='protected' else verify_formal_entry
-        verifier(entry,image=args.image,source_digest=digest_jcs(source_index(Path('/code'))),model_port=args.model_port)
+        verifier(entry,image=args.image,source_digest=digest_jcs(whole_source_index(Path('/code'))),model_port=args.model_port)
         config=entry['config'];case=entry['case_id'];repetition=entry['repetition'];args.profile=entry['profile']
-        if config['mac_runtime_image']!=args.image or entry['source_index_digest']!=digest_jcs(source_index(Path('/code'))):raise ValueError('formal_source_identity')
+        if config['mac_runtime_image']!=args.image or entry['source_index_digest']!=digest_jcs(whole_source_index(Path('/code'))):raise ValueError('formal_source_identity')
         if config['model_service_port']!=args.model_port:raise ValueError('formal_model_service_binding')
         options={'compiled_suite':entry['compiled'],'skill_root':Path('/subject'),'execution_plan':entry['plan'],'campaign_id':entry['campaign_id']}
         if entry.get('source_admission') is not None:
@@ -63,7 +63,7 @@ def main():
             socket_directory=Path('/interfaces'),deployment_epoch=config['deployment_epoch'],**options)
     if args.run_entry:
         path=output/'result.json';data=json.loads(path.read_text())
-        data['runner_source_digest']=digest_jcs(source_index(Path('/code')))
+        data['runner_source_digest']=digest_jcs(whole_source_index(Path('/code')))
         path.write_text(json.dumps(data,indent=2))
     with closing(sqlite3.connect(output/'authority.db')) as source,closing(sqlite3.connect(output/'authority.backup.db')) as target:
         source.backup(target)

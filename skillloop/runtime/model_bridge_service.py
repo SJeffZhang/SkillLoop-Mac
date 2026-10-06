@@ -63,9 +63,9 @@ def main():
             or policy['backend_version']!='0.33.3'):
         raise ValueError('native_model_gateway_policy')
     whole=read_round_manifest('/whole-round/manifest.json')
-    from scripts.dgx_m6_repair import source_index
+    from skillloop.runtime.whole_source import whole_source_index
     if (policy['whole_round_manifest_digest']!=whole['digest'] or policy['source_digest']!=whole['source_digest']
-            or policy['source_digest']!=digest_jcs(source_index(Path(__file__).resolve().parents[2]))):
+            or policy['source_digest']!=digest_jcs(whole_source_index(Path(__file__).resolve().parents[2]))):
         raise ValueError('native_model_gateway_source_or_whole_round_changed')
     inference_authority = None
     if policy['allowed_client_uid'] in {21002,21006,21007}:
