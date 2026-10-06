@@ -243,8 +243,12 @@ class WholeRoleDeployment:
             raise ValueError('whole_deployment_actual_persistent_volume_required')
         _save(self.root,'volume.json',{'kind':'WholeRoleDeploymentVolume','inspection':volume})
         # The readonly Keeper starts before the first directory/config write.
+        # A campaign deadline expires authorization, not evidence custody.
+        # The readonly Keeper must survive delayed review and explicit
+        # retirement; an automatic sleep to deadline can unmount the only
+        # original volume before a failed/unknown archive is reconciled.
         keeper_config={'Image':p['image'],'User':'21001:21001','Entrypoint':['python'],
-            'Cmd':['-c','import time;time.sleep('+str(max(1,int((self.deadline-datetime.now(timezone.utc)).total_seconds())))+')'],
+            'Cmd':['-c','import time;time.sleep(2147483647)'],
             'HostConfig':{'NetworkMode':'none','ReadonlyRootfs':True,'CapDrop':['ALL'],'SecurityOpt':['no-new-privileges'],
                 'Memory':134217728,'PidsLimit':16,'LogConfig':{'Type':'none','Config':{}},
                 'Mounts':[{'Type':'volume','Source':p['volume'],'Target':'/deployment-data','ReadOnly':True}]},
