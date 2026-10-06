@@ -201,7 +201,10 @@ def main(argv=None) -> int:
         args = parser.parse_args(argv)
         from .runtime.operator_client import CONFIG,operator_request
         command=('admin '+args.admin_command) if args.command=='admin' else args.command
-        if CONFIG.exists():
+        # A dangling or malicious symlink at the formal deployment locator
+        # must enter the authenticated reader and fail closed. Path.exists()
+        # would silently select the standalone fallback instead.
+        if os.path.lexists(CONFIG):
             params={}
             for key,value in vars(args).items():
                 if key in {'command','admin_command','operation_id'} or value is None:continue
@@ -225,10 +228,7 @@ def main(argv=None) -> int:
             deployment = os.environ.get("SKILLLOOP_SCANNER_DEPLOYMENT")
             if not deployment:
                 raise PermissionError("scanner_deployment_required")
-            with args.snapshot.open("rb") as stream:
-                raw = stream.read(262145)
-            if len(raw) > 262144:
-                raise SyntaxError64("snapshot_size")
+            raw = _input_bytes(args.snapshot)
             snapshot = decode_json(raw)
             validate_envelope(snapshot)
             result = ScanController(deployment).scan(snapshot,scanner_profile=args.scanner_profile,
