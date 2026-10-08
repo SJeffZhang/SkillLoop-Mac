@@ -79,7 +79,7 @@ def main():
     # run serially and do not acquire three simultaneous reservations.
     required=(FORMAL_STORAGE_POLICY['free_floor_bytes']
         +FORMAL_STORAGE_POLICY['campaign_disk_bytes']
-        +value['provisioning_bytes'])
+        +value['provisioning_bytes']+1048576)
     fs=os.statvfs(root)
     if fs.f_bavail*fs.f_frsize<required:
         raise OSError('bootstrap_actual_complete_campaign_capacity')

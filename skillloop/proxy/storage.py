@@ -295,7 +295,16 @@ class FormalStorageStore(ProxyStore):
                 if db.execute("SELECT count(*) FROM campaign_storage_reservations WHERE state='reserved'").fetchone()[0]>=16:
                     raise ProxyError('queue_full')
                 held=db.execute("SELECT coalesce(sum(disk_bytes),0) FROM campaign_storage_reservations WHERE state='reserved'").fetchone()[0]
-                self._floor(held+pins['disk_bytes'])
+                # The live DB/WAL is already physically allocated and is part
+                # of the campaign's 2 GiB, not an additional 512 MiB charge.
+                # Credit only blocks that actually exist on this filesystem;
+                # leave a MiB for metadata and allocation rounding.
+                files=(self.path,Path(str(self.path)+'-wal'))
+                allocated=sum(path.stat().st_blocks*512 for path in files)
+                if not 0<allocated<=self.storage_policy['database_wal_reserve_bytes']:
+                    raise ProxyError('storage_original_database_allocation_changed')
+                additional=max(0,held+pins['disk_bytes']-allocated)+1048576
+                self._floor(additional)
                 db.execute("INSERT INTO campaign_storage_reservations VALUES(?,?,?,?,'reserved',?)",(campaign,plan,pins['generation'],pins['disk_bytes'],_stamp(_now())))
             result=make_control('CampaignInspection',{'campaign_public_ref':campaign,'state':'reserved',
                 'generation':pins['generation'],'qualification':'none','report_digest':None})
