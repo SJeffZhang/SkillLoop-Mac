@@ -115,6 +115,22 @@ def produce_deployment(policy_path):
     if value['campaign_digest'] not in proxy['admitted_campaigns']:
         raise ValueError('whole_proxy_current_campaign_reservation_pin')
     proxy_mounts=value['roles']['proxy']['config']['HostConfig']['Mounts']
+    proxy_environment=dict(item.split('=',1) for item in value['roles']['proxy']['config']['Env'])
+    deployment_locator=proxy_environment.get('SKILLLOOP_PROXY_DEPLOYMENT')
+    if type(deployment_locator) is not str or not PurePosixPath(deployment_locator).is_absolute():
+        raise ValueError('whole_proxy_actual_deployment_entry_missing')
+    deployment_path=PurePosixPath(deployment_locator)
+    visible=[m for m in proxy_mounts if deployment_path.is_relative_to(PurePosixPath(m['Target']))]
+    if not visible:raise ValueError('whole_proxy_actual_deployment_document_unmounted')
+    mounted=max(visible,key=lambda m:len(PurePosixPath(m['Target']).parts))
+    if (mounted.get('Type')!='volume' or mounted.get('Source')!=value['volume']
+            or mounted.get('ReadOnly') is not True):
+        raise ValueError('whole_proxy_actual_deployment_document_not_immutable')
+    original=(PurePosixPath(mounted['VolumeOptions']['Subpath'])/
+        deployment_path.relative_to(PurePosixPath(mounted['Target'])))
+    matches=[d for d in value['documents'] if PurePosixPath(d['directory'])/d['name']==original]
+    if len(matches)!=1 or matches[0]['value']!=proxy:
+        raise ValueError('whole_proxy_actual_deployment_document_binding')
     for field in ('database','snapshot_directory','authority_projection_directory'):
         locator=proxy.get(field)
         if type(locator) is not str or not PurePosixPath(locator).is_absolute():
