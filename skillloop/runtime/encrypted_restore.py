@@ -127,13 +127,14 @@ def run_restore(policy_path):
                     or type(row['bytes']) is not int or row['bytes']<0):
                 raise ValueError('restore_safe_inventory_path')
             declared_paths.add(row['path'].casefold());declared_total+=row['bytes']
-        physical_peak=declared_total+len(inventory['files'])*4096+1048576
+        space=os.statvfs(root)
+        physical_peak=(declared_total+len(inventory['files'])*max(8192,2*space.f_frsize)
+            +1048576)
         if (type(inventory.get('total_bytes')) is not int
                 or declared_total!=inventory['total_bytes']
                 or physical_peak>policy['maximum_bytes']
                 or physical_peak>int(os.environ['SKILLLOOP_ARCHIVE_MAX_BYTES'])):
             raise ValueError('restore_original_complete_capacity_before_write')
-        space=os.statvfs(root)
         if space.f_bavail*space.f_frsize<physical_peak+2147483648:
             raise OSError('restore_actual_complete_peak_free_floor')
         total=0;seen=set();files=[]
