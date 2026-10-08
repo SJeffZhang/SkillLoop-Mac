@@ -284,6 +284,13 @@ class CompletedTaskSnapshots:
         blocks new writes, including a write for a different task in the same
         campaign, until its original operation has been reviewed.
         """
+        expected={prior['intent'][7:] for prior in rows}
+        for entry in self.directory.iterdir():
+            if entry.name not in expected:
+                # A directory absent from the durable cancellation query may
+                # be an interrupted or foreign export. Do not hide its bytes
+                # by charging only the rows we currently recognize.
+                raise RuntimeError('snapshot_unindexed_original_preserve_custody')
         total=0
         for prior in rows:
             if prior['campaign_id']!=campaign or prior['intent']==current_intent:
