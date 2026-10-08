@@ -150,7 +150,7 @@ class CampaignDispatcher:
             'error_type':type(error).__name__,'controller_traceback':details,
             'diagnostics_complete':not truncated,'recorded_at':datetime.now(timezone.utc).isoformat(),
             'automatic_reexecution_allowed':False,'evidence_released':False,
-            'public_error_code':'unavailable'})
+            'public_error_code':'unknown_requires_recovery'})
     def reconcile_original_retirements(self,request,route):
         """Continue a recorded process removal, never an inference or delivery.
 
