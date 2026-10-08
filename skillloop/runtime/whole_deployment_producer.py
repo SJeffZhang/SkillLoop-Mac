@@ -96,6 +96,37 @@ def produce_deployment(policy_path):
             or operator_documents[0].get('deployment_epoch')!=value['deployment_epoch']
             or operator_documents[0].get('deadline')!=value['deadline']):
         raise ValueError('whole_operator_original_physical_storage_and_clock')
+    # The Proxy's business DB, its consistent snapshots and live authority
+    # projection must all write to this deployment's retained persistent
+    # volume. A reservation against another filesystem does not protect those
+    # bytes or the Keeper's original evidence custody.
+    from skillloop.proxy.storage import FORMAL_STORAGE_POLICY
+    from skillloop.proxy.task_admission import validate_campaign_catalog
+    proxy_documents=[d['value'] for d in value['documents']
+        if d['value'].get('kind')=='ProxyServiceDeployment']
+    if len(proxy_documents)!=1:
+        raise ValueError('whole_proxy_actual_capacity_deployment_required')
+    proxy=proxy_documents[0]
+    if (proxy.get('deployment_epoch')!=value['deployment_epoch']
+            or proxy.get('deadline')!=value['deadline']
+            or proxy.get('storage_policy')!=FORMAL_STORAGE_POLICY):
+        raise ValueError('whole_proxy_shared_storage_policy_and_clock')
+    validate_campaign_catalog(proxy.get('admitted_campaigns'))
+    if value['campaign_digest'] not in proxy['admitted_campaigns']:
+        raise ValueError('whole_proxy_current_campaign_reservation_pin')
+    proxy_mounts=value['roles']['proxy']['config']['HostConfig']['Mounts']
+    for field in ('database','snapshot_directory','authority_projection_directory'):
+        locator=proxy.get(field)
+        if type(locator) is not str or not PurePosixPath(locator).is_absolute():
+            raise ValueError('whole_proxy_actual_storage_locator')
+        path=PurePosixPath(locator if field!='database' else str(PurePosixPath(locator).parent))
+        mounted=[m for m in proxy_mounts if path.is_relative_to(PurePosixPath(m['Target']))]
+        if not mounted:
+            raise ValueError('whole_proxy_actual_storage_mount_missing')
+        mount=max(mounted,key=lambda m:len(PurePosixPath(m['Target']).parts))
+        if (mount.get('Type')!='volume' or mount.get('Source')!=value['volume']
+                or mount.get('ReadOnly') is not False):
+            raise ValueError('whole_proxy_actual_storage_not_shared_persistent_volume')
     # All approved routes are checked before producing a bootstrap package.
     # Actual operator startup repeats this check on the mounted documents.
     documents={}
