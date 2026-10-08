@@ -108,6 +108,8 @@ def run_restore(policy_path):
                 or inventory.get('digest')!=digest_jcs({k:v for k,v in inventory.items() if k!='digest'})
                 or inventory['digest']!=header['source_manifest_digest']
                 or inventory['campaign']!=policy['campaign'] or inventory['deployment_epoch']!=policy['deployment_epoch']
+                or type(inventory.get('allocated_source_bytes')) is not int
+                or not 0<=inventory['allocated_source_bytes']+1048576<=2147483648
                 or type(inventory['files']) is not list or not 1<=len(inventory['files'])<=policy['maximum_files']):
             raise ValueError('restore_original_complete_inventory')
         total=0;seen=set();files=[]

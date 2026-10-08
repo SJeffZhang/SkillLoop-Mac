@@ -52,6 +52,7 @@ def _inventory(policy,budget):
             raise ValueError('archive_source_roots_must_be_disjoint')
         canonical_roots.append(base)
     aliases=set();physical_roots=set();physical_files=set()
+    source_device=None;allocated_source_bytes=0
     for root in roots:
         if (type(root) is not dict or set(root)!={'alias','path','uid','gid','mode'}
                 or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',root['alias']) or root['alias'] in aliases
@@ -61,6 +62,9 @@ def _inventory(policy,budget):
         aliases.add(root['alias']);base=_directory(root['path'],root['uid'],root['gid'],root['mode'])
         if '..' in base.parts or any(p.is_symlink() for p in base.parents):raise ValueError('archive_source_parent_symlink')
         root_info=base.lstat();root_inode=(root_info.st_dev,root_info.st_ino)
+        if source_device is None:source_device=root_info.st_dev
+        elif root_info.st_dev!=source_device:
+            raise ValueError('archive_campaign_sources_not_one_physical_filesystem')
         if root_inode in physical_roots:raise ValueError('archive_source_physical_root_alias')
         physical_roots.add(root_inode)
         pending=[base]
@@ -87,6 +91,11 @@ def _inventory(policy,budget):
                     if inode in physical_files:
                         raise ValueError('archive_source_physical_file_alias')
                     physical_files.add(inode)
+                    if actual.st_dev!=source_device or actual.st_blocks*512<actual.st_size:
+                        raise ValueError('archive_source_physical_allocation_unknown')
+                    allocated_source_bytes+=actual.st_blocks*512
+                    if allocated_source_bytes+1048576>2147483648:
+                        raise ValueError('archive_original_campaign_physical_capacity')
                     relative=path.relative_to(base).as_posix()
                     if len(relative)>1024 or '..' in PurePosixPath(relative).parts:raise ValueError('archive_relative_path_capacity')
                     rows.append({'path':root['alias']+'/'+relative,'bytes':meta.st_size,'digest':digest,
@@ -96,7 +105,8 @@ def _inventory(policy,budget):
     rows.sort(key=lambda r:r['path'])
     if not rows or len({r['path'] for r in rows})!=len(rows):raise ValueError('archive_nonempty_unique_inventory')
     value={'kind':'FrozenEncryptedEvidenceInventory','campaign':policy['campaign'],
-        'deployment_epoch':policy['deployment_epoch'],'files':rows,'total_bytes':total}
+        'deployment_epoch':policy['deployment_epoch'],'files':rows,'total_bytes':total,
+        'allocated_source_bytes':allocated_source_bytes}
     value['digest']=digest_jcs(value)
     if len(canonical_json_line(value))>8388608:raise ValueError('archive_inventory_manifest_capacity')
     return value
