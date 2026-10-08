@@ -51,12 +51,21 @@ class OperatorService:
     def recover_original_operations(self):
         for ref,request,route in self.store.running():
             try:self.store.complete(ref,self.dispatcher.recover_final(request,route))
-            except Exception:
+            except Exception as recovery_error:
                 try:
                     self.dispatcher.reconcile_original_retirements(request,route)
                     proof=self.dispatcher.recover_unstarted_tail(request,route)
                     self.store.requeue_unstarted_tail(ref,proof)
-                except Exception:self.store.fail(ref,'unknown_requires_recovery')
+                except Exception as custody_error:
+                    # A started operation may already have dispatched a model,
+                    # committed a business effect or lost its response. Retain
+                    # available diagnostics before exposing a stable unknown;
+                    # an existing immutable original failure stays unchanged.
+                    if hasattr(custody_error,'add_note'):
+                        custody_error.add_note('original_recovery_error:'+type(recovery_error).__name__)
+                    try:self.dispatcher.preserve_failure(request,route,custody_error)
+                    except Exception:pass
+                    self.store.fail(ref,'unknown_requires_recovery')
 
     def stop_admission(self):
         # Signal handlers only fence admission. The original worker owns its
@@ -92,8 +101,12 @@ class OperatorService:
                 # does not contain private paths, case errors or traceback.
                 try:self.dispatcher.preserve_failure(request,route,error)
                 except BaseException as custody_error:
-                    error.add_note('controller_failure_custody_unavailable:'+type(custody_error).__name__)
-                self.store.fail(ref)
+                    if hasattr(error,'add_note'):
+                        error.add_note('controller_failure_custody_unavailable:'+type(custody_error).__name__)
+                # The dispatcher can fail after a task was delivered or a
+                # publication committed. A generic failure would hide that
+                # uncertainty and invite a fresh attempt with the same work.
+                self.store.fail(ref,'unknown_requires_recovery')
     def serve(self):
         # One controller owns admission and recovery at a time. Keep the lock
         # inode across restarts; deleting a lock could admit a second service.
