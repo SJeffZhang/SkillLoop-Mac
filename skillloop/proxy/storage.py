@@ -24,16 +24,18 @@ FORMAL_STORAGE_POLICY={'queue_capacity':16,'free_floor_bytes':2147483648,
 
 
 class FormalStorageStore(ProxyStore):
-    def __init__(self,path,*,deployment_epoch,policy,campaigns,authority_projection_directory):
+    def __init__(self,path,*,deployment_epoch,policy,campaigns,authority_projection_directory,snapshot_directory):
         if os.geteuid()!=21003:raise PermissionError('formal_storage_proxy_owner')
         required={'queue_capacity','free_floor_bytes','database_wal_reserve_bytes','campaign_disk_bytes'}
         if (type(policy) is not dict or set(policy)!=required
                 or policy!=FORMAL_STORAGE_POLICY):
             raise ValueError('formal_storage_frozen_policy')
-        database_path=Path(path);projection_path=Path(authority_projection_directory)
-        if (database_path.parent.stat().st_dev!=projection_path.stat().st_dev
-                or database_path.exists() and database_path.stat().st_dev!=projection_path.stat().st_dev):
-            raise ProxyError('storage_authority_projection_other_filesystem')
+        database_path=Path(path)
+        filesystem=database_path.parent.stat().st_dev
+        if (any(Path(directory).stat().st_dev!=filesystem
+                for directory in (authority_projection_directory,snapshot_directory))
+                or database_path.exists() and database_path.stat().st_dev!=filesystem):
+            raise ProxyError('storage_authority_or_snapshot_other_filesystem')
         from skillloop.proxy.task_admission import validate_campaign_catalog
         validate_campaign_catalog(campaigns)
         from skillloop.proxy.qualification_authority import LiveAuthorityProjection

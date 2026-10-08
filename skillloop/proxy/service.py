@@ -478,7 +478,8 @@ def main():
             deadline=config['deadline'])
     store = FormalStorageStore(database, deployment_epoch=config['deployment_epoch'],
         policy=config['storage_policy'],campaigns=config['admitted_campaigns'],
-        authority_projection_directory=config['authority_projection_directory'])
+        authority_projection_directory=config['authority_projection_directory'],
+        snapshot_directory=config['snapshot_directory'])
     authority = ApprovalAuthority(store, **config['catalog'])
     admission = ControllerTaskAdmission(store, admitted_campaigns=config['admitted_campaigns'],
         source_repositories=config.get('source_repositories'))
