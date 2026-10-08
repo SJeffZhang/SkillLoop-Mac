@@ -112,6 +112,30 @@ def run_restore(policy_path):
                 or not 0<=inventory['allocated_source_bytes']+1048576<=2147483648
                 or type(inventory['files']) is not list or not 1<=len(inventory['files'])<=policy['maximum_files']):
             raise ValueError('restore_original_complete_inventory')
+        # Admit the complete authenticated inventory before writing its first
+        # plaintext inode. A bad last row or an impossible total must not
+        # create an avoidable partial restore of all preceding rows.
+        declared_total=0;declared_paths=set()
+        for row in inventory['files']:
+            if type(row) is not dict or type(row.get('path')) is not str:
+                raise ValueError('restore_safe_inventory_path')
+            name=PurePosixPath(row['path'])
+            if (set(row)!={'path','bytes','digest','uid','gid','mode'} or name.is_absolute()
+                    or str(name)!=row['path'] or len(name.parts)<2 or '..' in name.parts
+                    or '\\' in row['path'] or '\x00' in row['path']
+                    or row['path'].casefold() in declared_paths
+                    or type(row['bytes']) is not int or row['bytes']<0):
+                raise ValueError('restore_safe_inventory_path')
+            declared_paths.add(row['path'].casefold());declared_total+=row['bytes']
+        physical_peak=declared_total+len(inventory['files'])*4096+1048576
+        if (type(inventory.get('total_bytes')) is not int
+                or declared_total!=inventory['total_bytes']
+                or physical_peak>policy['maximum_bytes']
+                or physical_peak>int(os.environ['SKILLLOOP_ARCHIVE_MAX_BYTES'])):
+            raise ValueError('restore_original_complete_capacity_before_write')
+        space=os.statvfs(root)
+        if space.f_bavail*space.f_frsize<physical_peak+2147483648:
+            raise OSError('restore_actual_complete_peak_free_floor')
         total=0;seen=set();files=[]
         for row in inventory['files']:
             budget();name=PurePosixPath(row['path'])
