@@ -96,6 +96,18 @@ def produce_deployment(policy_path):
             or operator_documents[0].get('deployment_epoch')!=value['deployment_epoch']
             or operator_documents[0].get('deadline')!=value['deadline']):
         raise ValueError('whole_operator_original_physical_storage_and_clock')
+    operation_store=operator_documents[0].get('store')
+    if (type(operation_store) is not str or not PurePosixPath(operation_store).is_absolute()
+            or '..' in Path(operation_store).parts):
+        raise ValueError('whole_operator_actual_store_locator')
+    operation_parent=PurePosixPath(operation_store).parent
+    controller_mounts=value['roles']['controller']['config']['HostConfig']['Mounts']
+    visible=[m for m in controller_mounts if operation_parent.is_relative_to(PurePosixPath(m['Target']))]
+    if not visible:raise ValueError('whole_operator_actual_store_unmounted')
+    operation_mount=max(visible,key=lambda m:len(PurePosixPath(m['Target']).parts))
+    if (operation_mount.get('Type')!='volume' or operation_mount.get('Source')!=value['volume']
+            or operation_mount.get('ReadOnly') is not False):
+        raise ValueError('whole_operator_store_not_shared_persistent_volume')
     # The Proxy's business DB, its consistent snapshots and live authority
     # projection must all write to this deployment's retained persistent
     # volume. A reservation against another filesystem does not protect those
@@ -117,7 +129,8 @@ def produce_deployment(policy_path):
     proxy_mounts=value['roles']['proxy']['config']['HostConfig']['Mounts']
     proxy_environment=dict(item.split('=',1) for item in value['roles']['proxy']['config']['Env'])
     deployment_locator=proxy_environment.get('SKILLLOOP_PROXY_DEPLOYMENT')
-    if type(deployment_locator) is not str or not PurePosixPath(deployment_locator).is_absolute():
+    if (type(deployment_locator) is not str or not PurePosixPath(deployment_locator).is_absolute()
+            or '..' in Path(deployment_locator).parts):
         raise ValueError('whole_proxy_actual_deployment_entry_missing')
     deployment_path=PurePosixPath(deployment_locator)
     visible=[m for m in proxy_mounts if deployment_path.is_relative_to(PurePosixPath(m['Target']))]
@@ -133,7 +146,8 @@ def produce_deployment(policy_path):
         raise ValueError('whole_proxy_actual_deployment_document_binding')
     for field in ('database','snapshot_directory','authority_projection_directory'):
         locator=proxy.get(field)
-        if type(locator) is not str or not PurePosixPath(locator).is_absolute():
+        if (type(locator) is not str or not PurePosixPath(locator).is_absolute()
+                or '..' in Path(locator).parts):
             raise ValueError('whole_proxy_actual_storage_locator')
         path=PurePosixPath(locator if field!='database' else str(PurePosixPath(locator).parent))
         mounted=[m for m in proxy_mounts if path.is_relative_to(PurePosixPath(m['Target']))]
