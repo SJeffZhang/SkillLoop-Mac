@@ -72,9 +72,17 @@ def main():
     validate_directory_manifest(value)
     root=Path('/deployment-data')
     if any(root.iterdir()):raise ValueError('bootstrap_new_volume_required')
+    from skillloop.proxy.storage import FORMAL_STORAGE_POLICY
+    # This is the actual Docker volume, before its first configuration write.
+    # The campaign's 2 GiB includes its 512 MiB DB/WAL reservation. Keep the
+    # complete campaign and free floor available at once; the three campaigns
+    # run serially and do not acquire three simultaneous reservations.
+    required=(FORMAL_STORAGE_POLICY['free_floor_bytes']
+        +FORMAL_STORAGE_POLICY['campaign_disk_bytes']
+        +value['provisioning_bytes'])
     fs=os.statvfs(root)
-    if fs.f_bavail*fs.f_frsize<2147483648+value['provisioning_bytes']:
-        raise OSError('bootstrap_actual_persistent_disk_free_floor')
+    if fs.f_bavail*fs.f_frsize<required:
+        raise OSError('bootstrap_actual_complete_campaign_capacity')
     directories=value['directories'];seen=set()
     # Sort parents before children; every parent is declared, never inferred
     # with permissive ownership or a world-readable default.
