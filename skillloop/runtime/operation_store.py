@@ -172,8 +172,11 @@ class OperatorOperationStore:
             # replacement ticket, route, task, slot or clock is constructed.
             db.execute("UPDATE operations SET state='accepted',error=NULL WHERE ref=?",(ref,))
             self._transition(db,ref,'accepted','original_unstarted_tail_recovery');db.commit()
-    def fail(self,ref,reason='unavailable'):
-        if reason not in {'unavailable','unknown_requires_recovery'}:raise ValueError('operator_stable_failure_code')
+    def fail(self,ref,reason):
+        # Once claimed, a role may have committed an effect before the
+        # Controller sees an exception. New failures must retain that unknown
+        # outcome; historical "unavailable" transitions remain readable.
+        if reason!='unknown_requires_recovery':raise ValueError('operator_stable_failure_code')
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute("UPDATE operations SET state='failed',error=? WHERE ref=? AND state='running'",(reason,ref)).rowcount==1:
