@@ -310,7 +310,9 @@ class CompletedTaskSnapshots:
                         or stat.S_IMODE(meta.st_mode)!=0o640
                         or meta.st_blocks*512<meta.st_size):
                     raise RuntimeError('snapshot_prior_physical_export_unknown')
-                total+=meta.st_size
+                # Charge allocated blocks, including filesystem rounding,
+                # since logical SQLite bytes can understate physical usage.
+                total+=max(meta.st_size,meta.st_blocks*512)
         return total
 
     def poll(self):
