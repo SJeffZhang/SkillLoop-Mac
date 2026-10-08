@@ -277,9 +277,38 @@ class CompletedTaskSnapshots:
         if self.failure is not None:
             raise RuntimeError('snapshot_export_failed_preserve_custody') from self.failure
 
+    def _campaign_snapshot_bytes(self, rows, campaign, current_intent):
+        """Count retained original exports before creating another output.
+
+        An interrupted directory is an unknown export. It stays in place and
+        blocks new writes, including a write for a different task in the same
+        campaign, until its original operation has been reviewed.
+        """
+        total=0
+        for prior in rows:
+            if prior['campaign_id']!=campaign or prior['intent']==current_intent:
+                continue
+            directory=self.directory/prior['intent'][7:]
+            if not os.path.lexists(directory):continue
+            info=directory.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or directory.is_symlink()
+                    or info.st_uid!=21003 or info.st_gid!=21004
+                    or stat.S_IMODE(info.st_mode)!=0o750
+                    or set(os.listdir(directory))!={'authority.db','snapshot.json'}):
+                raise RuntimeError('snapshot_prior_partial_export_preserve_custody')
+            for name in ('authority.db','snapshot.json'):
+                file=directory/name;meta=file.lstat()
+                if (not stat.S_ISREG(meta.st_mode) or meta.st_nlink!=1
+                        or meta.st_uid!=21003 or meta.st_gid!=21004
+                        or stat.S_IMODE(meta.st_mode)!=0o640
+                        or meta.st_blocks*512<meta.st_size):
+                    raise RuntimeError('snapshot_prior_physical_export_unknown')
+                total+=meta.st_size
+        return total
+
     def poll(self):
         with closing(self.store._connect()) as db:
-            rows=list(db.execute("SELECT a.intent,a.receipt,t.task_instance_id,t.run_request_digest,t.binding_digest,t.approval_digest,r.run_id,r.fence FROM controller_task_admissions a JOIN tasks t ON t.task_instance_id=a.task JOIN runs r ON r.run_id=t.run_id WHERE r.state='cancelled'"))
+            rows=list(db.execute("SELECT a.intent,a.receipt,t.task_instance_id,t.campaign_id,t.run_request_digest,t.binding_digest,t.approval_digest,r.run_id,r.fence FROM controller_task_admissions a JOIN tasks t ON t.task_instance_id=a.task JOIN runs r ON r.run_id=t.run_id WHERE r.state='cancelled'"))
         if len(rows)>384:raise ValueError('snapshot_campaign_capacity')
         for row in rows:
             key=row['intent']
@@ -297,8 +326,6 @@ class CompletedTaskSnapshots:
                         (self.deadline-datetime.now(timezone.utc)).total_seconds()<=22):
                     raise TimeoutError('snapshot_original_budget_expired')
             within_budget()
-            directory.mkdir(mode=0o750)
-            os.chown(directory,-1,21004);os.chmod(directory,0o750)
             target=directory/'authority.db'
             # VACUUM INTO creates a consistent compact export directly. A
             # backup followed by VACUUM first copied every physically reserved
@@ -314,13 +341,20 @@ class CompletedTaskSnapshots:
                 # SQLite's sorting/export peak, rather than claiming that the
                 # small final compact file bounds temporary storage as well.
                 peak_bytes=2*source_pages*page_size
-                free=os.statvfs(directory)
-                if free.f_bavail*free.f_frsize<2147483648+peak_bytes:
+                prior_bytes=self._campaign_snapshot_bytes(rows,row['campaign_id'],key)
+                policy=self.store.storage_policy
+                if (prior_bytes+peak_bytes+1048576>
+                        policy['campaign_disk_bytes']-policy['database_wal_reserve_bytes']):
+                    raise OSError('snapshot_campaign_original_capacity_exhausted')
+                free=os.statvfs(self.directory)
+                if free.f_bavail*free.f_frsize<policy['free_floor_bytes']+peak_bytes:
                     raise OSError('snapshot_actual_export_peak_free_floor')
+                directory.mkdir(mode=0o750)
+                os.chown(directory,-1,21004);os.chmod(directory,0o750)
                 def sql_budget():
                     within_budget()
                     available=os.statvfs(directory)
-                    if available.f_bavail*available.f_frsize<2147483648:
+                    if available.f_bavail*available.f_frsize<policy['free_floor_bytes']:
                         raise OSError('snapshot_actual_export_free_floor')
                     if os.path.lexists(target) and target.lstat().st_size>source_pages*page_size:
                         raise ValueError('snapshot_export_original_capacity_exceeded')
