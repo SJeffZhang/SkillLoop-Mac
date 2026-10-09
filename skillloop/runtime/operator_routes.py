@@ -134,6 +134,10 @@ def _validate_evaluation_sequence(route):
     attempt_audit=actions.index('operation_archive')
     factory=actions.index('private_factory');lifecycle=actions.index('lifecycle_review')
     gate=actions.index('campaign_gate');assignment=actions.index('campaign_gate_assignment')
+    imports=[index for index,step in enumerate(route['steps']) if step['action']=='role_command'
+        and step.get('role')=='admin' and step.get('role_command')=='import-lifecycle']
+    if len(imports)!=1 or not factory<imports[0]<lifecycle:
+        raise ValueError('operator_evaluation_original_host_lifecycle_import_required')
     if not max(factory,lifecycle)<assignment<gate:
         raise ValueError('operator_evaluation_current_gate_assignment_order')
     if route['steps'][assignment]['assignment_directory']!=route['steps'][gate]['assignment_directory']:
