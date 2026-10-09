@@ -58,8 +58,31 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
         if route['command']=='report' and (
                 len(route['steps'])!=1 or route['steps'][0]['action']!='role_command'
                 or route['steps'][0]['role']!='report' or route['steps'][0]['role_command']!='report'
+                or route['steps'][0]['result_path']!=route['result_path']
                 or route['result_uid']!=21009):
             raise PermissionError('operator_reporter_public_projection_only')
+        # The short routes must end at their actual public result producer.
+        # A preceding process completion or an unrelated result file is not a
+        # substitute for the frozen CLI object, even if its kind is declared.
+        direct={'import':('import_source',21001),'scan':('static_scan',21001),
+            'inspect':('campaign_inspection',21001),'promote':('promote',21001),
+            'admin cancel':('proxy_controller',21001),'admin revoke':('proxy_controller',21001)}
+        if route['command'] in direct:
+            action,uid=direct[route['command']]
+            if (len(route['steps'])!=1 or route['steps'][0]['action']!=action
+                    or route['result_uid']!=uid):
+                raise PermissionError('operator_actual_direct_result_producer_required')
+        delegated={'admin approve-domain':'approve-domain',
+            'admin approve-factory':'approve-factory',
+            'admin review-finding':'review-finding',
+            'admin retire-history':'retire-history'}
+        if route['command'] in delegated and (
+                len(route['steps'])!=1 or route['steps'][0]['action']!='role_command'
+                or route['steps'][0]['role']!='admin'
+                or route['steps'][0]['role_command']!=delegated[route['command']]
+                or route['steps'][0]['result_path']!=route['result_path']
+                or route['result_uid']!=21010):
+            raise PermissionError('operator_actual_admin_result_producer_required')
         if route['command']=='harden' and (
                 route['steps'][-1]['action']!='harden_review'
                 or sum(s['action']=='proposal' for s in route['steps'])!=1
