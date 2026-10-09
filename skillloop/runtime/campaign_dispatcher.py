@@ -78,8 +78,11 @@ def validate_dispatch_route(route):
                 if value in journals:raise ValueError('campaign_distinct_original_journals')
                 journals.add(value)
         if action=='deployment' and (type(step['start_roles']) is not list
-                or not set(step['start_roles'])<={'proxy','controller','model_gateway','admin','report'}):
-            raise PermissionError('campaign_worker_requires_original_task_admission')
+                or not set(step['start_roles'])<={'model_gateway','admin','report'}):
+            # This route is executed by an already-running Controller. Proxy
+            # and Controller are bootstrap dependencies of its own admission
+            # socket and cannot be started a second time from an operation.
+            raise PermissionError('campaign_authority_bootstrap_must_precede_operator')
         if action=='role_command' and (step['role'] not in {'admin','report'}
                 or type(step['rpc_params']) is not dict or type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120
@@ -465,8 +468,6 @@ class CampaignDispatcher:
                     ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
                 result=deployment.provision()
                 for role in step['start_roles']:
-                    if role in {'runtime','protected_evaluator','generator','patcher','scanner','gate'}:
-                        raise PermissionError('campaign_worker_requires_original_task_admission')
                     deployment.start_role(role,request['operation_id']+'-'+role)
             elif step['action']=='role_command':
                 from skillloop.runtime.role_command_dispatch import dispatch_role_command

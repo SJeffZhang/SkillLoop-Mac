@@ -16,6 +16,8 @@ The formal operator service must not accept a route whose frozen public result h
 
 The installed `skillloop` command now requires its Admin-owned operator deployment document for every public command. Without it, `import`, `scan`, `report`, `promote`, and Admin approvals also return a stable unavailable result instead of bypassing the Controller operation store. Their underlying component functions remain available to authorized internal callers; those calls do not constitute a formal CLI campaign result.
 
+The Controller and Proxy must be started by a trusted deployment bootstrap before the operator service accepts a request. A route running inside Controller can start only later auxiliary service roles; it cannot start another Controller or the Proxy it already depends on. The trusted bootstrap caller and complete current route bundle remain missing, so this ordering check is a guard, not a completed deployment.
+
 ## Remaining decisions and independent work
 
 - The versioned public `evaluate`/`harden` result contract, Mac DeploymentLock and R36 exit-code conflict require the already requested normative decision. Do not expose private Gate objects or change frozen schema to simulate completion.
