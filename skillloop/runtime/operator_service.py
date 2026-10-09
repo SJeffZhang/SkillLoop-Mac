@@ -90,7 +90,14 @@ class OperatorService:
         # contract exists yet. Do not admit an eight-hour campaign whose final
         # result cannot legally cross the role boundary. Likewise, these
         # administrative result types have no production issuer today.
-        if value['command'] in {'evaluate','harden','admin archive','admin restore','admin calibrate'}:
+        # review_finding and retire_history appear in the frozen method list,
+        # but the currently deployed Proxy ApprovalAuthority issues only the
+        # two approval methods. Sending either to the Admin worker would
+        # consume an operation and turn a definite missing provider into an
+        # ambiguous started failure. Keep them outside the durable queue until
+        # their real issuers and recovery paths are connected.
+        if value['command'] in {'evaluate','harden','admin review-finding',
+                'admin retire-history','admin archive','admin restore','admin calibrate'}:
             raise TimeoutError('operator_required_public_result_provider_unavailable')
         with self.admission_lock:
             if self.stop.is_set():raise TimeoutError('operator_admission_stopping')
