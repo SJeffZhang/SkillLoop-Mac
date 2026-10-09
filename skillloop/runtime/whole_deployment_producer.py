@@ -224,9 +224,20 @@ def produce_deployment(policy_path):
                        or p.get('deployment_epoch')!=value['deployment_epoch']
                        or p.get('deadline')!=value['deadline'] for p in policies)
                 or len({p['operation_ref'] for p in policies})!=1
+                or policies[1]['worker_policy_digest']!=policies[2]['worker_policy_digest']
+                or policies[1]['mounts'].get('encrypted')!=policies[2]['mounts'].get('encrypted')
                 or any(step['journal_directory']==other['journal_directory']
                        for i,step in enumerate(actions) for other in actions[i+1:])):
             raise ValueError('whole_export_actual_three_role_policies_required')
+        # The public --destination is a volume reference to the exact bundle
+        # written by the Gate worker. Binding only the ArchiveManifest would
+        # silently accept a different destination while exporting elsewhere.
+        encrypted=policies[1]['mounts']['encrypted']
+        destination=(encrypted['volume']+':'+str(PurePosixPath(encrypted['subpath'])/
+            (policies[1]['operation_ref']+'.bundle')))
+        if route['parameters_digest']!=digest_jcs({
+                'campaign':value['campaign_digest'],'destination':destination}):
+            raise ValueError('whole_export_requested_destination_not_actual_bundle')
         review=policies[2]
         expected_manifest=str(PurePosixPath(review['result_path']).parent/
             (review['operation_ref']+'.manifest.json'))
