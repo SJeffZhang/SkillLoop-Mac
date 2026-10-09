@@ -15,4 +15,4 @@ skillloop = "skillloop.cli:main"
 include = ["skillloop*", "scripts*", "specs"]
 
 [tool.setuptools.package-data]
-specs = ["v2.2/*.json", "v2.2/operations/*.json", "v2.2/families/**/*.json"]
+specs = ["v2.2/**/*", "mac/**/*"]
