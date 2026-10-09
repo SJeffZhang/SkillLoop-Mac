@@ -85,6 +85,13 @@ class OperatorService:
         if value['command'].startswith('admin ') and uid!=21010:raise PermissionError('operator_admin_actual_peer')
         route=self.routes.get((value['command'],digest_jcs(value['parameters'])))
         if route is None:raise TimeoutError('operator_unadmitted_required_route')
+        # The frozen public CLI demands CIResult/HardenResult, while their
+        # authoritative objects are Gate-private. No public versioned result
+        # contract exists yet. Do not admit an eight-hour campaign whose final
+        # result cannot legally cross the role boundary. Likewise, these
+        # administrative result types have no production issuer today.
+        if value['command'] in {'evaluate','harden','admin archive','admin restore','admin calibrate'}:
+            raise TimeoutError('operator_required_public_result_provider_unavailable')
         with self.admission_lock:
             if self.stop.is_set():raise TimeoutError('operator_admission_stopping')
             return self.store.accept(uid,value,route)
