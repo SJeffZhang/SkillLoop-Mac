@@ -217,59 +217,10 @@ def main(argv=None) -> int:
                 verdict=result['body']['verdict']
                 return profile['verdict_exit'][verdict]
             return 0
-        if command not in existing:
-            raise PermissionError('formal_operator_deployment_required')
-        if args.command == "admin":
-            result = _admin_approval(args)
-            sys.stdout.buffer.write(canonical_json_line(result))
-            return 0
-        if args.command == "scan":
-            from .discovery.scan_service import ScanController
-            deployment = os.environ.get("SKILLLOOP_SCANNER_DEPLOYMENT")
-            if not deployment:
-                raise PermissionError("scanner_deployment_required")
-            raw = _input_bytes(args.snapshot)
-            snapshot = decode_json(raw)
-            validate_envelope(snapshot)
-            result = ScanController(deployment).scan(snapshot,scanner_profile=args.scanner_profile,
-                                                     operation_id=args.operation_id)
-            sys.stdout.buffer.write(canonical_json_line(result))
-            return 0
-        if args.command == "promote":
-            if os.geteuid() != 21001:
-                raise PermissionError("controller_role_required")
-            registry_path = os.environ.get("SKILLLOOP_REGISTRY_STORE")
-            qualification_path = os.environ.get("SKILLLOOP_QUALIFICATION_STORE")
-            authority_directory = os.environ.get("SKILLLOOP_AUTHORITY_PROJECTION")
-            if not registry_path or not qualification_path or not authority_directory:
-                raise PermissionError("formal_qualification_endpoints_required")
-            from .ci.campaign_registry import CampaignRegistry
-            import re
-            if (not re.fullmatch(r"sha256:[0-9a-f]{64}", args.campaign) or
-                    not re.fullmatch(r"sha256:[0-9a-f]{64}", args.subject) or args.expected_active_revision < 0):
-                raise SyntaxError64("invalid_promotion_arguments")
-            try:
-                result = CampaignRegistry(registry_path).promote(qualification_path=qualification_path,
-                    authority_directory=authority_directory,
-                    campaign=args.campaign, subject=args.subject,
-                    expected_active_revision=args.expected_active_revision, operation_id=args.operation_id)
-            except ValueError as exc:
-                raise PermissionError("qualification_or_registry_rejected") from exc
-            sys.stdout.buffer.write(canonical_json_line(result))
-            return 0
-        if args.command == "report":
-            result = _report(args.campaign)
-            sys.stdout.buffer.write(canonical_json_line(result))
-            return 0
-        def produce():
-            return import_git_package(args.git_repo, args.commit, args.skill_path)[0]
-        if args.operation_id is not None:
-            snapshot = _operation_result(args.operation_id,
-                {"git_repo": str(args.git_repo.absolute()), "commit": args.commit, "skill_path": args.skill_path}, produce)
-        else:
-            snapshot = produce()
-        sys.stdout.buffer.write(canonical_json_line(snapshot))
-        return 0
+        # Every public command belongs to the one Controller-owned operation
+        # store. A standalone component result has no whole-round admission,
+        # original ticket or recovery reference and must not look successful.
+        raise PermissionError('formal_operator_deployment_required')
     except (SyntaxError64, ProtocolError) as exc:
         print(str(exc), file=sys.stderr)
         return 64

@@ -14,6 +14,8 @@ This is a source-level connection audit for the current Mac/Ollama plus Linux OC
 
 The formal operator service must not accept a route whose frozen public result has no lawful production issuer. Current unavailable commands are `evaluate`, `harden`, `admin archive`, `admin restore`, and `admin calibrate`; they fail before a campaign side effect. This preserves the original role boundary and prevents a long activity that cannot publish its required result. The blocked commands are not counted as implemented or accepted.
 
+The installed `skillloop` command now requires its Admin-owned operator deployment document for every public command. Without it, `import`, `scan`, `report`, `promote`, and Admin approvals also return a stable unavailable result instead of bypassing the Controller operation store. Their underlying component functions remain available to authorized internal callers; those calls do not constitute a formal CLI campaign result.
+
 ## Remaining decisions and independent work
 
 - The versioned public `evaluate`/`harden` result contract, Mac DeploymentLock and R36 exit-code conflict require the already requested normative decision. Do not expose private Gate objects or change frozen schema to simulate completion.
