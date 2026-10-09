@@ -1,6 +1,6 @@
 """Authenticated internal operator transport; public RPC enums stay unchanged."""
 from datetime import datetime,timedelta,timezone
-import os,socket,time,uuid
+import os,socket,time
 from pathlib import Path
 from skillloop.discovery.formal_task_gate import read_owned
 from skillloop.protocol import canonical_json_line,decode_json,digest_jcs,validate_envelope
@@ -16,7 +16,16 @@ def operator_request(command,parameters,operation_id=None,*,wait=True):
     if (cfg.get('kind')!='OperatorFrontendDeployment' or cfg.get('caller_uid')!=os.geteuid()
             or cfg.get('server_uid')!=21001 or not Path(cfg['socket']).is_absolute()):
         raise PermissionError('formal_operator_deployment_identity')
-    original=operation_id or 'operator-'+uuid.uuid4().hex
+    # Several frozen CLI commands have no --operation-id. A random client ID
+    # would make a lost ticket reply impossible to recover: invoking the same
+    # command again would admit a second campaign operation. The deployment
+    # epoch and exact parameters give those commands one stable original ID.
+    # An explicitly supplied ID retains its conflict/replay semantics.
+    if type(cfg.get('deployment_epoch')) is not str or not cfg['deployment_epoch']:
+        raise PermissionError('formal_operator_deployment_epoch_required')
+    original=(operation_id if operation_id is not None else 'operator-'+digest_jcs({
+        'deployment_epoch':cfg['deployment_epoch'],'command':command,
+        'parameters':parameters})[7:])
     request={'kind':'InternalOperatorRequest','command':command,'parameters':parameters,'operation_id':original}
     request['digest']=digest_jcs(request)
     def exchange(value):
