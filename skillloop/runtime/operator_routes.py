@@ -61,6 +61,18 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
                 or route['steps'][0]['result_path']!=route['result_path']
                 or route['result_uid']!=21009):
             raise PermissionError('operator_reporter_public_projection_only')
+        if route['command']=='admin export':
+            actions=[step['action'] for step in route['steps']]
+            if (route['campaign_digest']!=campaign_digest or route['result_uid']!=21005
+                    or actions[:3]!=['archive_role']*3
+                    or len(actions) not in {5,6}
+                    or actions[3:]!=['archive_close']*(len(actions)-3)):
+                # The API4 ArchiveManifest is produced by the independent
+                # review worker after key service and export. A Controller
+                # process completion or a preexisting result file cannot
+                # replace that chain, and both live key/export roles require
+                # a recorded retirement before the CLI returns success.
+                raise PermissionError('operator_export_reviewed_encrypted_chain_required')
         # The short routes must end at their actual public result producer.
         # A preceding process completion or an unrelated result file is not a
         # substitute for the frozen CLI object, even if its kind is declared.

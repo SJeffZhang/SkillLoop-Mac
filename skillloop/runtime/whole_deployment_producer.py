@@ -213,6 +213,36 @@ def produce_deployment(policy_path):
         routes.append(route)
     from skillloop.runtime.operator_routes import validate_operator_routes
     validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
+    for route in routes:
+        if route['command']!='admin export':continue
+        steps=route['steps'];actions=steps[:3]
+        policies=[documents.get(step['policy_path']) for step in actions]
+        if (any(type(p) is not dict or p.get('kind')!='FrozenArchiveRoleDispatch'
+                for p in policies)
+                or [p['action'] for p in policies]!=['key_service','export','review']
+                or any(p.get('campaign')!=value['campaign_digest']
+                       or p.get('deployment_epoch')!=value['deployment_epoch']
+                       or p.get('deadline')!=value['deadline'] for p in policies)
+                or len({p['operation_ref'] for p in policies})!=1
+                or any(step['journal_directory']==other['journal_directory']
+                       for i,step in enumerate(actions) for other in actions[i+1:])):
+            raise ValueError('whole_export_actual_three_role_policies_required')
+        review=policies[2]
+        expected_manifest=str(PurePosixPath(review['result_path']).parent/
+            (review['operation_ref']+'.manifest.json'))
+        if route['result_path']!=expected_manifest:
+            raise ValueError('whole_export_actual_independent_manifest_issuer')
+        retired={}
+        for step in steps[3:]:
+            match=[i for i,original in enumerate(actions)
+                if step['dispatch_journal']==original['journal_directory']
+                and step['policy_path']==original['policy_path']]
+            if (len(match)!=1 or match[0] in retired
+                    or step['review_path']!=review['result_path']):
+                raise ValueError('whole_export_exact_original_role_retirement')
+            retired[match[0]]=step
+        if not {0,1}<=set(retired):
+            raise ValueError('whole_export_key_and_export_role_retirement_required')
     evaluations=[route for route in routes if route['command']=='evaluate']
     if len(evaluations)!=1:raise ValueError('whole_one_original_evaluation_route')
     evaluation=evaluations[0]
