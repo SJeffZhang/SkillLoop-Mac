@@ -13,7 +13,7 @@ import stat
 import tarfile
 
 from skillloop.protocol import digest_jcs
-from skillloop.runtime.docker_api import DockerEngine
+from skillloop.runtime.docker_api import DockerEngine, DockerEngineError
 from skillloop.runtime.native_backend import _owned
 from skillloop.runtime.native_round_host import _save
 
@@ -189,3 +189,52 @@ def transfer_original_export(*, engine, launch, receipt, journal):
     # Keep the stopped original container for independent retirement review;
     # the retained volume's Keeper protects the bytes until the Gate archive.
     return completion
+
+
+def retire_verified_transfer(*, engine, launch, journal, transfer, review_digest):
+    """Remove only the original stopped sidecar after Gate's real review."""
+    if (type(engine) is not DockerEngine
+            or transfer.get('kind') != 'NativeAdminTransferVerified'
+            or transfer.get('sidecar_stopped') is not True
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}', review_digest)):
+        raise ValueError('native_admin_transfer_independent_review_required')
+    identifier = transfer['container_id']
+    name = 'skillloop-native-import-' + launch['digest'][7:31]
+    actual = engine.inspect(identifier)
+    if (actual.get('Id') != identifier or actual.get('Name') != '/' + name
+            or actual.get('Image') != launch['controller_image']
+            or actual.get('Config', {}).get('Labels', {}).get('skillloop.launch_digest') != launch['digest']
+            or actual.get('State', {}).get('Running') is not False
+            or len(actual.get('Mounts', [])) != 1
+            or actual['Mounts'][0].get('Name') != launch['admin_input_volume']):
+        raise ValueError('native_admin_transfer_original_retirement_identity')
+    _save(journal, 'transfer-removal-intent.json', {
+        'kind': 'NativeAdminTransferRemovalIntent',
+        'container_id': identifier, 'transfer_digest': transfer['digest'],
+        'independent_review_digest': review_digest,
+        'retained_volume': launch['admin_input_volume']})
+    try:
+        engine.remove(identifier)
+    except BaseException as error:
+        # One DELETE was sent. Inspect the exact original ID; no replacement
+        # DELETE or new sidecar is permitted after an ambiguous reply.
+        try:
+            engine.inspect(identifier)
+        except DockerEngineError as observed:
+            if observed.status != 404:
+                raise
+        else:
+            raise error
+    try:
+        engine.inspect(identifier)
+    except DockerEngineError as observed:
+        if observed.status != 404:
+            raise
+    else:
+        raise RuntimeError('native_admin_transfer_original_sidecar_still_present')
+    return _save(journal, 'transfer-retired.json', {
+        'kind': 'NativeAdminTransferRetired',
+        'container_id': identifier, 'transfer_digest': transfer['digest'],
+        'independent_review_digest': review_digest,
+        'retained_volume': launch['admin_input_volume'],
+        'original_container_absent': True})

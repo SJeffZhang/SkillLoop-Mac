@@ -33,6 +33,7 @@ def _read_policy(path):
               'controller_id', 'controller_image', 'docker_socket',
               'dev_policy', 'protected_policy', 'dev_journal', 'protected_journal',
               'roster_freeze_path', 'factory_commit_path', 'protected_close_path',
+              'lifecycle_review_path',
               'deployment_manifest_path',
               'export_directory', 'journal_directory', 'deadline',
               'admin_input_volume', 'admin_input_subpath',
@@ -63,6 +64,7 @@ def _read_policy(path):
     for name, suffix in (('roster_freeze_path', '/freeze.json'),
                          ('factory_commit_path', '/commit.json'),
                          ('protected_close_path', '.completed.json'),
+                         ('lifecycle_review_path', '/completion.json'),
                          ('deployment_manifest_path', '/deployment.json'),
                          ('host_cost_path', '/pre-operator-host-cost.json')):
         item = Path(value[name])
@@ -249,6 +251,7 @@ def run(policy_path):
     # spending effect if any later phase has already appeared.
     _require_future_projection(engine, launch, 'roster_freeze_path', uid=21005, limit=262144)
     _require_future_projection(engine, launch, 'factory_commit_path', uid=21004, limit=262144)
+    _require_future_projection(engine, launch, 'lifecycle_review_path', uid=21005, limit=262144)
     _require_future_projection(engine, launch, 'protected_close_path', uid=21001, limit=262144)
     _save(journal, 'intent.json', {'kind': 'NativeRoundHostIntent',
         'launch_digest': launch['digest'], 'deployment_digest': deployment_digest,
@@ -281,7 +284,17 @@ def run(policy_path):
             'export_digest': receipt['digest'], 'opaque_ref': factory['opaque_ref'],
             'qualification_issued': False})
         from skillloop.runtime.native_admin_transfer import transfer_original_export
-        transfer_original_export(engine=engine, launch=launch, receipt=receipt, journal=journal)
+        transferred = transfer_original_export(engine=engine, launch=launch, receipt=receipt, journal=journal)
+        review = _wait_for(engine, launch, 'lifecycle_review_path', uid=21005, limit=262144,
+                           expected_kind='OpaqueNativeLifecycleReviewCompletion')
+        if (review.get('campaign_public_ref') != launch['campaign_id']
+                or review.get('deployment_epoch') != launch['deployment_epoch']
+                or review.get('aggregate_status') != 'reviewed'
+                or review.get('qualification_issued') is not False):
+            raise ValueError('native_round_host_original_independent_lifecycle_review')
+        from skillloop.runtime.native_admin_transfer import retire_verified_transfer
+        retire_verified_transfer(engine=engine, launch=launch, journal=journal,
+            transfer=transferred, review_digest=review['digest'])
         # Remain the original parent and drain the protected backend through
         # the real private tasks. A process restart cannot reconstruct this
         # Popen or launch a second backend under the same original journal.
