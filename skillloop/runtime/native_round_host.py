@@ -36,6 +36,8 @@ def _read_policy(path):
               'deployment_manifest_path',
               'export_directory', 'journal_directory', 'deadline',
               'admin_input_volume', 'admin_input_subpath',
+              'whole_round_manifest_digest', 'host_cost_path',
+              'host_reserved_seconds', 'host_reserved_disk_bytes',
               'protected_close_step_digest', 'request_digest', 'digest'}
     if (type(value) is not dict or set(value) != fields
             or value['kind'] != 'FrozenNativeRoundHostLaunch'
@@ -44,6 +46,11 @@ def _read_policy(path):
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['controller_image'])
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['campaign_id'])
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['config_digest'])
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['whole_round_manifest_digest'])
+            or type(value['host_reserved_seconds']) is not int
+            or not 300<=value['host_reserved_seconds']<=1800
+            or type(value['host_reserved_disk_bytes']) is not int
+            or not 75497472<=value['host_reserved_disk_bytes']<=134217728
             or any(not re.fullmatch(r'sha256:[0-9a-f]{64}', value[name])
                    for name in ('protected_close_step_digest', 'request_digest'))):
         raise ValueError('native_round_host_frozen_identity')
@@ -56,7 +63,8 @@ def _read_policy(path):
     for name, suffix in (('roster_freeze_path', '/freeze.json'),
                          ('factory_commit_path', '/commit.json'),
                          ('protected_close_path', '.completed.json'),
-                         ('deployment_manifest_path', '/deployment.json')):
+                         ('deployment_manifest_path', '/deployment.json'),
+                         ('host_cost_path', '/pre-operator-host-cost.json')):
         item = Path(value[name])
         if (not item.is_absolute() or '..' in item.parts
                 or str(item) != value[name] or not value[name].endswith(suffix)):
@@ -157,6 +165,7 @@ def _verify_admin_destination(engine, launch):
             or manifest.get('campaign_digest') != launch['campaign_id']
             or manifest.get('deployment_epoch') != launch['deployment_epoch']
             or manifest.get('image') != launch['controller_image']
+            or manifest.get('whole_round_manifest_digest') != launch['whole_round_manifest_digest']
             or manifest.get('volume') != launch['admin_input_volume']):
         raise ValueError('native_round_host_original_deployment_binding')
     recipes = [d['value'] for d in manifest['documents']
@@ -192,6 +201,22 @@ def _verify_admin_destination(engine, launch):
     return manifest['digest']
 
 
+def _verify_original_host_budget(engine, launch):
+    cost = _controller_file(engine, launch, launch['host_cost_path'], uid=21001, limit=262144)
+    expected = {'seconds': launch['host_reserved_seconds'], 'input_tokens': 0,
+                'output_tokens': 0, 'disk_bytes': launch['host_reserved_disk_bytes']}
+    spending = cost.get('spending')
+    if (cost.get('kind') != 'PreOperatorNativeHostCost'
+            or cost.get('native_host_launch_digest') != launch['digest']
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}', cost.get('launch_digest', ''))
+            or type(spending) is not dict
+            or spending.get('operation_key') != 'native-host-' + launch['digest'][7:]
+            or spending.get('stage') != 'private_factory_lifecycle'
+            or spending.get('requested_cost') != expected):
+        raise ValueError('native_round_host_original_whole_cost_required')
+    return cost['digest']
+
+
 def run(policy_path):
     launch = _read_policy(policy_path)
     journal = Path(launch['journal_directory'])
@@ -212,8 +237,13 @@ def run(policy_path):
                 or manager.policy['config_digest'] != launch['config_digest']
                 or manager.policy['campaign_deadline'] != launch['deadline']):
             raise ValueError('native_round_host_backend_original_binding')
+    startup_close_bound = (dev.policy['startup_seconds'] + dev.policy['stop_seconds']
+        + protected.policy['startup_seconds'] + protected.policy['stop_seconds'] + 60 + 100)
+    if startup_close_bound > launch['host_reserved_seconds']:
+        raise ValueError('native_round_host_original_process_and_transfer_cost')
     engine = DockerEngine(launch['docker_socket'])
     deployment_digest = _verify_admin_destination(engine, launch)
+    budget_digest = _verify_original_host_budget(engine, launch)
     # Starting development after a roster freeze would create a convincing
     # but temporally false backend history. Fail before the first process or
     # spending effect if any later phase has already appeared.
@@ -222,6 +252,7 @@ def run(policy_path):
     _require_future_projection(engine, launch, 'protected_close_path', uid=21001, limit=262144)
     _save(journal, 'intent.json', {'kind': 'NativeRoundHostIntent',
         'launch_digest': launch['digest'], 'deployment_digest': deployment_digest,
+        'budget_digest': budget_digest,
         'automatic_reexecution_allowed': False})
     dev.start()
     roster = _wait_for(engine, launch, 'roster_freeze_path', uid=21005, limit=262144,

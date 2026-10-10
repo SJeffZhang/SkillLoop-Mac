@@ -8,6 +8,7 @@ Controller. It never handles a private task or issues an approval.
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
 import socket
 import stat
 import time
@@ -35,7 +36,9 @@ def _launch_document():
     fields = {'kind', 'policy_path', 'manifest_path', 'whole_round_manifest_path',
               'ledger_path', 'journal_directory', 'deployment_journal_directory', 'victim_seconds',
               'campaign_started_at', 'campaign_digest', 'deployment_epoch',
-              'engine_socket_gid', 'operator_socket', 'digest'}
+              'engine_socket_gid', 'operator_socket',
+              'native_host_launch_digest', 'native_host_reserved_seconds',
+              'native_host_reserved_disk_bytes', 'digest'}
     if (type(value) is not dict or set(value) != fields
             or value['kind'] != 'FrozenPreOperatorLaunch'
             or value['digest'] != digest_jcs({k:v for k,v in value.items() if k != 'digest'})
@@ -46,6 +49,12 @@ def _launch_document():
             or type(value['victim_seconds']) is not int or value['victim_seconds'] < 1
             or type(value['engine_socket_gid']) is not int
             or not 1 <= value['engine_socket_gid'] <= 4294967294
+            or type(value['native_host_launch_digest']) is not str
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}',value['native_host_launch_digest'])
+            or type(value['native_host_reserved_seconds']) is not int
+            or not 300<=value['native_host_reserved_seconds']<=1800
+            or type(value['native_host_reserved_disk_bytes']) is not int
+            or not 75497472<=value['native_host_reserved_disk_bytes']<=134217728
             or type(value['campaign_started_at']) not in (int,float)
             or not 0 < value['campaign_started_at'] <= time.time()):
         raise ValueError('bootstrap_sealed_original_launch')
@@ -73,7 +82,7 @@ def _admin_produce(path):
 
 
 def _reserve_admin_producer(launch, whole):
-    """Charge the original approval/deployment slot before Admin writes."""
+    """Charge Admin production and the future original host process slot."""
     child=os.fork()
     if child==0:
         try:
@@ -83,8 +92,6 @@ def _reserve_admin_producer(launch, whole):
             ledger=SpendingLedger(Path(launch['ledger_path']),
                 victim_seconds=launch['victim_seconds'],
                 campaign_started_at=launch['campaign_started_at'])
-            key='pre-operator-admin-'+launch['digest'][7:]
-            requested={'seconds':120,'input_tokens':0,'output_tokens':0,'disk_bytes':2097152}
             state=ledger.read()
             binding={'manifest_digest':whole['digest'],
                      'campaign':launch['campaign_digest']}
@@ -93,24 +100,35 @@ def _reserve_admin_producer(launch, whole):
                     or state.get('whole_round_binding') is None
                        and (state['executions'] or state.get('auxiliary_executions'))):
                 raise ValueError('bootstrap_original_whole_cost_reservation_required')
-            prior=[entry for entry in state.get('auxiliary_executions',[])
-                if entry.get('operation_key')==key]
-            if prior:
-                if (len(prior)!=1 or prior[0].get('stage')!='approval_deployment'
-                        or prior[0].get('requested_cost')!=requested):
-                    raise ValueError('bootstrap_original_admin_cost_changed')
-                spending=prior[0]
-            else:
-                spending=ledger.consume_auxiliary(manifest=whole,
-                    campaign=launch['campaign_digest'],stage='approval_deployment',
-                    operation_key=key,**requested)
-            journal=Path(launch['journal_directory']);path=journal/'pre-operator-admin-cost.json'
-            expected={'kind':'PreOperatorAdminProductionCost','launch_digest':launch['digest'],
-                      'spending':spending}
-            if path.exists():
-                if _controller_record(path)!={**expected,'digest':digest_jcs(expected)}:
-                    raise ValueError('bootstrap_original_admin_spending_receipt_changed')
-            else:_save(journal,path.name,expected)
+            charges=(('pre-operator-admin-'+launch['digest'][7:],'approval_deployment',
+                {'seconds':120,'input_tokens':0,'output_tokens':0,'disk_bytes':2097152},
+                'pre-operator-admin-cost.json','PreOperatorAdminProductionCost'),
+                ('native-host-'+launch['native_host_launch_digest'][7:],'private_factory_lifecycle',
+                {'seconds':launch['native_host_reserved_seconds'],'input_tokens':0,
+                 'output_tokens':0,'disk_bytes':launch['native_host_reserved_disk_bytes']},
+                'pre-operator-host-cost.json','PreOperatorNativeHostCost'))
+            journal=Path(launch['journal_directory'])
+            for key,stage,requested,filename,kind in charges:
+                state=ledger.read()
+                prior=[entry for entry in state.get('auxiliary_executions',[])
+                    if entry.get('operation_key')==key]
+                if prior:
+                    if (len(prior)!=1 or prior[0].get('stage')!=stage
+                            or prior[0].get('requested_cost')!=requested):
+                        raise ValueError('bootstrap_original_cost_changed')
+                    spending=prior[0]
+                else:
+                    spending=ledger.consume_auxiliary(manifest=whole,
+                        campaign=launch['campaign_digest'],stage=stage,
+                        operation_key=key,**requested)
+                path=journal/filename
+                expected={'kind':kind,'launch_digest':launch['digest'],
+                    'native_host_launch_digest':launch['native_host_launch_digest'],
+                    'spending':spending}
+                if path.exists():
+                    if _controller_record(path)!={**expected,'digest':digest_jcs(expected)}:
+                        raise ValueError('bootstrap_original_spending_receipt_changed')
+                else:_save(journal,path.name,expected)
         except BaseException:
             os._exit(1)
         os._exit(0)
