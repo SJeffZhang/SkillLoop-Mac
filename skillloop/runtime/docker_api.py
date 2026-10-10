@@ -12,7 +12,8 @@ class DockerEngineError(RuntimeError):
 class DockerEngine:
     def __init__(self,socket_path='/var/run/docker.sock'):
         self.socket_path=socket_path
-    def request(self,method,path,body=None,*,timeout=30,raw=False,maximum_response_bytes=None):
+    def request(self,method,path,body=None,*,timeout=30,raw=False,maximum_response_bytes=None,
+                content_type='application/json'):
         if type(timeout) not in (int,float) or not math.isfinite(timeout) or timeout<=0:
             raise ValueError('docker_request_deadline')
         if maximum_response_bytes is None:
@@ -36,7 +37,7 @@ class DockerEngine:
         try:
             connection.sock.settimeout(timeout);connection.sock.connect(self.socket_path)
             encoded=body if isinstance(body,bytes) else json.dumps(body).encode() if body is not None else None
-            connection.request(method,path,body=encoded,headers={'Content-Type':'application/json'})
+            connection.request(method,path,body=encoded,headers={'Content-Type':content_type})
             response=connection.getresponse()
             declared=response.getheader('Content-Length')
             if declared is not None and (int(declared)<0 or int(declared)>maximum_response_bytes):
@@ -65,6 +66,12 @@ class DockerEngine:
     def wait(self,identifier,timeout):return self.request('POST','/containers/'+identifier+'/wait?condition=not-running',timeout=timeout)
     def inspect(self,identifier,*,timeout=30):return self.request('GET','/containers/'+identifier+'/json',timeout=timeout)
     def archive(self,identifier,path,*,maximum_bytes=None):return self.request('GET','/containers/'+identifier+'/archive?path='+quote(path,safe=''),raw=True,maximum_response_bytes=maximum_bytes)
+    def put_archive(self,identifier,path,data,*,timeout=30,maximum_bytes):
+        if (type(data) is not bytes or type(maximum_bytes) is not int
+                or not 1<=len(data)<=maximum_bytes):
+            raise ValueError('docker_original_archive_upload_capacity')
+        return self.request('PUT','/containers/'+identifier+'/archive?path='+quote(path,safe=''),
+            data,timeout=timeout,maximum_response_bytes=65536,content_type='application/x-tar')
     def remove(self,identifier):self.request('DELETE','/containers/'+identifier+'?force=true&v=true')
     def remove_volume(self,name):self.request('DELETE','/volumes/'+quote(name))
 

@@ -8,7 +8,7 @@ An ambiguous Docker read or backend start remains in the original journals.
 from datetime import datetime, timezone
 import io
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import tarfile
@@ -34,6 +34,7 @@ def _read_policy(path):
               'dev_policy', 'protected_policy', 'dev_journal', 'protected_journal',
               'roster_freeze_path', 'factory_commit_path', 'protected_close_path',
               'export_directory', 'journal_directory', 'deadline',
+              'admin_input_volume', 'admin_input_subpath',
               'protected_close_step_digest', 'request_digest', 'digest'}
     if (type(value) is not dict or set(value) != fields
             or value['kind'] != 'FrozenNativeRoundHostLaunch'
@@ -58,6 +59,13 @@ def _read_policy(path):
         if (not item.is_absolute() or '..' in item.parts
                 or str(item) != value[name] or not value[name].endswith(suffix)):
             raise ValueError('native_round_host_public_projection_path')
+    subpath = value['admin_input_subpath']
+    if (type(value['admin_input_volume']) is not str
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', value['admin_input_volume'])
+            or type(subpath) is not str or subpath in {'', '.'}
+            or PurePosixPath(subpath).is_absolute() or '..' in PurePosixPath(subpath).parts
+            or str(PurePosixPath(subpath)) != subpath):
+        raise ValueError('native_round_host_admin_original_destination')
     deadline = datetime.fromisoformat(value['deadline'].replace('Z', '+00:00'))
     if deadline.tzinfo is None or not 120 < deadline.timestamp() - time.time() <= 28800:
         raise ValueError('native_round_host_original_clock')
@@ -189,23 +197,39 @@ def run(policy_path):
     _save(journal, 'factory-observed.json', {'kind': 'NativeRoundFactoryObserved',
         'factory_digest': factory['digest'], 'opaque_ref': factory['opaque_ref']})
     protected.start()
-    receipt = dev.export_lifecycle(protected=protected, opaque_ref=factory['opaque_ref'],
-                                   output_directory=launch['export_directory'])
-    _save(journal, 'exported.json', {'kind': 'NativeRoundHostExported',
-        'export_digest': receipt['digest'], 'opaque_ref': factory['opaque_ref'],
-        'qualification_issued': False})
-    # Remain the original parent and drain the protected backend through the
-    # real private tasks. A process restart cannot reconstruct this Popen or
-    # launch a second backend under the same original journal.
-    close = _wait_for(engine, launch, 'protected_close_path', uid=21001, limit=262144,
-                      expected_kind='CampaignStageCompleted')
-    if (close.get('step_digest') != launch['protected_close_step_digest']
-            or close.get('request_digest') != launch['request_digest']):
-        raise ValueError('native_round_host_original_close_binding')
-    stopped = protected.stop()
-    return _save(journal, 'closed.json', {'kind': 'NativeRoundHostClosed',
-        'export_digest': receipt['digest'], 'protected_stop_digest': stopped['digest'],
-        'qualification_issued': False})
+    try:
+        receipt = dev.export_lifecycle(protected=protected, opaque_ref=factory['opaque_ref'],
+                                       output_directory=launch['export_directory'])
+        _save(journal, 'exported.json', {'kind': 'NativeRoundHostExported',
+            'export_digest': receipt['digest'], 'opaque_ref': factory['opaque_ref'],
+            'qualification_issued': False})
+        from skillloop.runtime.native_admin_transfer import transfer_original_export
+        transfer_original_export(engine=engine, launch=launch, receipt=receipt, journal=journal)
+        # Remain the original parent and drain the protected backend through
+        # the real private tasks. A process restart cannot reconstruct this
+        # Popen or launch a second backend under the same original journal.
+        close = _wait_for(engine, launch, 'protected_close_path', uid=21001, limit=262144,
+                          expected_kind='CampaignStageCompleted')
+        if (close.get('step_digest') != launch['protected_close_step_digest']
+                or close.get('request_digest') != launch['request_digest']):
+            raise ValueError('native_round_host_original_close_binding')
+        stopped = protected.stop()
+        return _save(journal, 'closed.json', {'kind': 'NativeRoundHostClosed',
+            'export_digest': receipt['digest'], 'protected_stop_digest': stopped['digest'],
+            'qualification_issued': False})
+    except BaseException as error:
+        try:
+            _save(journal, 'failure.json', {'kind': 'NativeRoundHostFailure',
+                'error_type': type(error).__name__, 'automatic_reexecution_allowed': False,
+                'qualification_issued': False})
+        except BaseException as custody_error:
+            error.add_note('native_round_original_failure_custody:' + type(custody_error).__name__)
+        if protected.process is not None and protected.process.poll() is None:
+            try:
+                protected.stop()
+            except BaseException as close_error:
+                error.add_note('native_round_original_backend_close:' + type(close_error).__name__)
+        raise
 
 
 if __name__ == '__main__':
