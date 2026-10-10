@@ -308,27 +308,27 @@ def run(policy_path):
         'budget_digest': cost['digest'], 'bootstrap_completion_digest': bootstrap['digest'],
         'controller_id': launch['controller_id'],
         'automatic_reexecution_allowed': False})
-    dev.start()
-    roster = _wait_for(engine, launch, 'roster_freeze_path', uid=21005, limit=262144,
-                       expected_kind='FrozenCampaignSubjectRoster')
-    if (roster.get('campaign_id') != launch['campaign_id']
-            or roster.get('deployment_epoch') != launch['deployment_epoch']
-            or roster.get('config_digest') != launch['config_digest']
-            or roster.get('protected_evaluation') != 'not_started'):
-        raise ValueError('native_round_host_original_roster_binding')
-    _save(journal, 'roster-observed.json', {'kind': 'NativeRoundRosterObserved',
-        'roster_digest': roster['digest'], 'controller_id': launch['controller_id']})
-    dev.stop()
-    factory = _wait_for(engine, launch, 'factory_commit_path', uid=21004, limit=262144,
-                        expected_kind='FormalPrivateFactoryCommit')
-    if (factory.get('campaign_public_ref') != launch['campaign_id']
-            or factory.get('aggregate_status') != 'sealed'
-            or not re.fullmatch(r'protected-[0-9a-f]{32}', factory.get('opaque_ref', ''))):
-        raise ValueError('native_round_host_original_factory_binding')
-    _save(journal, 'factory-observed.json', {'kind': 'NativeRoundFactoryObserved',
-        'factory_digest': factory['digest'], 'opaque_ref': factory['opaque_ref']})
-    protected.start()
     try:
+        dev.start()
+        roster = _wait_for(engine, launch, 'roster_freeze_path', uid=21005, limit=262144,
+                           expected_kind='FrozenCampaignSubjectRoster')
+        if (roster.get('campaign_id') != launch['campaign_id']
+                or roster.get('deployment_epoch') != launch['deployment_epoch']
+                or roster.get('config_digest') != launch['config_digest']
+                or roster.get('protected_evaluation') != 'not_started'):
+            raise ValueError('native_round_host_original_roster_binding')
+        _save(journal, 'roster-observed.json', {'kind': 'NativeRoundRosterObserved',
+            'roster_digest': roster['digest'], 'controller_id': launch['controller_id']})
+        dev.stop()
+        factory = _wait_for(engine, launch, 'factory_commit_path', uid=21004, limit=262144,
+                            expected_kind='FormalPrivateFactoryCommit')
+        if (factory.get('campaign_public_ref') != launch['campaign_id']
+                or factory.get('aggregate_status') != 'sealed'
+                or not re.fullmatch(r'protected-[0-9a-f]{32}', factory.get('opaque_ref', ''))):
+            raise ValueError('native_round_host_original_factory_binding')
+        _save(journal, 'factory-observed.json', {'kind': 'NativeRoundFactoryObserved',
+            'factory_digest': factory['digest'], 'opaque_ref': factory['opaque_ref']})
+        protected.start()
         receipt = dev.export_lifecycle(protected=protected, opaque_ref=factory['opaque_ref'],
                                        output_directory=launch['export_directory'])
         _save(journal, 'exported.json', {'kind': 'NativeRoundHostExported',
@@ -370,6 +370,11 @@ def run(policy_path):
                 protected.stop()
             except BaseException as close_error:
                 error.add_note('native_round_original_backend_close:' + type(close_error).__name__)
+        if dev.process is not None and dev.process.poll() is None:
+            try:
+                dev.stop()
+            except BaseException as close_error:
+                error.add_note('native_round_original_dev_backend_close:' + type(close_error).__name__)
         raise
 
 
