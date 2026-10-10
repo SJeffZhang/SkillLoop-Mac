@@ -137,6 +137,32 @@ def _controller_file(engine, launch, path, *, uid, limit):
     return result
 
 
+def _bootstrap_owned_json(engine, identifier, path, *, uid, gid, mode):
+    raw = engine.archive(identifier, path, maximum_bytes=262144 + 16384)
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+        members = archive.getmembers()
+        if len(members) != 1:
+            raise ValueError('native_round_host_original_bootstrap_exact_file')
+        member = members[0]
+        if (not member.isfile() or member.issym() or member.islnk()
+                or Path(member.name).name != Path(path).name
+                or member.uid != uid or (gid is not None and member.gid != gid)
+                or stat.S_IMODE(member.mode) != mode
+                or member.size > 262144):
+            raise PermissionError('native_round_host_original_bootstrap_custody')
+        source = archive.extractfile(member)
+        if source is None:
+            raise ValueError('native_round_host_original_bootstrap_file_missing')
+        content = source.read(262145)
+        if len(content) != member.size:
+            raise ValueError('native_round_host_original_bootstrap_file_changed')
+    value = decode_json(content)
+    if type(value) is not dict or value.get('digest') != digest_jcs(
+            {k: v for k, v in value.items() if k != 'digest'}):
+        raise ValueError('native_round_host_original_bootstrap_seal')
+    return value
+
+
 def _resolve_original_controller(engine, launch):
     """Resolve the ID created by the original bootstrap, never a prefilled ID."""
     actual = engine.inspect(launch['bootstrap_name'])
@@ -148,30 +174,22 @@ def _resolve_original_controller(engine, launch):
             or actual.get('State', {}).get('Running') is not False
             or actual.get('State', {}).get('ExitCode') != 0):
         raise ValueError('native_round_host_original_bootstrap_identity')
-    raw = engine.archive(actual['Id'], launch['bootstrap_completion_path'],
-                         maximum_bytes=262144 + 16384)
-    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
-        members = archive.getmembers()
-        if len(members) != 1:
-            raise ValueError('native_round_host_original_bootstrap_completion')
-        member = members[0]
-        if (not member.isfile() or member.issym() or member.islnk()
-                or Path(member.name).name != 'pre-operator-complete.json'
-                or (member.uid, member.gid, stat.S_IMODE(member.mode)) != (21001, 21001, 0o600)
-                or member.size > 262144):
-            raise PermissionError('native_round_host_original_bootstrap_custody')
-        source = archive.extractfile(member)
-        if source is None:
-            raise ValueError('native_round_host_original_bootstrap_file_missing')
-        content = source.read(262145)
-        if len(content) != member.size:
-            raise ValueError('native_round_host_original_bootstrap_file_changed')
-    completion = decode_json(content)
+    original = _bootstrap_owned_json(engine, actual['Id'],
+        '/bootstrap-input/launch.json', uid=0, gid=None, mode=0o600)
+    if (original.get('kind') != 'FrozenPreOperatorLaunch'
+            or original.get('native_host_launch_digest') != launch['digest']
+            or original.get('campaign_digest') != launch['campaign_id']
+            or original.get('deployment_epoch') != launch['deployment_epoch']
+            or original.get('native_host_reserved_seconds') != launch['host_reserved_seconds']
+            or original.get('native_host_reserved_disk_bytes') != launch['host_reserved_disk_bytes']):
+        raise ValueError('native_round_host_original_bootstrap_policy_binding')
+    completion = _bootstrap_owned_json(engine, actual['Id'],
+        launch['bootstrap_completion_path'], uid=21001, gid=21001, mode=0o600)
     if (type(completion) is not dict
             or set(completion) != {'kind', 'launch_digest', 'deployment_digest', 'proxy_id',
                                   'controller_id', 'operator_socket', 'qualification_issued', 'digest'}
-            or completion.get('digest') != digest_jcs({k: v for k, v in completion.items() if k != 'digest'})
             or completion['kind'] != 'PreOperatorBootstrapCompletion'
+            or completion['launch_digest'] != original['digest']
             or completion['qualification_issued'] is not False
             or not re.fullmatch(r'[0-9a-f]{64}', completion['controller_id'])):
         raise ValueError('native_round_host_original_bootstrap_seal')
