@@ -3,6 +3,7 @@ from datetime import datetime,timezone
 import hashlib
 import os
 from pathlib import Path
+import re
 import stat
 import time
 from skillloop.discovery.formal_task_gate import read_owned
@@ -11,10 +12,81 @@ from skillloop.protection.current_task import _directory,_publish
 from skillloop.runtime.archive_files import open_original,require_unchanged,allocate_output
 
 
+def _produce_original_import(recipe):
+    """Admin derives the dynamic import from current Factory and host bytes.
+
+    Controller freezes the static recipe, but never reads the private bundle or
+    invents a future export digest. A partial production keeps this original
+    assignment directory occupied, preventing a second import attempt.
+    """
+    fields={'kind','campaign_id','deployment_epoch','host_admin_uid',
+        'factory_commit_path','input_directory','output_directory',
+        'assignment_directory','deadline','maximum_bytes','timeout_seconds','digest'}
+    if (set(recipe)!=fields or recipe['kind']!='FrozenNativeLifecycleImportProduction'
+            or type(recipe['host_admin_uid']) is not int or recipe['host_admin_uid']<1
+            or type(recipe['maximum_bytes']) is not int or not 8388608<=recipe['maximum_bytes']<=75497472
+            or type(recipe['timeout_seconds']) is not int or not 1<=recipe['timeout_seconds']<=60):
+        raise ValueError('native_lifecycle_current_import_production_policy')
+    commit=read_owned(recipe['factory_commit_path'],uid=21004,gid=21001,limit=262144)
+    if (set(commit)!={'kind','campaign_public_ref','opaque_ref','aggregate_status','digest'}
+            or commit['kind']!='FormalPrivateFactoryCommit'
+            or commit['campaign_public_ref']!=recipe['campaign_id']
+            or commit['aggregate_status']!='sealed'
+            or not re.fullmatch(r'protected-[0-9a-f]{32}',commit['opaque_ref'])):
+        raise ValueError('native_lifecycle_current_factory_commit_required')
+    source=_directory(recipe['input_directory'],21010,21010,0o700)
+    if set(os.listdir(source))!={'export.json','evidence.json','development-backend.log'}:
+        raise PermissionError('native_lifecycle_current_original_export_incomplete')
+    def original(name,limit):
+        path=source/name
+        fd=open_original(path)
+        with os.fdopen(fd,'rb') as stream:
+            before=os.fstat(stream.fileno())
+            if (before.st_uid,before.st_gid,stat.S_IMODE(before.st_mode))!=(21010,21010,0o600) or before.st_size>limit:
+                raise PermissionError('native_lifecycle_current_original_file_custody')
+            raw=stream.read(limit+1)
+            require_unchanged(path,before,os.fstat(stream.fileno()))
+        if len(raw)!=before.st_size:
+            raise ValueError('native_lifecycle_current_original_file_changed')
+        return decode_json(raw)
+    receipt=original('export.json',262144)
+    evidence=original('evidence.json',8388608)
+    if (receipt.get('kind')!='NativeHostLifecycleExport'
+            or receipt.get('digest')!=digest_jcs({k:v for k,v in receipt.items() if k!='digest'})
+            or receipt.get('campaign_id')!=recipe['campaign_id']
+            or receipt.get('deployment_epoch')!=recipe['deployment_epoch']
+            or receipt.get('host_admin_uid')!=recipe['host_admin_uid']
+            or receipt.get('deadline')!=recipe['deadline']
+            or receipt.get('qualification_issued') is not False
+            or evidence.get('kind')!='AdminNativeLifecycleEvidence'
+            or evidence.get('digest')!=digest_jcs({k:v for k,v in evidence.items() if k!='digest'})
+            or evidence.get('campaign_id')!=recipe['campaign_id']
+            or evidence.get('opaque_ref')!=commit['opaque_ref']):
+        raise ValueError('native_lifecycle_current_factory_export_mismatch')
+    job={'kind':'FrozenNativeLifecycleImport',
+        **{k:recipe[k] for k in ('campaign_id','deployment_epoch','host_admin_uid',
+            'input_directory','output_directory','deadline','maximum_bytes','timeout_seconds')},
+        'opaque_ref':commit['opaque_ref'],'export_digest':receipt['digest']}
+    job['digest']=digest_jcs(job)
+    directory=_directory(recipe['assignment_directory'],21010,21010,0o700)
+    if any(directory.iterdir()):
+        raise RuntimeError('native_lifecycle_current_import_original_assignment_preserved')
+    _publish(directory/'import.json',job,21010)
+    return job
+
+
 def import_lifecycle(assignment_path):
     if os.geteuid()!=21010 or 21005 not in set(os.getgroups())|{os.getegid()}:
         raise PermissionError('native_lifecycle_actual_admin_import')
-    job=read_owned(assignment_path,uid=21001,gid=21010,limit=262144)
+    parent=Path(assignment_path).parent.lstat()
+    custody=(parent.st_uid,parent.st_gid,stat.S_IMODE(parent.st_mode))
+    if custody==(21010,21001,0o750):
+        recipe=read_owned(assignment_path,uid=21010,gid=21001,limit=262144)
+        job=_produce_original_import(recipe)
+    elif custody==(21001,21010,0o750):
+        job=read_owned(assignment_path,uid=21001,gid=21010,limit=262144)
+    else:
+        raise PermissionError('native_lifecycle_original_assignment_custody')
     fields={'kind','campaign_id','deployment_epoch','opaque_ref','host_admin_uid','export_digest',
         'input_directory','output_directory','deadline','maximum_bytes','timeout_seconds','digest'}
     if (set(job)!=fields or job['kind']!='FrozenNativeLifecycleImport'
