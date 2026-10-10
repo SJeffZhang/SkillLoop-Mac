@@ -86,9 +86,12 @@ def _reserve_admin_producer(launch, whole):
             key='pre-operator-admin-'+launch['digest'][7:]
             requested={'seconds':120,'input_tokens':0,'output_tokens':0,'disk_bytes':2097152}
             state=ledger.read()
-            if (state.get('whole_round_binding')!={'manifest_digest':whole['digest'],
-                    'campaign':launch['campaign_digest']}
-                    or state.get('campaign_started_at')!=launch['campaign_started_at']):
+            binding={'manifest_digest':whole['digest'],
+                     'campaign':launch['campaign_digest']}
+            if (state.get('whole_round_binding') not in (None,binding)
+                    or state.get('campaign_started_at') not in (None,launch['campaign_started_at'])
+                    or state.get('whole_round_binding') is None
+                       and (state['executions'] or state.get('auxiliary_executions'))):
                 raise ValueError('bootstrap_original_whole_cost_reservation_required')
             prior=[entry for entry in state.get('auxiliary_executions',[])
                 if entry.get('operation_key')==key]
