@@ -302,7 +302,11 @@ class NativeBackendSupervisor:
               'campaign_deadline','binary_digest','model_manifest_digest','model_files','tokenizer_hashes','model_id','backend_version')
         if any(self.policy[k]!=protected.policy[k] for k in pins):
             raise ValueError('native_lifecycle_successor_identity_changed')
-        if type(opaque_ref) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',opaque_ref):
+        # Factory commits a random opaque handle, not a content digest. The
+        # same handle is later resolved by the independent Gate against the
+        # evaluator-owned bundle. Requiring a SHA-256 here made every real
+        # Factory result impossible to export.
+        if type(opaque_ref) is not str or not re.fullmatch(r'protected-[0-9a-f]{32}',opaque_ref):
             raise ValueError('native_lifecycle_original_factory_reference')
         root=Path(output_directory);_owned(root,os.geteuid(),0o700,directory=True)
         if any(root.iterdir()):raise RuntimeError('native_lifecycle_original_export_no_reexecution')
