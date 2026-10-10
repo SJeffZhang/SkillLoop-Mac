@@ -7,6 +7,10 @@ name = "skillloop"
 version = "0.1.0.dev1"
 description = "SkillLoop API4 trusted campaign execution"
 requires-python = ">=3.10"
+dependencies = [
+    "jsonschema==4.23.0",
+    "rfc8785==0.1.4",
+]
 
 [project.scripts]
 skillloop = "skillloop.cli:main"
