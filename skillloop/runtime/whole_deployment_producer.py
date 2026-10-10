@@ -96,6 +96,27 @@ def produce_deployment(policy_path):
             or operator_documents[0].get('deployment_epoch')!=value['deployment_epoch']
             or operator_documents[0].get('deadline')!=value['deadline']):
         raise ValueError('whole_operator_original_physical_storage_and_clock')
+    directories={d['path']:d for d in value['directories']}
+    # The installed CLI reads this Admin-owned document at its fixed locator.
+    # A working Controller socket without an actual frontend configuration is
+    # not an executable formal entry, even if all 17 routes were predeclared.
+    frontends=[d for d in value['documents']
+        if d['value'].get('kind')=='OperatorFrontendDeployment']
+    if (21010 not in value['operator_uids']
+            or not any(uid not in {21001,21010} for uid in value['operator_uids'])
+            or len(frontends)!=len(value['operator_uids'])
+            or {d['value'].get('caller_uid') for d in frontends}!=set(value['operator_uids'])
+            or any(d['name']!='operator.json'
+                or set(d['value'])!={'kind','caller_uid','server_uid','socket','deployment_epoch','digest'}
+                or d['value']['server_uid']!=21001
+                or d['value']['socket']!=operator_documents[0]['socket']
+                or d['value']['deployment_epoch']!=value['deployment_epoch']
+                or directories[d['directory']]['uid']!=21010
+                or directories[d['directory']]['gid']!=d['value']['caller_uid']
+                or directories[d['directory']]['mode']!=0o750
+                or directories[d['directory']]['privacy']!='configuration'
+                for d in frontends)):
+        raise ValueError('whole_operator_actual_frontend_config_for_each_caller')
     operation_store=operator_documents[0].get('store')
     if (type(operation_store) is not str or not PurePosixPath(operation_store).is_absolute()
             or '..' in Path(operation_store).parts):
