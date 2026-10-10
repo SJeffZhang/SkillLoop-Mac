@@ -33,6 +33,7 @@ def _read_policy(path):
               'controller_id', 'controller_image', 'docker_socket',
               'dev_policy', 'protected_policy', 'dev_journal', 'protected_journal',
               'roster_freeze_path', 'factory_commit_path', 'protected_close_path',
+              'deployment_manifest_path',
               'export_directory', 'journal_directory', 'deadline',
               'admin_input_volume', 'admin_input_subpath',
               'protected_close_step_digest', 'request_digest', 'digest'}
@@ -54,7 +55,8 @@ def _read_policy(path):
             raise ValueError('native_round_host_canonical_path')
     for name, suffix in (('roster_freeze_path', '/freeze.json'),
                          ('factory_commit_path', '/commit.json'),
-                         ('protected_close_path', '.completed.json')):
+                         ('protected_close_path', '.completed.json'),
+                         ('deployment_manifest_path', '/deployment.json')):
         item = Path(value[name])
         if (not item.is_absolute() or '..' in item.parts
                 or str(item) != value[name] or not value[name].endswith(suffix)):
@@ -148,6 +150,48 @@ def _require_future_projection(engine, launch, name, *, uid, limit):
     raise RuntimeError('native_round_host_phase_already_started_no_new_backend')
 
 
+def _verify_admin_destination(engine, launch):
+    manifest = _controller_file(engine, launch, launch['deployment_manifest_path'],
+                                uid=21010, limit=2097152)
+    if (manifest.get('kind') != 'FrozenWholeRoleDeployment'
+            or manifest.get('campaign_digest') != launch['campaign_id']
+            or manifest.get('deployment_epoch') != launch['deployment_epoch']
+            or manifest.get('image') != launch['controller_image']
+            or manifest.get('volume') != launch['admin_input_volume']):
+        raise ValueError('native_round_host_original_deployment_binding')
+    recipes = [d['value'] for d in manifest['documents']
+               if d['value'].get('kind') == 'FrozenNativeLifecycleImportProduction'
+               and d['value'].get('campaign_id') == launch['campaign_id']]
+    if len(recipes) != 1:
+        raise ValueError('native_round_host_current_admin_recipe_required')
+    recipe = recipes[0]
+    admin = manifest['roles']['admin']
+    module = 'skillloop.runtime.role_command_worker'
+    config = (admin['config'] if admin['config']['Cmd'] == ['-m', module]
+              else admin.get('entry_variants', {}).get(module, {}).get('config'))
+    if config is None:
+        raise ValueError('native_round_host_actual_admin_entry')
+    target = PurePosixPath(recipe['input_directory'])
+    matches = [m for m in config['HostConfig']['Mounts']
+               if m.get('Type') == 'volume'
+               and target.is_relative_to(PurePosixPath(m['Target']))]
+    if not matches:
+        raise ValueError('native_round_host_admin_input_unmounted')
+    mount = max(matches, key=lambda m: len(PurePosixPath(m['Target']).parts))
+    original = (PurePosixPath(mount['VolumeOptions']['Subpath']) /
+                target.relative_to(PurePosixPath(mount['Target'])))
+    declared = {d['path']: d for d in manifest['directories']}.get(str(original))
+    if (mount.get('Source') != launch['admin_input_volume']
+            or mount.get('ReadOnly') is not True
+            or str(original) != launch['admin_input_subpath']
+            or declared is None
+            or (declared['uid'], declared['gid'], declared['mode']) != (21010, 21010, 0o700)
+            or recipe.get('deployment_epoch') != launch['deployment_epoch']
+            or recipe.get('deadline') != launch['deadline']):
+        raise ValueError('native_round_host_original_admin_destination_mismatch')
+    return manifest['digest']
+
+
 def run(policy_path):
     launch = _read_policy(policy_path)
     journal = Path(launch['journal_directory'])
@@ -169,6 +213,7 @@ def run(policy_path):
                 or manager.policy['campaign_deadline'] != launch['deadline']):
             raise ValueError('native_round_host_backend_original_binding')
     engine = DockerEngine(launch['docker_socket'])
+    deployment_digest = _verify_admin_destination(engine, launch)
     # Starting development after a roster freeze would create a convincing
     # but temporally false backend history. Fail before the first process or
     # spending effect if any later phase has already appeared.
@@ -176,7 +221,8 @@ def run(policy_path):
     _require_future_projection(engine, launch, 'factory_commit_path', uid=21004, limit=262144)
     _require_future_projection(engine, launch, 'protected_close_path', uid=21001, limit=262144)
     _save(journal, 'intent.json', {'kind': 'NativeRoundHostIntent',
-        'launch_digest': launch['digest'], 'automatic_reexecution_allowed': False})
+        'launch_digest': launch['digest'], 'deployment_digest': deployment_digest,
+        'automatic_reexecution_allowed': False})
     dev.start()
     roster = _wait_for(engine, launch, 'roster_freeze_path', uid=21005, limit=262144,
                        expected_kind='FrozenCampaignSubjectRoster')
