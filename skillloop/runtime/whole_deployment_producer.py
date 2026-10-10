@@ -234,6 +234,74 @@ def produce_deployment(policy_path):
         routes.append(route)
     from skillloop.runtime.operator_routes import validate_operator_routes
     validate_operator_routes(routes,campaign_digest=value['campaign_digest'],deadline=value['deadline'])
+    evaluation=next(route for route in routes if route['command']=='evaluate')
+    import_steps=[step for step in evaluation['steps'] if step['action']=='role_command'
+        and step['role']=='admin' and step['role_command']=='import-lifecycle']
+    factory_steps=[step for step in evaluation['steps'] if step['action']=='private_factory']
+    if len(import_steps)!=1 or len(factory_steps)!=1:
+        raise ValueError('whole_lifecycle_current_factory_and_admin_import_required')
+    import_step=import_steps[0]
+    if set(import_step['rpc_params'])!={'assignment_path'}:
+        raise ValueError('whole_lifecycle_original_import_recipe_locator')
+    admin_template=value['roles']['admin']
+    role_module='skillloop.runtime.role_command_worker'
+    admin_config=(admin_template['config'] if admin_template['config']['Cmd']==['-m',role_module]
+        else admin_template.get('entry_variants',{}).get(role_module,{}).get('config'))
+    if admin_config is None:
+        raise ValueError('whole_lifecycle_actual_admin_import_entry')
+    def original_mount(role_config, target):
+        target=PurePosixPath(target)
+        if not target.is_absolute() or '..' in target.parts:
+            raise ValueError('whole_lifecycle_original_mount_target')
+        mounts=[m for m in role_config['HostConfig']['Mounts']
+            if m.get('Type')=='volume' and m.get('Source')==value['volume']
+            and target.is_relative_to(PurePosixPath(m['Target']))]
+        if not mounts:
+            raise ValueError('whole_lifecycle_same_retained_volume_required')
+        selected=max(mounts,key=lambda m:len(PurePosixPath(m['Target']).parts))
+        original=(PurePosixPath(selected['VolumeOptions']['Subpath'])/
+            target.relative_to(PurePosixPath(selected['Target'])))
+        return str(original),selected
+    recipe_path=import_step['rpc_params']['assignment_path']
+    recipe_original,recipe_mount=original_mount(admin_config,recipe_path)
+    recipes=[d['value'] for d in value['documents']
+        if str(PurePosixPath(d['directory'])/d['name'])==recipe_original]
+    if len(recipes)!=1 or recipe_mount['ReadOnly'] is not True:
+        raise ValueError('whole_lifecycle_actual_frozen_admin_recipe_required')
+    recipe=recipes[0]
+    expected_fields={'kind','campaign_id','deployment_epoch','host_admin_uid',
+        'factory_commit_path','input_directory','output_directory',
+        'assignment_directory','deadline','maximum_bytes','timeout_seconds','digest'}
+    if (type(recipe) is not dict or set(recipe)!=expected_fields
+            or recipe['kind']!='FrozenNativeLifecycleImportProduction'
+            or any(recipe[k]!=value[v] for k,v in
+                   (('campaign_id','campaign_digest'),('deployment_epoch','deployment_epoch'),('deadline','deadline')))
+            or type(recipe['maximum_bytes']) is not int
+            or not 8388608<=recipe['maximum_bytes']<=75497472
+            or type(recipe['timeout_seconds']) is not int
+            or not 1<=recipe['timeout_seconds']<=60):
+        raise ValueError('whole_lifecycle_current_import_production_identity')
+    recipe_directory=directories.get(str(PurePosixPath(recipe_original).parent))
+    if (recipe_directory is None or
+            (recipe_directory['uid'],recipe_directory['gid'],recipe_directory['mode'])!=(21010,21001,0o750)):
+        raise ValueError('whole_lifecycle_admin_recipe_grant')
+    expected_factory,_=original_mount(value['roles']['controller']['config'],
+        str(PurePosixPath(factory_steps[0]['projection_directory'])/'commit.json'))
+    factory_original,factory_mount=original_mount(admin_config,recipe['factory_commit_path'])
+    factory_directory=directories.get(str(PurePosixPath(factory_original).parent))
+    if (factory_original!=expected_factory or factory_mount['ReadOnly'] is not True
+            or factory_directory is None
+            or (factory_directory['uid'],factory_directory['gid'],factory_directory['mode'])!=(21004,21001,0o750)):
+        raise ValueError('whole_lifecycle_actual_current_factory_projection')
+    for field,expected,writable in (
+            ('input_directory',(21010,21010,0o700),False),
+            ('assignment_directory',(21010,21010,0o700),True),
+            ('output_directory',(21010,21005,0o750),True)):
+        original,mount=original_mount(admin_config,recipe[field])
+        declared=directories.get(original)
+        if (declared is None or (declared['uid'],declared['gid'],declared['mode'])!=expected
+                or mount['ReadOnly'] is writable):
+            raise ValueError('whole_lifecycle_original_'+field+'_mount')
     for route in routes:
         if route['command']!='admin export':continue
         steps=route['steps'];actions=steps[:3]
