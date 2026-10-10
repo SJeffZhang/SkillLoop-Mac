@@ -30,7 +30,8 @@ def _read_policy(path):
     with os.fdopen(fd, 'rb') as stream:
         value = decode_json(stream.read(262145))
     fields = {'kind', 'campaign_id', 'deployment_epoch', 'config_digest',
-              'controller_id', 'controller_image', 'docker_socket',
+              'bootstrap_name', 'bootstrap_image', 'bootstrap_completion_path',
+              'controller_image', 'docker_socket',
               'dev_policy', 'protected_policy', 'dev_journal', 'protected_journal',
               'roster_freeze_path', 'factory_commit_path', 'protected_close_path',
               'lifecycle_review_path',
@@ -43,7 +44,8 @@ def _read_policy(path):
     if (type(value) is not dict or set(value) != fields
             or value['kind'] != 'FrozenNativeRoundHostLaunch'
             or value['digest'] != digest_jcs({k: v for k, v in value.items() if k != 'digest'})
-            or not re.fullmatch(r'[0-9a-f]{64}', value['controller_id'])
+            or not re.fullmatch(r'skillloop-bootstrap-[0-9a-f]{24}', value['bootstrap_name'])
+            or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['bootstrap_image'])
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['controller_image'])
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['campaign_id'])
             or not re.fullmatch(r'sha256:[0-9a-f]{64}', value['config_digest'])
@@ -62,6 +64,7 @@ def _read_policy(path):
         if not item.is_absolute() or '..' in item.parts or str(item) != value[name]:
             raise ValueError('native_round_host_canonical_path')
     for name, suffix in (('roster_freeze_path', '/freeze.json'),
+                         ('bootstrap_completion_path', '/pre-operator-complete.json'),
                          ('factory_commit_path', '/commit.json'),
                          ('protected_close_path', '.completed.json'),
                          ('lifecycle_review_path', '/completion.json'),
@@ -132,6 +135,48 @@ def _controller_file(engine, launch, path, *, uid, limit):
     if result.get('digest') != digest_jcs({k: v for k, v in result.items() if k != 'digest'}):
         raise ValueError('native_round_host_public_projection_seal')
     return result
+
+
+def _resolve_original_controller(engine, launch):
+    """Resolve the ID created by the original bootstrap, never a prefilled ID."""
+    actual = engine.inspect(launch['bootstrap_name'])
+    config = actual.get('Config', {})
+    if (actual.get('Name') != '/' + launch['bootstrap_name']
+            or actual.get('Image') != launch['bootstrap_image']
+            or config.get('Labels', {}).get('skillloop.role') != 'bootstrap'
+            or config.get('Labels', {}).get('skillloop.deployment_epoch') != launch['deployment_epoch']
+            or actual.get('State', {}).get('Running') is not False
+            or actual.get('State', {}).get('ExitCode') != 0):
+        raise ValueError('native_round_host_original_bootstrap_identity')
+    raw = engine.archive(actual['Id'], launch['bootstrap_completion_path'],
+                         maximum_bytes=262144 + 16384)
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+        members = archive.getmembers()
+        if len(members) != 1:
+            raise ValueError('native_round_host_original_bootstrap_completion')
+        member = members[0]
+        if (not member.isfile() or member.issym() or member.islnk()
+                or Path(member.name).name != 'pre-operator-complete.json'
+                or (member.uid, member.gid, stat.S_IMODE(member.mode)) != (21001, 21001, 0o600)
+                or member.size > 262144):
+            raise PermissionError('native_round_host_original_bootstrap_custody')
+        source = archive.extractfile(member)
+        if source is None:
+            raise ValueError('native_round_host_original_bootstrap_file_missing')
+        content = source.read(262145)
+        if len(content) != member.size:
+            raise ValueError('native_round_host_original_bootstrap_file_changed')
+    completion = decode_json(content)
+    if (type(completion) is not dict
+            or set(completion) != {'kind', 'launch_digest', 'deployment_digest', 'proxy_id',
+                                  'controller_id', 'operator_socket', 'qualification_issued', 'digest'}
+            or completion.get('digest') != digest_jcs({k: v for k, v in completion.items() if k != 'digest'})
+            or completion['kind'] != 'PreOperatorBootstrapCompletion'
+            or completion['qualification_issued'] is not False
+            or not re.fullmatch(r'[0-9a-f]{64}', completion['controller_id'])):
+        raise ValueError('native_round_host_original_bootstrap_seal')
+    launch['controller_id'] = completion['controller_id']
+    return completion
 
 
 def _wait_for(engine, launch, name, *, uid, limit, expected_kind):
@@ -216,7 +261,7 @@ def _verify_original_host_budget(engine, launch):
             or spending.get('stage') != 'private_factory_lifecycle'
             or spending.get('requested_cost') != expected):
         raise ValueError('native_round_host_original_whole_cost_required')
-    return cost['digest']
+    return cost
 
 
 def run(policy_path):
@@ -244,8 +289,13 @@ def run(policy_path):
     if startup_close_bound > launch['host_reserved_seconds']:
         raise ValueError('native_round_host_original_process_and_transfer_cost')
     engine = DockerEngine(launch['docker_socket'])
+    bootstrap = _resolve_original_controller(engine, launch)
     deployment_digest = _verify_admin_destination(engine, launch)
-    budget_digest = _verify_original_host_budget(engine, launch)
+    if bootstrap['deployment_digest'] != deployment_digest:
+        raise ValueError('native_round_host_original_bootstrap_deployment')
+    cost = _verify_original_host_budget(engine, launch)
+    if bootstrap['launch_digest'] != cost['launch_digest']:
+        raise ValueError('native_round_host_original_bootstrap_cost_identity')
     # Starting development after a roster freeze would create a convincing
     # but temporally false backend history. Fail before the first process or
     # spending effect if any later phase has already appeared.
@@ -255,7 +305,8 @@ def run(policy_path):
     _require_future_projection(engine, launch, 'protected_close_path', uid=21001, limit=262144)
     _save(journal, 'intent.json', {'kind': 'NativeRoundHostIntent',
         'launch_digest': launch['digest'], 'deployment_digest': deployment_digest,
-        'budget_digest': budget_digest,
+        'budget_digest': cost['digest'], 'bootstrap_completion_digest': bootstrap['digest'],
+        'controller_id': launch['controller_id'],
         'automatic_reexecution_allowed': False})
     dev.start()
     roster = _wait_for(engine, launch, 'roster_freeze_path', uid=21005, limit=262144,
