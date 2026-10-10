@@ -169,8 +169,12 @@ def _resolve_original_controller(engine, launch):
     config = actual.get('Config', {})
     if (actual.get('Name') != '/' + launch['bootstrap_name']
             or actual.get('Image') != launch['bootstrap_image']
+            or config.get('User') not in {'0', '0:0', ''}
+            or config.get('Entrypoint') != ['python']
+            or config.get('Cmd') != ['-m', 'skillloop.runtime.pre_operator_bootstrap']
             or config.get('Labels', {}).get('skillloop.role') != 'bootstrap'
             or config.get('Labels', {}).get('skillloop.deployment_epoch') != launch['deployment_epoch']
+            or actual.get('HostConfig', {}).get('NetworkMode') != 'none'
             or actual.get('State', {}).get('Running') is not False
             or actual.get('State', {}).get('ExitCode') != 0):
         raise ValueError('native_round_host_original_bootstrap_identity')
