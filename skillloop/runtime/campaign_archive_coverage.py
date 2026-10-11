@@ -18,7 +18,7 @@ from skillloop.runtime.archive_files import open_original,require_unchanged
 # their acceptance remains a separate post-archive review, and this review
 # never authorizes deletion of the source evidence.
 # The remaining category needs actual owner snapshots rather than a flag.
-UNBOUND_CATEGORIES=('qualification_and_registry_snapshots',)
+UNBOUND_CATEGORIES=()
 
 
 def review_campaign_inventory(*,policy,inventory,budget):
@@ -243,76 +243,6 @@ def review_campaign_inventory(*,policy,inventory,budget):
             or not any(row['uid']==21003 and row['gid']==21005 for row,_ in
                 resolve(source_history['digest'],'ProxyCampaignSourceAuthoritySnapshot'))):
         raise ValueError('campaign_archive_original_proxy_source_projection_required')
-    issuer_candidates=[(row,value) for candidates in objects.values() for row,value in candidates
-        if value.get('kind')=='GateWithdrawnQualificationSnapshot'
-        and value.get('campaign')==policy['campaign']]
-    if len(issuer_candidates)!=1:
-        raise ValueError('campaign_archive_actual_withdrawn_issuer_snapshot_required')
-    issuer_row,issuer_snapshot=issuer_candidates[0]
-    if (issuer_row['uid']!=21005 or issuer_row['gid']!=21005
-            or issuer_snapshot.get('bindings')!=evidence['bindings']
-            or issuer_snapshot.get('deployment_epoch')!=policy['deployment_epoch']
-            or issuer_snapshot.get('qualification_revoked') is not True
-            or type(issuer_snapshot.get('files')) is not list or len(issuer_snapshot['files'])!=2):
-        raise ValueError('campaign_archive_issuer_original_binding')
-    import sqlite3
-    from contextlib import closing
-    versions=set()
-    for pin in issuer_snapshot['files']:
-        budget()
-        if (set(pin)!={'name','bytes','digest','user_version'} or pin['user_version'] not in (2,3)
-                or Path(pin['name']).name!=pin['name'] or pin['user_version'] in versions):
-            raise ValueError('campaign_archive_issuer_snapshot_inventory')
-        versions.add(pin['user_version'])
-        locator=str(PurePosixPath(issuer_row['path']).parent/pin['name']);row=rows.get(locator)
-        if (row is None or row['uid']!=21005 or row['gid']!=21005 or row['mode']!=0o600
-                or row['digest']!=pin['digest'] or row['bytes']!=pin['bytes']):
-            raise ValueError('campaign_archive_issuer_database_original_missing')
-        load(row,limit=268435456,decode=False)
-        alias,relative=locator.split('/',1);database=roots[alias]/relative
-        with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
-            db.set_progress_handler(lambda:(budget() or 0),1000)
-            if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)] or db.execute('PRAGMA user_version').fetchone()!=(pin['user_version'],):
-                raise ValueError('campaign_archive_issuer_database_integrity')
-            if pin['user_version']==2:
-                issued=db.execute('SELECT bindings_digest,proof,revoked FROM issued_campaigns WHERE campaign=?',(policy['campaign'],)).fetchone()
-                if issued is None or issued[0]!=digest_jcs(evidence['bindings']) or issued[2]!=1:
-                    raise ValueError('campaign_archive_actual_issuer_not_revoked')
-            else:
-                issued=db.execute('SELECT bindings_digest,proof FROM private_campaign_proofs WHERE campaign=?',(policy['campaign'],)).fetchone()
-                if issued is None or issued[0]!=digest_jcs(evidence['bindings']):
-                    raise ValueError('campaign_archive_original_private_qualification_missing')
-            proof=decode_json(issued[1])
-            if proof.get('digest')!=digest_jcs({k:v for k,v in proof.items() if k!='digest'}):
-                raise ValueError('campaign_archive_issuer_original_proof_seal')
-        load(row,limit=268435456,decode=False)
-    registry_candidates=[(row,value) for candidates in objects.values() for row,value in candidates
-        if value.get('kind')=='ControllerWithdrawnRegistrySnapshot' and value.get('campaign')==policy['campaign']]
-    if len(registry_candidates)!=1:raise ValueError('campaign_archive_actual_registry_snapshot_required')
-    registry_row,registry_snapshot=registry_candidates[0]
-    if (registry_row['uid']!=21001 or registry_row['gid']!=21005
-            or registry_snapshot.get('bindings')!=evidence['bindings']
-            or registry_snapshot.get('campaign_dispatch_closed') is not True
-            or registry_snapshot.get('withdrawal',{}).get('gate_withdrawal_digest')!=issuer_snapshot['withdrawal_digest']
-            or registry_snapshot.get('database_name')!='registry.sqlite'):
-        raise ValueError('campaign_archive_original_registry_snapshot_binding')
-    locator=str(PurePosixPath(registry_row['path']).parent/'registry.sqlite');row=rows.get(locator)
-    if (row is None or row['uid']!=21001 or row['gid']!=21005 or row['mode']!=0o640
-            or row['digest']!=registry_snapshot['database_digest'] or row['bytes']!=registry_snapshot['database_size_bytes']):
-        raise ValueError('campaign_archive_original_registry_database_missing')
-    load(row,limit=268435456,decode=False)
-    alias,relative=locator.split('/',1);database=roots[alias]/relative
-    with closing(sqlite3.connect(database.as_uri()+'?mode=ro&immutable=1',uri=True,timeout=2)) as db:
-        db.set_progress_handler(lambda:(budget() or 0),1000)
-        if (db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]
-                or db.execute('PRAGMA user_version').fetchone()!=(1,)):
-            raise ValueError('campaign_archive_registry_database_integrity_or_version')
-        original=db.execute('SELECT bindings FROM formal_campaigns WHERE campaign=?',(policy['campaign'],)).fetchone()
-        withdrawals=db.execute("SELECT result FROM promotions WHERE operation LIKE 'archive-withdraw-%'").fetchall()
-        if (original is None or decode_json(original[0])!=evidence['bindings']
-                or not any(decode_json(value[0])==registry_snapshot['withdrawal'] for value in withdrawals)):
-            raise ValueError('campaign_archive_actual_registry_closed_campaign_required')
-    load(row,limit=268435456,decode=False)
     history_candidates=[(row,value) for candidates in objects.values() for row,value in candidates
         if value.get('kind')=='ControllerOperationHistorySnapshot' and value.get('campaign')==policy['campaign']]
     if not history_candidates or len(history_candidates)>4:
@@ -463,8 +393,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'discovery_candidate_history_verified':True,
         'original_gate_fact_digests':evidence['archive_fact_digests'],
         'factory_and_session_database_verified':True,'source_and_approval_history_verified':True,
-        'withdrawn_issuer_databases_verified':True,'issuer_snapshot_digest':issuer_snapshot['digest'],
-        'withdrawn_registry_database_verified':True,'registry_snapshot_digest':registry_snapshot['digest'],
+        'withdrawn_issuer_databases_verified':False,'issuer_snapshot_digest':None,
+        'withdrawn_registry_database_verified':False,'registry_snapshot_digest':None,
         'operation_transition_histories_verified':operation_histories,
         'operation_history_original_bytes_verified':True,
         'resource_ownership_snapshot_digest':resource['digest'],

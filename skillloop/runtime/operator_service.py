@@ -97,7 +97,7 @@ class OperatorService:
         # ambiguous started failure. Keep them outside the durable queue until
         # their real issuers and recovery paths are connected.
         if value['command'] in {'evaluate','harden','admin review-finding',
-                'admin retire-history','admin archive','admin restore','admin calibrate'}:
+                'admin retire-history','admin restore','admin calibrate'}:
             raise TimeoutError('operator_required_public_result_provider_unavailable')
         with self.admission_lock:
             if self.stop.is_set():raise TimeoutError('operator_admission_stopping')

@@ -17,6 +17,7 @@ ACTION_FIELDS={
     'registry_snapshot':{'policy_path','journal_directory'},
     'resource_archive':{'result_path','activation_path','activation_token','timeout_seconds','maximum_evidence_bytes','journal_directory'},
     'resource_release':{'result_path','activation_path','activation_token','timeout_seconds','journal_directory'},
+    'archive_finalization':{'assignment_directory','manifest_path','deployment_journal','result_path','timeout_seconds','closure_seconds','maximum_evidence_bytes','journal_directory'},
     'registry_withdraw':{'withdrawal_path','qualification_path','expected_active_revision'},
     'register_campaign':{'registration_path','authority_directory'},
     'deployment':{'manifest_path','journal_directory','start_roles'},
@@ -97,7 +98,7 @@ def validate_dispatch_route(route):
             allowed={'report'} if step['role']=='report' else set(ADMIN_PROXY_COMMANDS)|{'produce-candidate','produce-plan','produce-phase','produce-deployment','produce-private-policy','import-lifecycle'}
             if step['role_command'] not in allowed:
                 raise ValueError('campaign_actual_role_command_provider_required')
-        if action in {'campaign_gate','qualification_withdraw'} and (type(step['timeout_seconds']) is not int
+        if action in {'campaign_gate','qualification_withdraw','archive_finalization'} and (type(step['timeout_seconds']) is not int
                 or not 1<=step['timeout_seconds']<=120 or type(step['maximum_evidence_bytes']) is not int
                 or not 1<=step['maximum_evidence_bytes']<=268435456
                 or type(step['closure_seconds']) is not int or not 30<=step['closure_seconds']<=120):
@@ -301,7 +302,7 @@ class CampaignDispatcher:
                 _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
                     'request_digest':request['digest'],'result':result})
                 return
-            if step['action'] in {'discovery_suite','semantic_discovery','campaign_gate','qualification_withdraw'}:
+            if step['action'] in {'discovery_suite','semantic_discovery','campaign_gate','qualification_withdraw','archive_finalization'}:
                 if not (Path(step['journal_directory'])/'removing.json').exists():return
                 from skillloop.runtime.campaign_auxiliary import recover_auxiliary_retirement
                 result=recover_auxiliary_retirement(step,self.engine)
@@ -442,6 +443,23 @@ class CampaignDispatcher:
                         'parent_subject':job.get('parent_subject_digest')}
                     or job.get('parent_subject_digest') is None):
                 raise ValueError('harden_original_parent_before_any_side_effect')
+        if request['command']=='admin archive':
+            if (set(request['parameters'])!={'campaign','export_manifest'}
+                    or request['parameters']['campaign']!=route['campaign_digest']):
+                raise ValueError('archive_original_operator_parameters')
+            finalizers=[step for step in route['steps'] if step['action']=='archive_finalization']
+            if len(finalizers)!=2:raise ValueError('archive_original_finalizer_pair')
+            jobs=[read_owned(Path(step['assignment_directory'])/'job.json',uid=21001,gid=21005,limit=2097152)
+                for step in finalizers]
+            if [job.get('action') for job in jobs]!=['authorize_release','archive_result']:
+                raise ValueError('archive_original_finalizer_order')
+            manifests=[]
+            for job in jobs:
+                manifest=read_owned(job['archive_manifest_path'],uid=21005,gid=21001,limit=262144)
+                if manifest.get('digest')!=request['parameters']['export_manifest']:
+                    raise ValueError('archive_original_requested_manifest')
+                manifests.append(manifest)
+            if manifests[0]!=manifests[1]:raise ValueError('archive_original_same_manifest')
         journal=_directory(route['journal_directory'],21001,21001,0o700)
         identity={'kind':'CampaignRouteIdentity','request_digest':request['digest'],'route_digest':route['digest']}
         original=journal/'identity.json'
@@ -792,6 +810,39 @@ class CampaignDispatcher:
                 if (result is None or result.get('kind')!='ProxyCampaignResourceRelease'
                         or result.get('campaign')!=campaign or result.get('reservation_state')!='released'):
                     raise RuntimeError('campaign_resource_release_original_completion_unknown')
+            elif step['action']=='archive_finalization':
+                from skillloop.runtime.whole_deployment import WholeRoleDeployment
+                from skillloop.runtime.campaign_auxiliary import begin_auxiliary,observe_auxiliary,finish_auxiliary,preserve_auxiliary_failure
+                job=read_owned(Path(step['assignment_directory'])/'job.json',uid=21001,gid=21005,limit=2097152)
+                if job.get('kind')!='FrozenArchiveResultAssignment' or job.get('campaign')!=campaign:
+                    raise ValueError('archive_finalization_original_assignment')
+                deployment=WholeRoleDeployment(manifest_path=step['manifest_path'],journal_directory=step['deployment_journal'],
+                    engine=self.engine,ledger=self.ledger,whole_round_manifest_path=self.manifest_path)
+                module={'authorize_release':'skillloop.runtime.archive_release_gate',
+                    'archive_result':'skillloop.runtime.archive_result_gate',
+                    'restore_result':'skillloop.runtime.restore_result_gate'}[job['action']]
+                config=deployment.role_config('gate',module)
+                if config['Cmd']!=['-m',module]:raise ValueError('archive_finalization_fixed_gate_entry')
+                begin_auxiliary(step,deployment.deadline,21005,config)
+                self.ledger.consume_auxiliary(manifest=deployment.whole,campaign=campaign,stage='resource_archive_restore',
+                    operation_key='archive-finalization-'+job['digest'][7:],seconds=step['timeout_seconds']+step['closure_seconds'],
+                    input_tokens=0,output_tokens=0,disk_bytes=step['maximum_evidence_bytes'])
+                try:
+                    deployment.create_role('gate',request['operation_id']+'-archive-'+job['action'],module=module)
+                    observed=deployment.start_role('gate',request['operation_id']+'-archive-'+job['action'],module=module)
+                    observe_auxiliary(step,observed['inspection']);identifier=observed['inspection']['Id']
+                    wait=self.engine.wait(identifier,step['timeout_seconds']);actual=self.engine.inspect(identifier)
+                    if wait.get('StatusCode')!=0 or actual['State']['Running'] or actual['State']['ExitCode']!=0:
+                        raise RuntimeError('archive_finalization_original_gate_failure')
+                    result=read_owned(step['result_path'],uid=21005,gid=21001,limit=262144)
+                    expected={'authorize_release':'GateCampaignResourceReleaseAuthorization',
+                        'archive_result':'ArchiveResult','restore_result':'RestoreResult'}[job['action']]
+                    if result.get('kind')!=expected:raise ValueError('archive_finalization_actual_result')
+                    result=finish_auxiliary(step,actual,result,self.engine.inspect(deployment.provision()['keeper']['Id']),self.engine)
+                except BaseException as error:
+                    try:preserve_auxiliary_failure(step,self.engine,error)
+                    except BaseException as secondary:error.add_note('archive_finalization_failure_preservation:'+type(secondary).__name__)
+                    raise
             elif step['action']=='registry_snapshot':
                 from skillloop.ci.registry_archive import dispatch_registry_snapshot
                 result=dispatch_registry_snapshot(registry=self.registry,policy_path=step['policy_path'],

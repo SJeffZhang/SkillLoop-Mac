@@ -73,6 +73,13 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
                 # replace that chain, and both live key/export roles require
                 # a recorded retirement before the CLI returns success.
                 raise PermissionError('operator_export_reviewed_encrypted_chain_required')
+        if route['command']=='admin archive':
+            actions=[step['action'] for step in route['steps']]
+            if (route['campaign_digest']!=campaign_digest or route['result_uid']!=21005
+                    or actions!=['qualification_withdraw','registry_withdraw','registry_snapshot',
+                        'archive_finalization','resource_release','archive_finalization']
+                    or route['steps'][3]['result_path']==route['steps'][5]['result_path']):
+                raise PermissionError('operator_archive_withdraw_release_result_chain_required')
         # The short routes must end at their actual public result producer.
         # A preceding process completion or an unrelated result file is not a
         # substitute for the frozen CLI object, even if its kind is declared.
