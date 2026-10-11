@@ -6,9 +6,16 @@ COPY wheels /archive-wheels
 COPY archive-requirements.txt /archive-build/requirements.txt
 COPY archive-wheel-artifacts.json /archive-build/artifacts.json
 RUN python -m pip install --no-index --find-links=/archive-wheels --only-binary=:all: --require-hashes --no-deps --no-compile --target=/opt/archive-crypto -r /archive-build/requirements.txt
+# pip materializes cffi's console-script entry point outside the wheel RECORD.
+# Archive workers never execute it; remove that exact generated file before
+# producing the complete installed-file lock. Any other unlisted file still
+# fails the lock producer below.
+RUN test -f /opt/archive-crypto/bin/cffi-gen-src && rm /opt/archive-crypto/bin/cffi-gen-src && rmdir /opt/archive-crypto/bin
 COPY code /code
 ENV PYTHONPATH=/code/scripts/vendor:/code:/opt/archive-crypto
 RUN python /code/deploy/runtime/lock_archive_dependencies.py /archive-build/artifacts.json /archive-wheels /opt/archive-crypto /archive-build/installed-lock.json
-RUN python -m pip install --no-index --no-deps --no-build-isolation --no-compile /code
+COPY package/skillloop-0.1.0.dev1-py3-none-any.whl /archive-build/skillloop-0.1.0.dev1-py3-none-any.whl
+RUN python /code/deploy/runtime/verify_runtime_wheel.py /archive-build/skillloop-0.1.0.dev1-py3-none-any.whl /code
+RUN python -m pip install --no-index --no-deps --no-compile /archive-build/skillloop-0.1.0.dev1-py3-none-any.whl
 WORKDIR /code
 ENTRYPOINT ["python"]
