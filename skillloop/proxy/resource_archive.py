@@ -40,8 +40,22 @@ class ResourceArchiveInbox:
             if name in self.seen:continue
             request=read_owned(self.directory/name,uid=21010,gid=21003,limit=262144)
             if request.get('digest')!='sha256:'+name[:-5]:raise ValueError('resource_archive_request_digest')
-            if self.export(request) is not None:self.seen.add(name)
+            if request.get('kind')=='AdminCampaignResourceArchiveProjection':result=self.export(request)
+            elif request.get('kind')=='AdminCampaignResourceRelease':result=self.release(request)
+            else:raise ValueError('resource_archive_request_kind')
+            if result is not None:self.seen.add(name)
             return
+
+    def _activation(self,request):
+        try:value=read_owned(request['activation_path'],uid=21001,gid=21003,limit=262144)
+        except FileNotFoundError:return None
+        if (value.get('kind')!='CampaignResourceArchiveActivation'
+                or value.get('campaign')!=request['campaign']
+                or value.get('activation_token')!=request['activation_token']
+                or value.get('deployment_epoch')!=self.store.deployment_epoch
+                or value.get('digest')!=digest_jcs({k:v for k,v in value.items() if k!='digest'})):
+            raise ValueError('resource_archive_actual_controller_activation')
+        return value
 
     def export(self,request):
         fields={'kind','deployment_epoch','deployment_digest','campaign','config_digest','plan_digest',
@@ -64,14 +78,8 @@ class ResourceArchiveInbox:
             if deadline.tzinfo is None or datetime.now(timezone.utc)>=deadline or time.monotonic()-started>=request['timeout_seconds']:
                 raise TimeoutError('resource_archive_original_budget')
         budget()
-        try:activation=read_owned(request['activation_path'],uid=21001,gid=21003,limit=262144)
-        except FileNotFoundError:return None
-        if (activation.get('kind')!='CampaignResourceArchiveActivation'
-                or activation.get('campaign')!=campaign
-                or activation.get('activation_token')!=request['activation_token']
-                or activation.get('deployment_epoch')!=self.store.deployment_epoch
-                or activation.get('digest')!=digest_jcs({k:v for k,v in activation.items() if k!='digest'})):
-            raise ValueError('resource_archive_actual_controller_activation')
+        activation=self._activation(request)
+        if activation is None:return None
         with closing(self.store._connect()) as check:
             prior=check.execute('SELECT state,projection FROM campaign_resource_archive_requests WHERE request=?',
                 (request['digest'],)).fetchone()
@@ -163,3 +171,52 @@ class ResourceArchiveInbox:
             # Keep the partial database and durable started row. Recovery may
             # inspect them, but cannot silently generate a newer snapshot.
             raise
+
+    def release(self,request):
+        fields={'kind','deployment_epoch','campaign','config_digest','snapshot_path','snapshot_digest',
+            'authorization_path','activation_path','activation_token','output_directory','digest'}
+        if (set(request)!=fields or request['kind']!='AdminCampaignResourceRelease'
+                or request['deployment_epoch']!=self.store.deployment_epoch
+                or any(type(request[key]) is not str or not re.fullmatch(r'sha256:[0-9a-f]{64}',request[key])
+                    for key in ('snapshot_digest','activation_token'))):
+            raise ValueError('resource_release_original_request')
+        campaign=request['campaign'];pins=self.store.capacity_campaigns.get(campaign)
+        if pins is None or pins['config_digest']!=request['config_digest']:
+            raise ValueError('resource_release_registered_campaign')
+        activation=self._activation(request)
+        if activation is None:return None
+        snapshot=read_owned(request['snapshot_path'],uid=21003,gid=21005,limit=2097152)
+        authorization=read_owned(request['authorization_path'],uid=21005,gid=21001,limit=262144)
+        if (snapshot.get('kind')!='ProxyCampaignResourceOwnershipSnapshot'
+                or snapshot.get('digest')!=request['snapshot_digest']
+                or snapshot.get('campaign')!=campaign
+                or authorization.get('kind')!='GateCampaignResourceReleaseAuthorization'
+                or authorization.get('campaign')!=campaign
+                or authorization.get('deployment_epoch')!=self.store.deployment_epoch
+                or authorization.get('resource_snapshot_digest')!=snapshot['digest']
+                or authorization.get('campaign_coverage_complete') is not True
+                or authorization.get('qualification_and_registry_withdrawn') is not True
+                or authorization.get('digest')!=digest_jcs({k:v for k,v in authorization.items() if k!='digest'})):
+            raise ValueError('resource_release_actual_gate_authorization')
+        output=_directory(request['output_directory'],21003,21005,0o750);target=output/'resource-release.json'
+        if target.exists():
+            return read_owned(target,uid=21003,gid=21005,limit=262144)
+        with self.store._transaction() as db:
+            record=db.execute('SELECT state,projection FROM campaign_resource_archive_requests WHERE request=?',
+                (snapshot['request_digest'],)).fetchone()
+            reservation=db.execute('SELECT plan,generation,disk_bytes,state FROM campaign_storage_reservations WHERE campaign=?',(campaign,)).fetchone()
+            if (record is None or record[0]!='complete' or decode_json(record[1])!=snapshot
+                    or reservation is None or reservation[3]!='reserved'
+                    or db.execute("SELECT 1 FROM runs WHERE campaign_id=? AND state IN ('active','finalizing') LIMIT 1",(campaign,)).fetchone()):
+                raise ValueError('resource_release_original_reserved_terminal_state')
+            db.execute("UPDATE campaign_storage_reservations SET state='released' WHERE campaign=? AND state='reserved'",(campaign,))
+            value={'kind':'ProxyCampaignResourceRelease','producer_uid':21003,'reader_gid':21005,
+                'campaign':campaign,'deployment_epoch':self.store.deployment_epoch,
+                'resource_snapshot_digest':snapshot['digest'],'authorization_digest':authorization['digest'],
+                'archive_manifest_digest':authorization['archive_manifest_digest'],
+                'reservation_state':'released','physical_database_preserved':True,
+                'local_inactive_removed':False,'deletion_authorized':False,
+                'released_at':datetime.now(timezone.utc).isoformat()}
+            value['digest']=digest_jcs(value)
+        _publish(target,value,21005)
+        return value

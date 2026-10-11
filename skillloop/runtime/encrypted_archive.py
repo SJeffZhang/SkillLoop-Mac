@@ -230,6 +230,15 @@ def run_export(policy_path,*,review=False):
             'encrypted_bundle_digest':cipher_digest,'evidence_manifest_digest':inventory['digest'],
             'created_at':receipt['created_at']})
         budget();_publish(public/(policy['operation_ref']+'.manifest.json'),manifest,21001)
+        if complete:
+            authorization={'kind':'GateCampaignResourceReleaseAuthorization',
+                'campaign':policy['campaign'],'deployment_epoch':policy['deployment_epoch'],
+                'resource_snapshot_digest':coverage['resource_ownership_snapshot_digest'],
+                'archive_manifest_digest':manifest['digest'],'independent_review_digest':result['digest'],
+                'campaign_coverage_complete':True,'qualification_and_registry_withdrawn':True,
+                'deletion_authorized':False}
+            authorization['digest']=digest_jcs(authorization)
+            _publish(public/(policy['operation_ref']+'.resource-release.json'),authorization,21001)
         return completion
     if any(os.path.lexists(p) for p in (bundle,receipt_path,private/(policy['operation_ref']+'.intent.json'))):
         raise RuntimeError('archive_original_partial_export_preserved_no_reencrypt')

@@ -16,6 +16,7 @@ ACTION_FIELDS={
     'operation_archive':{'policy_path','journal_directory'},
     'registry_snapshot':{'policy_path','journal_directory'},
     'resource_archive':{'result_path','activation_path','activation_token','timeout_seconds','maximum_evidence_bytes','journal_directory'},
+    'resource_release':{'result_path','activation_path','activation_token','timeout_seconds','journal_directory'},
     'registry_withdraw':{'withdrawal_path','qualification_path','expected_active_revision'},
     'register_campaign':{'registration_path','authority_directory'},
     'deployment':{'manifest_path','journal_directory','start_roles'},
@@ -118,6 +119,11 @@ def validate_dispatch_route(route):
                 or type(step['activation_token']) is not str
                 or not re.fullmatch(r'sha256:[0-9a-f]{64}',step['activation_token'])):
             raise ValueError('campaign_resource_archive_full_cost_bound')
+        if action=='resource_release' and (type(step['timeout_seconds']) is not int
+                or not 1<=step['timeout_seconds']<=120
+                or type(step['activation_token']) is not str
+                or not re.fullmatch(r'sha256:[0-9a-f]{64}',step['activation_token'])):
+            raise ValueError('campaign_resource_release_bound')
         if action=='private_start' and (type(step['minimum_remaining_seconds']) is not int
                 or not 1<=step['minimum_remaining_seconds']<=300):
             raise ValueError('campaign_original_lease_window')
@@ -209,9 +215,10 @@ class CampaignDispatcher:
                 _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
                     'request_digest':request['digest'],'result':result})
                 return
-            if step['action']=='resource_archive':
+            if step['action'] in {'resource_archive','resource_release'}:
                 result=read_owned(step['result_path'],uid=21003,gid=21005,limit=2097152)
-                if (result.get('kind')!='ProxyCampaignResourceOwnershipSnapshot'
+                expected='ProxyCampaignResourceOwnershipSnapshot' if step['action']=='resource_archive' else 'ProxyCampaignResourceRelease'
+                if (result.get('kind')!=expected
                         or result.get('campaign')!=route['campaign_digest']):
                     raise ValueError('campaign_resource_archive_original_completion')
                 _save(journal,done.name,{'kind':'CampaignStageCompleted','step_digest':digest_jcs(step),
@@ -761,6 +768,30 @@ class CampaignDispatcher:
                         or result.get('deployment_epoch')!=whole['deployment_epoch']
                         or result.get('physical_capacity_verified') is not True):
                     raise RuntimeError('campaign_resource_archive_original_completion_unknown')
+            elif step['action']=='resource_release':
+                import time
+                from skillloop.runtime.round_manifest import read_round_manifest
+                whole=read_round_manifest(self.manifest_path)
+                activation_root=_directory(Path(step['activation_path']).parent,21001,21003,0o750)
+                activation={'kind':'CampaignResourceArchiveActivation','campaign':campaign,
+                    'deployment_epoch':whole['deployment_epoch'],'activation_token':step['activation_token'],
+                    'operation_id':request['operation_id']}
+                activation['digest']=digest_jcs(activation);activation_file=activation_root/Path(step['activation_path']).name
+                if activation_file.exists():
+                    if read_owned(activation_file,uid=21001,gid=21003,limit=262144)!=activation:
+                        raise ValueError('campaign_resource_release_activation_conflict')
+                else:_publish(activation_file,activation,21003)
+                self.ledger.consume_auxiliary(manifest=whole,campaign=campaign,stage='resource_archive_restore',
+                    operation_key='resource-release-'+request['operation_id'],seconds=step['timeout_seconds'],
+                    input_tokens=0,output_tokens=0,disk_bytes=262144)
+                started=time.monotonic();result=None
+                while time.monotonic()-started<step['timeout_seconds']:
+                    try:result=read_owned(step['result_path'],uid=21003,gid=21005,limit=262144)
+                    except FileNotFoundError:time.sleep(0.1);continue
+                    break
+                if (result is None or result.get('kind')!='ProxyCampaignResourceRelease'
+                        or result.get('campaign')!=campaign or result.get('reservation_state')!='released'):
+                    raise RuntimeError('campaign_resource_release_original_completion_unknown')
             elif step['action']=='registry_snapshot':
                 from skillloop.ci.registry_archive import dispatch_registry_snapshot
                 result=dispatch_registry_snapshot(registry=self.registry,policy_path=step['policy_path'],
