@@ -460,6 +460,22 @@ class CampaignDispatcher:
                     raise ValueError('archive_original_requested_manifest')
                 manifests.append(manifest)
             if manifests[0]!=manifests[1]:raise ValueError('archive_original_same_manifest')
+        if request['command']=='admin restore':
+            if set(request['parameters'])!={'archive','new_deployment_epoch'}:
+                raise ValueError('restore_original_operator_parameters')
+            finalizers=[step for step in route['steps'] if step['action']=='archive_finalization']
+            if len(finalizers)!=1:raise ValueError('restore_original_finalizer')
+            job=read_owned(Path(finalizers[0]['assignment_directory'])/'job.json',uid=21001,gid=21005,limit=2097152)
+            manifest=read_owned(job['archive_manifest_path'],uid=21005,gid=21001,limit=262144)
+            policies=[read_owned(step['policy_path'],uid=21010,gid=21001,limit=2097152)
+                for step in route['steps'] if step['action']=='archive_role']
+            if (job.get('action')!='restore_result'
+                    or job.get('new_deployment_epoch')!=request['parameters']['new_deployment_epoch']
+                    or manifest.get('digest')!=request['parameters']['archive']
+                    or [policy.get('action') for policy in policies]!=['key_service','restore']
+                    or policies[1].get('campaign')!=job.get('campaign')
+                    or policies[1].get('deployment_epoch')!=job.get('deployment_epoch')):
+                raise ValueError('restore_original_manifest_epoch_and_roles')
         journal=_directory(route['journal_directory'],21001,21001,0o700)
         identity={'kind':'CampaignRouteIdentity','request_digest':request['digest'],'route_digest':route['digest']}
         original=journal/'identity.json'

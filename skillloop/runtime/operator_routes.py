@@ -80,6 +80,14 @@ def validate_operator_routes(routes, *, campaign_digest, deadline):
                         'archive_finalization','resource_release','archive_finalization']
                     or route['steps'][3]['result_path']==route['steps'][5]['result_path']):
                 raise PermissionError('operator_archive_withdraw_release_result_chain_required')
+        if route['command']=='admin restore':
+            actions=[step['action'] for step in route['steps']]
+            if (route['campaign_digest']!=campaign_digest or route['result_uid']!=21005
+                    or actions!=['archive_role','archive_role','archive_finalization','archive_close','archive_close']):
+                raise PermissionError('operator_restore_new_epoch_reviewed_chain_required')
+            if ({route['steps'][3]['dispatch_journal'],route['steps'][4]['dispatch_journal']}
+                    != {route['steps'][0]['journal_directory'],route['steps'][1]['journal_directory']}):
+                raise PermissionError('operator_restore_original_roles_retired')
         # The short routes must end at their actual public result producer.
         # A preceding process completion or an unrelated result file is not a
         # substitute for the frozen CLI object, even if its kind is declared.
