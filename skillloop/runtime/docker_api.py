@@ -61,6 +61,7 @@ class DockerEngine:
         if labels is not None:body['Labels']=labels
         return self.request('POST','/volumes/create',body,timeout=timeout)
     def inspect_volume(self,name,*,timeout=30):return self.request('GET','/volumes/'+quote(name,safe=''),timeout=timeout)
+    def inspect_image(self,reference,*,timeout=30):return self.request('GET','/images/'+quote(reference,safe='')+'/json',timeout=timeout)
     def create(self,name,config,*,timeout=30):return self.request('POST','/containers/create?name='+quote(name),config,timeout=timeout)['Id']
     def start(self,identifier,*,timeout=30):self.request('POST','/containers/'+identifier+'/start',timeout=timeout)
     def wait(self,identifier,timeout):return self.request('POST','/containers/'+identifier+'/wait?condition=not-running',timeout=timeout)
