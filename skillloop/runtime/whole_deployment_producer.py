@@ -165,7 +165,7 @@ def produce_deployment(policy_path):
     matches=[d for d in value['documents'] if PurePosixPath(d['directory'])/d['name']==original]
     if len(matches)!=1 or matches[0]['value']!=proxy:
         raise ValueError('whole_proxy_actual_deployment_document_binding')
-    for field in ('database','snapshot_directory','authority_projection_directory'):
+    for field in ('database','snapshot_directory','authority_projection_directory','resource_archive_directory'):
         locator=proxy.get(field)
         if (type(locator) is not str or not PurePosixPath(locator).is_absolute()
                 or '..' in Path(locator).parts):

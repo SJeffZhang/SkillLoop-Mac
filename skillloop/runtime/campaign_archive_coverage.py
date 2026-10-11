@@ -18,8 +18,7 @@ from skillloop.runtime.archive_files import open_original,require_unchanged
 # their acceptance remains a separate post-archive review, and this review
 # never authorizes deletion of the source evidence.
 # The remaining category needs actual owner snapshots rather than a flag.
-UNBOUND_CATEGORIES=('qualification_and_registry_snapshots',
-    'operation_recovery_and_resource_ownership')
+UNBOUND_CATEGORIES=('qualification_and_registry_snapshots',)
 
 
 def review_campaign_inventory(*,policy,inventory,budget):
@@ -116,7 +115,8 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'development-evidence':'FormalDevelopmentRosterEvidence','roster-freeze':'FrozenCampaignSubjectRoster',
         'authority-snapshot':'EvaluatorGateAuthoritySnapshot','model-lifecycle':'GatePrivateModelLifecycleReview',
         'spending':'CampaignGateSpendingSnapshot','source-history':'ProxyCampaignSourceAuthoritySnapshot',
-        'development-attempt-audit':'GateDevelopmentAttemptAudit'}
+        'development-attempt-audit':'GateDevelopmentAttemptAudit',
+        'resource_ownership':'ProxyCampaignResourceOwnershipSnapshot'}
     if set(evidence.get('archive_fact_digests',{}))!=set(fact_kinds):
         raise ValueError('campaign_archive_original_fact_bindings_required')
     facts={name:resolve(evidence['archive_fact_digests'][name],kind)[0][1]
@@ -441,6 +441,20 @@ def review_campaign_inventory(*,policy,inventory,budget):
             if item['requirement']=='required' and item['phase']=='protected'}
         if (set(actual)!=set(protected) or required!={(t['subject_digest'],t['case_digest'],t['repetition_index']) for t in protected.values()}):
             raise ValueError('campaign_archive_full_factory_matrix')
+    resource=resolve(evidence['archive_fact_digests']['resource_ownership'],'ProxyCampaignResourceOwnershipSnapshot')[0][1]
+    if (resource.get('producer_uid')!=21003 or resource.get('reader_gid')!=21005
+            or resource.get('campaign')!=policy['campaign'] or resource.get('deployment_epoch')!=policy['deployment_epoch']
+            or resource.get('config_digest')!=obligations['config_digest']
+            or resource.get('physical_capacity_verified') is not True
+            or resource.get('queue_capacity_verified') is not True
+            or resource.get('deletion_authorized') is not False
+            or resource.get('resource_release_completed') is not False
+            or resource.get('reservation',{}).get('state')!='reserved'
+            or resource.get('snapshot_database_digest') is None):
+        raise ValueError('campaign_archive_actual_resource_ownership_snapshot')
+    resource_rows=[row for row in inventory['files'] if row['digest']==resource['snapshot_database_digest']]
+    if len(resource_rows)!=1 or resource_rows[0]['bytes']!=resource['snapshot_database_bytes']:
+        raise ValueError('campaign_archive_resource_database_original_bytes')
     result={'kind':'IndependentCampaignArchiveCoverage','campaign':policy['campaign'],
         'deployment_epoch':policy['deployment_epoch'],'campaign_gate_evidence_digest':evidence['digest'],
         'archive_obligations_digest':obligations['digest'],'source_inventory_digest':inventory['digest'],
@@ -453,8 +467,10 @@ def review_campaign_inventory(*,policy,inventory,budget):
         'withdrawn_registry_database_verified':True,'registry_snapshot_digest':registry_snapshot['digest'],
         'operation_transition_histories_verified':operation_histories,
         'operation_history_original_bytes_verified':True,
+        'resource_ownership_snapshot_digest':resource['digest'],
+        'resource_ownership_and_physical_capacity_verified':True,
         'archive_restore_lifecycle_pending':True,
-        'missing_categories':[c for c in UNBOUND_CATEGORIES if c!='qualification_and_registry_snapshots'],'campaign_coverage_complete':False,
+        'missing_categories':[],'campaign_coverage_complete':True,
         'deletion_authorized':False}
     result['digest']=digest_jcs(result)
     return result

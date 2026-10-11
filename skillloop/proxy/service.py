@@ -45,7 +45,7 @@ def deployment(path):
     required = {'kind', 'deployment_epoch', 'database', 'socket_directory', 'catalog', 'deadline', 'digest',
                 'admitted_campaigns', 'task_directory', 'task_receipt_directory', 'snapshot_directory', 'snapshot_timeout_seconds', 'storage_policy', 'authority_projection_directory'}
     if (type(value) is not dict or not required<=set(value)
-            or set(value)-required-{'plan_revision_directory','source_repositories', 'private_task_transport','source_archive_directory','inference_socket_directory'}
+            or set(value)-required-{'plan_revision_directory','source_repositories', 'private_task_transport','source_archive_directory','resource_archive_directory','inference_socket_directory'}
             or value['kind'] != 'ProxyServiceDeployment'
             or value['digest'] != digest_jcs({k: v for k, v in value.items() if k != 'digest'})
             or type(value['deployment_epoch']) is not str or not 1 <= len(value['deployment_epoch']) <= 256
@@ -56,6 +56,7 @@ def deployment(path):
     for field in ('database', 'socket_directory', 'task_directory', 'task_receipt_directory', 'snapshot_directory', 'authority_projection_directory',
                   *(['plan_revision_directory'] if 'plan_revision_directory' in value else []),
                   *(['source_archive_directory'] if 'source_archive_directory' in value else []),
+                  *(['resource_archive_directory'] if 'resource_archive_directory' in value else []),
                   *(['inference_socket_directory'] if 'inference_socket_directory' in value else [])):
         if type(value[field]) is not str or not Path(value[field]).is_absolute():
             raise ValueError('proxy_deployment_absolute_path')
@@ -546,6 +547,9 @@ def main():
     from skillloop.proxy.archive_projection import SourceArchiveInbox
     source_archives=(SourceArchiveInbox(store=store,admission=admission,authority=authority,
         directory=config['source_archive_directory']) if 'source_archive_directory' in config else None)
+    from skillloop.proxy.resource_archive import ResourceArchiveInbox
+    resource_archives=(ResourceArchiveInbox(store=store,directory=config['resource_archive_directory'])
+        if 'resource_archive_directory' in config else None)
     inference_authority = None
     if 'inference_socket_directory' in config:
         from skillloop.proxy.inference_authority import RuntimeInferenceAuthority
@@ -570,6 +574,7 @@ def main():
                 def provision():
                     if revisions is not None:revisions.poll()
                     if source_archives is not None:source_archives.poll()
+                    if resource_archives is not None:resource_archives.poll()
                     inbox.poll()
                     if private_inbox is not None: private_inbox.poll()
                     snapshots.tick()

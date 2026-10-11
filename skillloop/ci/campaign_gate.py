@@ -200,6 +200,13 @@ def review_campaign():
     if charged!=spending['charged_wall_seconds'] or datetime.now(timezone.utc).timestamp()-spending['campaign_started_at']+_remaining_whole_seconds(spending,reservation)>28800:
         raise ValueError('campaign_gate_original_full_budget_exhausted')
     source_history=read_owned('/source-history/source-authority.json',uid=21003,gid=21005,limit=16777216)
+    resource_history=read_owned('/resource-history/resource-authority.json',uid=21003,gid=21005,limit=2097152)
+    if (resource_history.get('kind')!='ProxyCampaignResourceOwnershipSnapshot'
+            or resource_history.get('campaign')!=campaign
+            or resource_history.get('deployment_epoch')!=record['deployment_epoch']
+            or resource_history.get('config_digest')!=record['config_digest']
+            or resource_history.get('physical_capacity_verified') is not True):
+        raise ValueError('campaign_gate_actual_resource_ownership_snapshot')
     if source_history.get('protected_plan_digest')!=plan['digest']:
         raise ValueError('campaign_gate_source_history_private_plan_fence')
     from skillloop.proxy.archive_projection import verify_source_history
@@ -284,7 +291,8 @@ def review_campaign():
     facts={'whole-round':whole,'development-assignment':devjob,
         'development-evidence':development,'roster-freeze':freeze,
         'authority-snapshot':authority.snapshot,'model-lifecycle':lifecycle,'spending':snapshot,
-        'source-history':source_history,'development-attempt-audit':attempt_audit}
+        'source-history':source_history,'development-attempt-audit':attempt_audit,
+        'resource_ownership':resource_history}
     # Preserve the actual facts reviewed by this Gate inside its own vault.
     # This copies objects, not live database permissions or Controller access.
     for name,value in facts.items():_publish(vault/('archive-fact-'+name+'.json'),value,21005)
